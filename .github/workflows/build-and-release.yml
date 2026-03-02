@@ -27,10 +27,13 @@ jobs:
         run: npm install
       - name: 5. 剥离并生成 Android 原生工程 (Prebuild)
         run: npx expo prebuild --platform android --clean
-      - name: 6. 使用 Gradle 编译 APK 安装包
+      - name: 6. 突破内存限制并使用 Gradle 编译 APK
         run: |
           cd android
-          ./gradlew assembleRelease
+          # 强制增加 JVM 堆内存和元空间内存分配
+          echo "org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8" >> gradle.properties
+          # 执行 Release 打包，并强行跳过极其消耗内存的 lint 检查
+          ./gradlew assembleRelease -x lint
       - name: 7. 自动发布到 GitHub Releases
         uses: softprops/action-gh-release@v1
         with:
