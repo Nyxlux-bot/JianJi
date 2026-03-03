@@ -24,17 +24,31 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const [isReady, setIsReady] = useState(false);
 
     useEffect(() => {
-        AsyncStorage.getItem('app-theme').then(t => {
-            if (t === 'green' || t === 'white' || t === 'purple' || t === 'dark') {
-                setThemeState(t as ThemeType);
+        let mounted = true;
+        const initTheme = async () => {
+            try {
+                const t = await AsyncStorage.getItem('app-theme');
+                if (!mounted) return;
+                if (t === 'green' || t === 'white' || t === 'purple' || t === 'dark') {
+                    setThemeState(t as ThemeType);
+                }
+            } catch {
+                // fallback to default theme
+            } finally {
+                if (mounted) {
+                    setIsReady(true);
+                }
             }
-            setIsReady(true);
-        });
+        };
+        initTheme();
+        return () => {
+            mounted = false;
+        };
     }, []);
 
     const setTheme = (t: ThemeType) => {
         setThemeState(t);
-        AsyncStorage.setItem('app-theme', t);
+        AsyncStorage.setItem('app-theme', t).catch(() => { });
     };
 
     const getColors = () => {
