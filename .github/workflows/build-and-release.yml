@@ -38,8 +38,18 @@ jobs:
           
           # 下载 APK 文件到 GitHub 虚拟机本地
           wget -O jianji-release.apk $APK_URL
-      - name: 6. 自动发布到 GitHub Releases
+      - name: 6. 提取 app.json 中的版本号
+        id: get_version
+        run: |
+          # 使用 jq 工具解析 app.json 中的 expo.version 字段
+          APP_VERSION=$(jq -r '.expo.version' app.json)
+          echo "解析到的版本号为: $APP_VERSION"
+          # 将版本号存入当前步骤的 output 中，加上 v 前缀
+          echo "version=v$APP_VERSION" >> $GITHUB_OUTPUT
+
+      - name: 7. 自动发布到 GitHub Releases
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || steps.get_version.outputs.version }}
           files: jianji-release.apk
           generate_release_notes: true
