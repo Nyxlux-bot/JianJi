@@ -12,7 +12,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 import { CustomAlert } from '../../src/components/CustomAlertProvider';
-import { exportAllRecords, importRecords } from '../../src/db/database';
+import { exportAllRecords, importRecords, type ImportMode } from '../../src/db/database';
 import StatusBarDecor from '../../src/components/StatusBarDecor';
 import { router } from 'expo-router';
 import { Spacing, FontSize, BorderRadius } from '../../src/theme/colors';
@@ -68,6 +68,28 @@ export default function SettingsPage() {
     };
 
     const handleRestore = async () => {
+        const performRestore = async (backupData: any, mode: ImportMode) => {
+            try {
+                setLoading(true);
+
+                if (backupData.settings) {
+                    await saveSettings(backupData.settings);
+                    setSettings(backupData.settings);
+                }
+
+                await importRecords(backupData.records, { mode });
+
+                const modeText = mode === 'replace' ? '覆盖恢复' : '合并恢复';
+                CustomAlert.alert('恢复成功', `${modeText}完成，成功恢复 ${backupData.records.length || 0} 条占卜记录。`, [
+                    { text: '确定', onPress: () => router.back() }
+                ]);
+            } catch (e: any) {
+                CustomAlert.alert('恢复失败', typeof e.message === 'string' ? e.message : '文件解析错误');
+            } finally {
+                setLoading(false);
+            }
+        };
+
         try {
             const result = await DocumentPicker.getDocumentAsync({
                 type: 'application/json',
@@ -76,32 +98,28 @@ export default function SettingsPage() {
 
             if (result.canceled || !result.assets || result.assets.length === 0) return;
 
-            setLoading(true);
             const fileUri = result.assets[0].uri;
             const content = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.UTF8 });
 
             const backupData = JSON.parse(content);
-            if (!backupData.records) {
+            if (!Array.isArray(backupData.records)) {
                 throw new Error('无效的备份文件：缺失记录数据');
             }
 
-            if (backupData.settings) {
-                await saveSettings(backupData.settings);
-                setSettings(backupData.settings);
-            }
+            const promptReplaceRestore = () => {
+                CustomAlert.alert('确认覆盖恢复', '覆盖恢复会先清空本地全部记录，再导入备份内容。确定继续吗？', [
+                    { text: '取消', style: 'cancel' },
+                    { text: '确认覆盖', style: 'destructive', onPress: () => performRestore(backupData, 'replace') },
+                ]);
+            };
 
-            if (Array.isArray(backupData.records) && backupData.records.length > 0) {
-                await importRecords(backupData.records);
-            }
-
-            CustomAlert.alert('恢复成功', `成功恢复 ${backupData.records.length || 0} 条占卜记录。`, [
-                { text: '确定', onPress: () => router.back() }
+            CustomAlert.alert('选择恢复方式', '请选择导入策略（默认推荐：合并恢复）', [
+                { text: '合并恢复', onPress: () => performRestore(backupData, 'merge') },
+                { text: '覆盖恢复', style: 'destructive', onPress: promptReplaceRestore },
+                { text: '取消', style: 'cancel' },
             ]);
-
         } catch (e: any) {
             CustomAlert.alert('恢复失败', typeof e.message === 'string' ? e.message : '文件解析错误');
-        } finally {
-            setLoading(false);
         }
     };
 

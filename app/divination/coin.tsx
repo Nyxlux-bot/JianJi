@@ -16,7 +16,7 @@ import { Spacing, FontSize, BorderRadius } from '../../src/theme/colors';
 import { BackIcon } from '../../src/components/Icons';
 import { YaoValue } from '../../src/core/liuyao-data';
 import { divinateByCoin } from '../../src/core/liuyao-calc';
-import { saveRecord } from '../../src/db/database';
+import { saveRecord, getRecord } from '../../src/db/database';
 import LocationBar from '../../src/components/LocationBar';
 import CityPicker from '../../src/components/CityPicker';
 import { useLocation } from '../../src/hooks/useLocation';
@@ -126,6 +126,7 @@ export default function CoinDivination() {
     const styles = makeStyles(Colors);
     const [results, setResults] = useState<YaoValue[]>([]);
     const [shaking, setShaking] = useState(false);
+    const [savingResult, setSavingResult] = useState(false);
     const [question, setQuestion] = useState('');
     const currentYao = results.length;
     const { city, pickerVisible, openPicker, closePicker, handleSelectCity } = useLocation();
@@ -202,16 +203,40 @@ export default function CoinDivination() {
     };
 
     const handleComplete = async () => {
-        if (results.length !== 6) return;
+        if (results.length !== 6 || savingResult) return;
         // 将六个推演的结果传给引擎进行最终全貌生成
         const result = divinateByCoin(results, new Date(), question, city?.longitude, city?.name);
+
+        const persistWithRetry = async (): Promise<boolean> => {
+            const maxAttempts = 3;
+            for (let i = 1; i <= maxAttempts; i++) {
+                try {
+                    await saveRecord(result);
+                    const saved = await getRecord(result.id);
+                    if (saved) return true;
+                } catch (error) {
+                    console.error(error);
+                }
+                if (i < maxAttempts) {
+                    await new Promise(resolve => setTimeout(resolve, 250 * i));
+                }
+            }
+            return false;
+        };
+
+        setSavingResult(true);
         try {
-            await saveRecord(result);
-        } catch (error) {
-            console.error(error);
-            CustomAlert.alert("保存失败", "排盘结果保存失败，但您可以继续查看。");
-        } finally {
+            const saved = await persistWithRetry();
+            if (!saved) {
+                CustomAlert.alert("保存失败", "排盘结果未能可靠保存，请稍后重试。", [
+                    { text: '取消', style: 'cancel' },
+                    { text: '重试', onPress: handleComplete },
+                ]);
+                return;
+            }
             router.push(`/result/${result.id}`);
+        } finally {
+            setSavingResult(false);
         }
     };
 
@@ -296,11 +321,14 @@ export default function CoinDivination() {
                         </View>
                     ) : (
                         <TouchableOpacity
-                            style={styles.completeButton}
+                            style={[styles.completeButton, savingResult && styles.completeButtonDisabled]}
                             activeOpacity={0.8}
                             onPress={handleComplete}
+                            disabled={savingResult}
                         >
-                            <Text style={styles.completeButtonText}>生成排盘全览</Text>
+                            <Text style={styles.completeButtonText}>
+                                {savingResult ? '保存中...' : '生成排盘全览'}
+                            </Text>
                         </TouchableOpacity>
                     )}
                 </TouchableOpacity>
@@ -411,6 +439,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         backgroundColor: Colors.accent.jade, borderRadius: BorderRadius.lg,
         paddingVertical: Spacing.md, paddingHorizontal: Spacing.xxxl,
     },
+    completeButtonDisabled: { opacity: 0.6 },
     completeButtonText: {
         fontSize: FontSize.lg, color: '#fff', fontWeight: '500', letterSpacing: 2,
     },

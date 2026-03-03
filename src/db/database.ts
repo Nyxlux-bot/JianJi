@@ -28,6 +28,8 @@ export interface RecordSummary {
     isFavorite: boolean;
 }
 
+export type ImportMode = 'merge' | 'replace';
+
 // ==================== Web 端 localStorage 实现 ====================
 
 const WEB_STORAGE_KEY = 'liuyao_records';
@@ -116,8 +118,8 @@ const webDb = {
     async exportAll(): Promise<PanResult[]> {
         return getWebRecords().map(r => r.fullResult);
     },
-    async importAll(results: PanResult[]): Promise<void> {
-        let records = getWebRecords();
+    async importAll(results: PanResult[], mode: ImportMode = 'merge'): Promise<void> {
+        let records = mode === 'replace' ? [] : getWebRecords();
         for (const res of results) {
             mergeWebRecord(records, res);
         }
@@ -229,24 +231,43 @@ const nativeDb = {
         }
         return results;
     },
-    async importAll(results: PanResult[]): Promise<void> {
+    async importAll(results: PanResult[], mode: ImportMode = 'merge'): Promise<void> {
         const database = await getNativeDatabase();
+        if (mode === 'replace') {
+            await database.runAsync(`DELETE FROM records`);
+        }
         // 原生 SQLite 推荐使用异步串行避免卡顿死锁
         for (const res of results) {
-            await database.runAsync(
-                `INSERT OR REPLACE INTO records (id, created_at, method, question, gua_name, bian_gua_name, full_result, is_favorite)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT is_favorite FROM records WHERE id = ?), 0))`,
-                [
-                    res.id,
-                    res.createdAt,
-                    res.method,
-                    res.question,
-                    res.benGua.fullName,
-                    res.bianGua?.fullName || '',
-                    JSON.stringify(res),
-                    res.id
-                ]
-            );
+            if (mode === 'replace') {
+                await database.runAsync(
+                    `INSERT OR REPLACE INTO records (id, created_at, method, question, gua_name, bian_gua_name, full_result, is_favorite)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+                    [
+                        res.id,
+                        res.createdAt,
+                        res.method,
+                        res.question,
+                        res.benGua.fullName,
+                        res.bianGua?.fullName || '',
+                        JSON.stringify(res),
+                    ]
+                );
+            } else {
+                await database.runAsync(
+                    `INSERT OR REPLACE INTO records (id, created_at, method, question, gua_name, bian_gua_name, full_result, is_favorite)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT is_favorite FROM records WHERE id = ?), 0))`,
+                    [
+                        res.id,
+                        res.createdAt,
+                        res.method,
+                        res.question,
+                        res.benGua.fullName,
+                        res.bianGua?.fullName || '',
+                        JSON.stringify(res),
+                        res.id
+                    ]
+                );
+            }
         }
     }
 };
@@ -286,7 +307,10 @@ export async function exportAllRecords(): Promise<PanResult[]> {
     return storage.exportAll();
 }
 
-/** 批量覆盖导入排盘数据 (用于恢复) */
-export async function importRecords(records: PanResult[]): Promise<void> {
-    return storage.importAll(records);
+/** 批量导入排盘数据 (用于恢复，支持 merge/replace 模式) */
+export async function importRecords(
+    records: PanResult[],
+    options: { mode?: ImportMode } = {}
+): Promise<void> {
+    return storage.importAll(records, options.mode || 'merge');
 }

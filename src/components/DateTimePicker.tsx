@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
     Modal, View, Text, StyleSheet, TouchableOpacity,
     TouchableWithoutFeedback, TextInput, Alert, ScrollView
@@ -26,6 +26,26 @@ const DAY_CN = [
     '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十',
     '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十',
 ];
+
+function getDaysInMonth(year: number, month: number): number {
+    if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return 31;
+    return new Date(year, month, 0).getDate();
+}
+
+function isValidSolarDate(y: number, m: number, d: number, h: number, min: number): boolean {
+    if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d) || !Number.isInteger(h) || !Number.isInteger(min)) {
+        return false;
+    }
+    if (m < 1 || m > 12) return false;
+    if (h < 0 || h > 23) return false;
+    if (min < 0 || min > 59) return false;
+
+    const maxDay = getDaysInMonth(y, m);
+    if (d < 1 || d > maxDay) return false;
+
+    const date = new Date(y, m - 1, d);
+    return date.getFullYear() === y && (date.getMonth() + 1) === m && date.getDate() === d;
+}
 
 // ==== 五行颜色与级联辅助方法 ====
 const getColor = (char: string, Colors: any) => {
@@ -131,9 +151,28 @@ export default function DateTimePicker({
 
     const yearsNum = Array.from({ length: 150 }, (_, i) => (1900 + i).toString());
     const solarMonthsNum = Array.from({ length: 12 }, (_, i) => (i + 1).toString().padStart(2, '0'));
-    const solarDaysNum = Array.from({ length: 31 }, (_, i) => (i + 1).toString().padStart(2, '0'));
+    const solarDaysNum = useMemo(() => {
+        const y = parseInt(solarYear, 10);
+        const m = parseInt(solarMonth, 10);
+        const maxDays = getDaysInMonth(y, m);
+        return Array.from({ length: maxDays }, (_, i) => (i + 1).toString().padStart(2, '0'));
+    }, [solarYear, solarMonth]);
     const hoursNum = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0'));
     const minutesNum = Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, '0'));
+
+    useEffect(() => {
+        const day = parseInt(solarDay, 10);
+        if (!Number.isInteger(day)) {
+            setSolarDay('01');
+            return;
+        }
+        const maxDays = solarDaysNum.length;
+        if (day > maxDays) {
+            setSolarDay(String(maxDays).padStart(2, '0'));
+        } else if (day < 1) {
+            setSolarDay('01');
+        }
+    }, [solarDay, solarDaysNum]);
 
     const handleFastInput = (val: string) => {
         setFastInput(val);
@@ -145,16 +184,24 @@ export default function DateTimePicker({
             const h = pureNumbers.length >= 10 ? parseInt(pureNumbers.substring(8, 10)) : 0;
             const min = pureNumbers.length >= 12 ? parseInt(pureNumbers.substring(10, 12)) : 0;
 
-            const date = new Date(y, m - 1, d, h, min);
-            if (!isNaN(date.getTime())) {
-                syncFromDate(date);
+            if (isValidSolarDate(y, m, d, h, min)) {
+                syncFromDate(new Date(y, m - 1, d, h, min));
             }
         }
     };
 
     const handleConfirm = () => {
         if (activeTab === 'solar') {
-            onConfirm(new Date(parseInt(solarYear), parseInt(solarMonth) - 1, parseInt(solarDay), parseInt(hour), parseInt(minute)));
+            const y = parseInt(solarYear, 10);
+            const m = parseInt(solarMonth, 10);
+            const d = parseInt(solarDay, 10);
+            const h = parseInt(hour, 10);
+            const min = parseInt(minute, 10);
+            if (!isValidSolarDate(y, m, d, h, min)) {
+                CustomAlert.alert("错误", "该公历日期无效，请重新选择");
+                return;
+            }
+            onConfirm(new Date(y, m - 1, d, h, min));
         } else if (activeTab === 'lunar') {
             const mIdx = MONTH_CN.indexOf(lunarMonth) + 1;
             const dIdx = DAY_CN.indexOf(lunarDay) + 1;
