@@ -120,8 +120,9 @@ const PHASE_NAMES = ['朔月', '娥眉月', '上弦月', '盈凸月', '望月', 
 
 /**
  * 月相推导（朔望月近似）
+ * 可选 lunarDay 用于民俗命名校正：十五=望月，十六=既望
  */
-export function getMoonPhase(date: Date): MoonPhase {
+export function getMoonPhase(date: Date, lunarDay?: number): MoonPhase {
     const t = date.getTime();
     const lunarAgeRaw = ((t - BASE_NEW_MOON_MS) / DAY_MS) % SYNODIC_MONTH;
     const ageDays = (lunarAgeRaw + SYNODIC_MONTH) % SYNODIC_MONTH;
@@ -129,9 +130,16 @@ export function getMoonPhase(date: Date): MoonPhase {
     const illumination = (1 - Math.cos((angleDeg * Math.PI) / 180)) / 2;
 
     const phaseIndex = Math.floor((angleDeg + 22.5) / 45) % 8;
+    let phaseName: string = PHASE_NAMES[phaseIndex];
+
+    if (lunarDay === 15) {
+        phaseName = '望月';
+    } else if (lunarDay === 16) {
+        phaseName = '既望';
+    }
 
     return {
-        name: PHASE_NAMES[phaseIndex],
+        name: phaseName,
         ageDays: Number(ageDays.toFixed(2)),
         illuminationPct: Math.round(illumination * 100),
         angleDeg: Number(angleDeg.toFixed(2)),

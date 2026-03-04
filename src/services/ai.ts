@@ -32,9 +32,8 @@ function formatPanForAI(result: PanResult): string {
     const lines: string[] = [];
     const monthGeneral = result.monthGeneral || getMonthGeneralByJieqi(result.jieqi?.current || '', result.monthGanZhi?.[1]);
     const createdAtDate = new Date(result.createdAt);
-    const moonPhase = result.moonPhase || getMoonPhase(
-        Number.isNaN(createdAtDate.getTime()) ? new Date() : createdAtDate
-    );
+    const moonPhaseDate = Number.isNaN(createdAtDate.getTime()) ? new Date() : createdAtDate;
+    const moonPhase = getMoonPhase(moonPhaseDate, result.lunarInfo?.day);
 
     // ===== 排盘信息 =====
     lines.push(`【排盘信息】`);

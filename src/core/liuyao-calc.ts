@@ -313,7 +313,7 @@ export function calculatePan(
         xunKong: getXunKong(lunarInfo.dayGanZhi),
         shenSha: getShenSha(lunarInfo.dayGanZhi[0], lunarInfo.dayGanZhi[1]),
         monthGeneral: getMonthGeneralByJieqi(jieqi.current, lunarInfo.monthGanZhi[1]),
-        moonPhase: getMoonPhase(date),
+        moonPhase: getMoonPhase(date, lunarInfo.day),
         benGua,
         benGuaYao,
         bianGua,
