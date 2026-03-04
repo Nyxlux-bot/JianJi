@@ -6,6 +6,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { PanResult } from '../core/liuyao-calc';
+import { getMonthGeneralByJieqi, getMoonPhase } from '../core/time-signs';
 import { Spacing, FontSize, BorderRadius } from '../theme/colors';
 import { useTheme } from "../theme/ThemeContext";
 
@@ -34,18 +35,28 @@ const PillarItem: React.FC<{
     </View>
 ));
 
-const ShenShaBadge: React.FC<{ label: string; value: string; isAccent?: boolean; styles: any }> = React.memo(({ label, value, isAccent, styles }) => (
-    <View style={[styles.shenShaBadge, isAccent && styles.shenShaAccentBadge]}>
-        <Text style={isAccent ? styles.shenShaBadgeTextAccent : styles.shenShaBadgeText}>{label}</Text>
-        <Text style={isAccent ? styles.shenShaValueAccent : styles.shenShaValue}>{value || '-'}</Text>
-    </View>
-));
-
 const FourPillars: React.FC<FourPillarsProps> = React.memo(({ result }) => {
     const { Colors } = useTheme();
     const styles = makeStyles(Colors);
     const { yearGanZhi, monthGanZhi, dayGanZhi, hourGanZhi } = result;
     const { yearNaYin, monthNaYin, dayNaYin, hourNaYin } = result;
+    const monthGeneral = result.monthGeneral || getMonthGeneralByJieqi(result.jieqi?.current || '', result.monthGanZhi?.[1]);
+    const createdAtDate = new Date(result.createdAt);
+    const moonPhase = result.moonPhase || getMoonPhase(
+        Number.isNaN(createdAtDate.getTime()) ? new Date() : createdAtDate
+    );
+    const shenShaItems = result.shenSha ? [
+        { label: '驿马', value: result.shenSha.yiMa || '无' },
+        { label: '桃花', value: result.shenSha.taoHua || '无' },
+        { label: '天乙贵人', value: result.shenSha.tianYiGuiRen?.join(' ') || '无' },
+        { label: '禄神', value: result.shenSha.luShen || '无' },
+        { label: '羊刃', value: result.shenSha.yangRen || '无' },
+        { label: '文昌', value: result.shenSha.wenChang || '无' },
+        { label: '将星', value: result.shenSha.jiangXing || '无' },
+        { label: '华盖', value: result.shenSha.huaGai || '无' },
+        { label: '劫煞', value: result.shenSha.jieSha || '无' },
+        { label: '灾煞', value: result.shenSha.zaiSha || '无' },
+    ] : [];
 
     return (
         <View style={styles.container}>
@@ -81,20 +92,40 @@ const FourPillars: React.FC<FourPillarsProps> = React.memo(({ result }) => {
                 />
             </View>
 
-            {/* 旬空与神煞展示区 */}
+            {/* 旬空 · 月将 · 月相 · 神煞单卡 */}
             {result.shenSha && result.xunKong && (
-                <View style={styles.shenShaContainer}>
-                    <ShenShaBadge label="旬空" value={result.xunKong.join(' ')} styles={styles} />
-                    <ShenShaBadge label="驿马" value={result.shenSha.yiMa} isAccent={true} styles={styles} />
-                    <ShenShaBadge label="桃花" value={result.shenSha.taoHua} isAccent={true} styles={styles} />
-                    <ShenShaBadge label="贵人" value={result.shenSha.tianYiGuiRen.join(' ')} styles={styles} />
-                    <ShenShaBadge label="禄神" value={result.shenSha.luShen} styles={styles} />
-                    <ShenShaBadge label="羊刃" value={result.shenSha.yangRen} styles={styles} />
-                    <ShenShaBadge label="文昌" value={result.shenSha.wenChang} styles={styles} />
-                    <ShenShaBadge label="将星" value={result.shenSha.jiangXing} styles={styles} />
-                    <ShenShaBadge label="华盖" value={result.shenSha.huaGai} styles={styles} />
-                    <ShenShaBadge label="劫煞" value={result.shenSha.jieSha} styles={styles} />
-                    <ShenShaBadge label="灾煞" value={result.shenSha.zaiSha} styles={styles} />
+                <View style={styles.fortuneMetaCard}>
+                    <Text style={styles.fortuneMetaTitle}>旬空 · 月将 · 月相 · 神煞</Text>
+
+                    <View style={styles.metaKeyGrid}>
+                        <View style={styles.metaKeyBlock}>
+                            <Text style={styles.metaKeyLabel}>旬空</Text>
+                            <Text style={styles.metaKeyValue}>{result.xunKong.join(' ') || '无'}</Text>
+                        </View>
+
+                        <View style={styles.metaKeyBlock}>
+                            <Text style={styles.metaKeyLabel}>月将</Text>
+                            <Text style={styles.metaKeyValue}>{`${monthGeneral.zhi}将 · ${monthGeneral.name}`}</Text>
+                            <Text style={styles.metaHintText}>{`依据节气：${monthGeneral.basedOnTerm}`}</Text>
+                        </View>
+
+                        <View style={styles.metaKeyBlock}>
+                            <Text style={styles.metaKeyLabel}>月相</Text>
+                            <Text style={styles.metaKeyValue}>{moonPhase.name}</Text>
+                            <Text style={styles.metaHintText}>{`月龄 ${moonPhase.ageDays.toFixed(2)} 天 · 亮度 ${moonPhase.illuminationPct}%`}</Text>
+                        </View>
+                    </View>
+
+                    <View style={styles.metaDivider} />
+
+                    <View style={styles.shenShaGrid}>
+                        {shenShaItems.map(item => (
+                            <View key={item.label} style={styles.shenShaItem}>
+                                <Text style={styles.shenShaItemLabel}>{item.label}</Text>
+                                <Text style={styles.shenShaItemValue}>{item.value || '无'}</Text>
+                            </View>
+                        ))}
+                    </View>
                 </View>
             )}
         </View>
@@ -148,44 +179,74 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         color: Colors.text.secondary,
         marginTop: 2,
     },
-    shenShaContainer: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: Spacing.sm,
+    fortuneMetaCard: {
         marginTop: Spacing.md,
-    },
-    shenShaBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: Colors.bg.elevated,
-        paddingHorizontal: Spacing.sm,
-        paddingVertical: 4,
-        borderRadius: BorderRadius.sm,
-        borderWidth: 0.5,
+        backgroundColor: Colors.bg.card,
+        borderRadius: BorderRadius.lg,
+        borderWidth: 1,
         borderColor: Colors.border.subtle,
+        padding: Spacing.lg,
     },
-    shenShaBadgeText: {
+    fortuneMetaTitle: {
+        fontSize: FontSize.md,
+        color: Colors.text.heading,
+        fontWeight: '600',
+        marginBottom: Spacing.md,
+    },
+    metaKeyGrid: {
+        gap: Spacing.sm,
+    },
+    metaKeyBlock: {
+        backgroundColor: Colors.bg.elevated,
+        borderRadius: BorderRadius.md,
+        borderWidth: 1,
+        borderColor: Colors.border.subtle,
+        paddingHorizontal: Spacing.md,
+        paddingVertical: Spacing.sm,
+    },
+    metaKeyLabel: {
         fontSize: FontSize.xs,
         color: Colors.text.tertiary,
-        marginRight: 4,
+        marginBottom: 2,
     },
-    shenShaValue: {
+    metaKeyValue: {
+        fontSize: FontSize.md,
+        color: Colors.accent.gold,
+        fontWeight: '700',
+    },
+    metaHintText: {
+        marginTop: 2,
         fontSize: FontSize.xs,
         color: Colors.text.secondary,
-        fontWeight: '500',
     },
-    shenShaAccentBadge: {
-        backgroundColor: 'rgba(200, 148, 58, 0.1)',
-        borderColor: Colors.accent.goldDark,
+    metaDivider: {
+        height: 1,
+        backgroundColor: Colors.border.subtle,
+        marginVertical: Spacing.md,
     },
-    shenShaBadgeTextAccent: {
+    shenShaGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        justifyContent: 'space-between',
+    },
+    shenShaItem: {
+        width: '48%',
+        marginBottom: Spacing.sm,
+        paddingVertical: Spacing.xs,
+        paddingHorizontal: Spacing.sm,
+        borderRadius: BorderRadius.sm,
+        backgroundColor: Colors.bg.elevated,
+        borderWidth: 1,
+        borderColor: Colors.border.subtle,
+    },
+    shenShaItemLabel: {
         fontSize: FontSize.xs,
-        color: Colors.accent.gold,
-        marginRight: 4,
+        color: Colors.text.tertiary,
+        marginBottom: 2,
     },
-    shenShaValueAccent: {
-        fontSize: FontSize.xs,
-        color: Colors.accent.gold,
-        fontWeight: 'bold',
+    shenShaItemValue: {
+        fontSize: FontSize.sm,
+        color: Colors.text.primary,
+        fontWeight: '600',
     },
 });
