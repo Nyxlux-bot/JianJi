@@ -3,12 +3,10 @@
  * 模拟三枚铜钱，六次摇掷
  */
 
-import React, { useState, useRef, useCallback, useEffect } from 'react';
-import {
-    View, Text, StyleSheet, TouchableOpacity,
-    ScrollView, TextInput, Alert, Animated, Easing
-} from 'react-native';
+import React, { useState, useRef, useCallback, useEffect, memo } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Animated, Easing } from 'react-native';
 import Svg, { Path, Text as SvgText } from 'react-native-svg';
+
 import StatusBarDecor from '../../src/components/StatusBarDecor';
 import { router } from 'expo-router';
 import { CustomAlert } from '../../src/components/CustomAlertProvider';
@@ -21,6 +19,13 @@ import LocationBar from '../../src/components/LocationBar';
 import CityPicker from '../../src/components/CityPicker';
 import { useLocation } from '../../src/hooks/useLocation';
 import { useTheme } from "../../src/theme/ThemeContext";
+import YongleCoin from '../../src/components/YongleCoin';
+import {
+    CoinAngles,
+    CoinFace,
+    getFaceFromToss,
+    mapTossToYaoValue,
+} from '../../src/components/coin-motion';
 
 const YAO_NAMES = ['初爻', '二爻', '三爻', '四爻', '五爻', '上爻'];
 const VALUE_DESC: Record<number, { label: string; type: string }> = {
@@ -30,45 +35,34 @@ const VALUE_DESC: Record<number, { label: string; type: string }> = {
     9: { label: '老阳', type: '阳动' },
 };
 
-/**
- * 六爻基本符号 SVG 渲染
- * 阳爻为一条长横线；阴爻为两条短横线；
- * 老阳带有圆圈(○)；老阴带有交叉(✕)；
- */
+const COIN_SIZE = 76;
+
 const YaoSVG = ({ value, color }: { value: YaoValue, color: string }) => {
     switch (value) {
-        // 6：老阴 (- - ✕)
         case 6:
             return (
                 <Svg width="60" height="20" viewBox="0 0 60 20">
-                    {/* 左侧空出给变爻标记的交叉 */}
                     <Path d="M6 6 L14 14 M6 14 L14 6" stroke={color} strokeWidth="2" strokeLinecap="round" />
-                    {/* 阴爻两端平移 */}
                     <Path d="M20 10 L35 10" stroke={color} strokeWidth="4" strokeLinecap="round" />
                     <Path d="M45 10 L60 10" stroke={color} strokeWidth="4" strokeLinecap="round" />
                 </Svg>
             );
-        // 7：少阳 (---)
         case 7:
             return (
                 <Svg width="60" height="20" viewBox="0 0 60 20">
                     <Path d="M20 10 L60 10" stroke={color} strokeWidth="4" strokeLinecap="round" />
                 </Svg>
             );
-        // 8：少阴 (- -)
         case 8:
             return (
                 <Svg width="60" height="20" viewBox="0 0 60 20">
-                    {/* 阴爻两端平移 */}
                     <Path d="M20 10 L35 10" stroke={color} strokeWidth="4" strokeLinecap="round" />
                     <Path d="M45 10 L60 10" stroke={color} strokeWidth="4" strokeLinecap="round" />
                 </Svg>
             );
-        // 9：老阳 (--- ○)
         case 9:
             return (
                 <Svg width="60" height="20" viewBox="0 0 60 20">
-                    {/* 左侧空出给变爻标记的圆圈 */}
                     <SvgText x="10" y="15" fontSize="14" fill={color} textAnchor="middle">○</SvgText>
                     <Path d="M20 10 L60 10" stroke={color} strokeWidth="4" strokeLinecap="round" />
                 </Svg>
@@ -78,51 +72,105 @@ const YaoSVG = ({ value, color }: { value: YaoValue, color: string }) => {
     }
 };
 
-/**
- * 纯函数：硬币正面（字面/阴面） 
- * 价值为 2，外圆内方，写有文字
- */
-const CoinFront = ({ color, size, textColor }: { color: string, size: number, textColor: string }) => {
-    return (
-        <Svg width={size} height={size} viewBox="0 0 100 100">
-            {/* 纯正的外圆内方：利用 fillRule="evenodd" 镂空内部 */}
-            <Path
-                d="M50 2 A48 48 0 1 0 50 98 A48 48 0 1 0 50 2 Z M35 35 L65 35 L65 65 L35 65 Z"
-                fill={color}
-                fillRule="evenodd"
-            />
-            {/* 边框纹路装饰（浅色描边增强金属感） */}
-            <Path d="M50 6 A44 44 0 1 0 50 94 A44 44 0 1 0 50 6 Z" fill="none" stroke="rgba(0,0,0,0.15)" strokeWidth="1" />
-            <Path d="M33 33 L67 33 L67 67 L33 67 Z" fill="none" stroke="rgba(0,0,0,0.15)" strokeWidth="1" />
+interface CoinMotionState {
+    rotateY: Animated.Value;
+    translateY: Animated.Value;
+    scale: Animated.Value;
+    shadowOpacity: Animated.Value;
+    currentAngles: CoinAngles;
+}
 
-            <SvgText x="50" y="29" fontSize="16" fill={textColor} textAnchor="middle" fontWeight="bold">永</SvgText>
-            <SvgText x="50" y="85" fontSize="16" fill={textColor} textAnchor="middle" fontWeight="bold">樂</SvgText>
-            <SvgText x="85" y="56" fontSize="16" fill={textColor} textAnchor="middle" fontWeight="bold">通  </SvgText>
-            <SvgText x="15" y="56" fontSize="16" fill={textColor} textAnchor="middle" fontWeight="bold">  寶</SvgText>
-        </Svg>
-    );
-};
+function useCoinMotionState(): CoinMotionState {
+    const rotateY = useRef(new Animated.Value(0)).current;
+    const translateY = useRef(new Animated.Value(0)).current;
+    const scale = useRef(new Animated.Value(1)).current;
+    const shadowOpacity = useRef(new Animated.Value(0.26)).current;
+    const currentAnglesRef = useRef<CoinAngles>({ x: 0, y: 0, z: 0 });
 
-/**
- * 纯函数：硬币背面（花面/阳面） 
- * 价值为 3，外圆内方，无字
- */
-const CoinBack = ({ color, size }: { color: string, size: number }) => {
+    return {
+        rotateY,
+        translateY,
+        scale,
+        shadowOpacity,
+        currentAngles: currentAnglesRef.current,
+    };
+}
+
+interface Coin3DProps {
+    motion: CoinMotionState;
+    themeName: 'dark' | 'green' | 'white' | 'purple';
+    styles: ReturnType<typeof makeStyles>;
+}
+
+const Coin3D: React.FC<Coin3DProps> = memo(({ motion, themeName, styles }) => {
+    const rotateYFront = motion.rotateY.interpolate({
+        inputRange: [0, 360],
+        outputRange: ['0deg', '360deg'],
+    });
+
+    const rotateYBack = motion.rotateY.interpolate({
+        inputRange: [0, 360],
+        outputRange: ['180deg', '540deg'],
+    });
+
     return (
-        <Svg width={size} height={size} viewBox="0 0 100 100">
-            <Path
-                d="M50 2 A48 48 0 1 0 50 98 A48 48 0 1 0 50 2 Z M35 35 L65 35 L65 65 L35 65 Z"
-                fill={color}
-                fillRule="evenodd"
-            />
-            <Path d="M50 6 A44 44 0 1 0 50 94 A44 44 0 1 0 50 6 Z" fill="none" stroke="rgba(0,0,0,0.15)" strokeWidth="1" />
-            <Path d="M33 33 L67 33 L67 67 L33 67 Z" fill="none" stroke="rgba(0,0,0,0.15)" strokeWidth="1" />
-        </Svg>
+        <View style={styles.coinWrapper}>
+            <Animated.View style={[styles.coin3DContainer, { transform: [{ perspective: 1000 }] }]}>
+                <Animated.View style={[styles.coinSide, { transform: [{ rotateY: rotateYBack }] }]}>
+                    <YongleCoin face="back" size={COIN_SIZE} themeName={themeName} />
+                </Animated.View>
+
+                <Animated.View style={[styles.coinSide, { transform: [{ rotateY: rotateYFront }] }]}>
+                    <YongleCoin face="front" size={COIN_SIZE} themeName={themeName} />
+                </Animated.View>
+            </Animated.View>
+        </View>
     );
-};
+});
+
+Coin3D.displayName = 'Coin3D';
+
+function animateCoin(motion: CoinMotionState, targetFace: CoinFace, seed: number): Promise<void> {
+    return new Promise(resolve => {
+        const totalDuration = 1000;
+        const currentY = (motion.rotateY as any)._value || motion.currentAngles.y;
+        const baseSpins = 1440;
+        let targetY = currentY + baseSpins;
+        const requiredRem = targetFace === 'front' ? 0 : 180;
+
+        const rem = targetY % 360;
+        let diff = requiredRem - rem;
+        if (diff < 0) diff += 360;
+        targetY += diff;
+
+        // 执行并行并发原生动画
+        Animated.parallel([
+            Animated.timing(motion.rotateY, {
+                toValue: targetY,
+                duration: totalDuration,
+                easing: Easing.out(Easing.cubic),
+                useNativeDriver: true,
+            })
+        ]).start(() => {
+            motion.currentAngles.y = targetY;
+            resolve();
+        });
+    });
+}
+
+function resetCoinMotion(motion: CoinMotionState) {
+    motion.currentAngles.x = 0;
+    motion.currentAngles.y = 0;
+    motion.currentAngles.z = 0;
+
+    motion.rotateY.setValue(0);
+    motion.translateY.setValue(0);
+    motion.scale.setValue(1);
+    motion.shadowOpacity.setValue(0.26);
+}
 
 export default function CoinDivination() {
-    const { Colors } = useTheme();
+    const { Colors, theme } = useTheme();
     const styles = makeStyles(Colors);
     const [results, setResults] = useState<YaoValue[]>([]);
     const [shaking, setShaking] = useState(false);
@@ -131,80 +179,55 @@ export default function CoinDivination() {
     const currentYao = results.length;
     const { city, pickerVisible, openPicker, closePicker, handleSelectCity } = useLocation();
 
-    // 独立控制 3 枚硬币的翻转角度（存的是累计的绝对角度值，初始为0）
-    const spinValues = useRef([
-        new Animated.Value(0),
-        new Animated.Value(0),
-        new Animated.Value(0),
-    ]).current;
+    const coinA = useCoinMotionState();
+    const coinB = useCoinMotionState();
+    const coinC = useCoinMotionState();
+    const coinMotions = [coinA, coinB, coinC];
 
-    // 记录每枚硬币当前的静止角度（防止下次旋转时产生从0度重置的回跳生硬感）
-    const currentAngles = useRef([0, 0, 0]).current;
+    const completeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
         return () => {
-            // Memory leak protection: stop all animations on unmount
-            spinValues.forEach(val => val.stopAnimation());
+            if (completeTimerRef.current) {
+                clearTimeout(completeTimerRef.current);
+                completeTimerRef.current = null;
+            }
         };
-    }, [spinValues]);
+    }, []);
 
     const handleThrow = useCallback(() => {
         if (currentYao >= 6 || shaking) return;
         setShaking(true);
 
-        /**
-         * 判定三枚硬币正反 (正面为true，对应阳面/字面)
-         * - 在六爻中：背面/花面为阳（计为3），正面/字面为阴（计为2）
-         * - 纯随机 50% 概率，三次结果分别控制三枚硬币。
-         */
+        // true = 字面(front, 阴=2), false = 花面(back, 阳=3)
         const tossRes = [Math.random() < 0.5, Math.random() < 0.5, Math.random() < 0.5];
 
         const animations = tossRes.map((isFront, idx) => {
-            // 最少转4整圈（1440度）以营造真实的抛掷感
-            let targetAngle = currentAngles[idx] + 1440;
-
-            // 找出当前的度数偏移
-            const mod = targetAngle % 360;
-
-            // 如果计算结果是停在前面（字面），那么角度必须对齐到0（360的倍数）
-            // 如果停在背面（阳面），角度需额外+180
-            const neededMod = isFront ? 0 : 180;
-            let diff = neededMod - mod;
-            if (diff < 0) diff += 360;
-
-            targetAngle += diff;
-            currentAngles[idx] = targetAngle; // 存入引用以供下个爻累加
-
-            // 分配稍有差异的动画时长，模拟三枚硬币各自落地不一的时差感
-            return Animated.timing(spinValues[idx], {
-                toValue: targetAngle,
-                duration: 1200 + idx * 250,
-                easing: Easing.out(Easing.cubic),
-                useNativeDriver: true
-            });
+            const targetFace = getFaceFromToss(isFront);
+            const seed = Date.now() + currentYao * 97 + idx * 131;
+            return animateCoin(coinMotions[idx], targetFace, seed);
         });
 
-        // 计算当前爻的阴阳数字总量：字(正面)=2，花(背面)=3
-        const sumNum = tossRes.map(isFront => isFront ? 2 : 3).reduce((a, b) => a + b, 0);
-        const sum = sumNum as YaoValue;
+        const yaoValue = mapTossToYaoValue(tossRes);
 
-        Animated.parallel(animations).start(() => {
-            // 动画全部执行完毕后，六次爻长+1并刷新UI
-            setResults(prev => [...prev, sum]);
+        Promise.all(animations).then(() => {
+            setResults(prev => [...prev, yaoValue]);
             setShaking(false);
         });
-    }, [currentYao, shaking, spinValues]);
+    }, [coinMotions, currentYao, shaking]);
 
     const handleReset = () => {
+        if (completeTimerRef.current) {
+            clearTimeout(completeTimerRef.current);
+            completeTimerRef.current = null;
+        }
+        setShaking(false);
         setResults([]);
-        // 抹除度数记录，使硬币归零
-        currentAngles.fill(0);
-        spinValues.forEach(val => val.setValue(0));
+        coinMotions.forEach(resetCoinMotion);
     };
 
     const handleComplete = async () => {
         if (results.length !== 6 || savingResult) return;
-        // 将六个推演的结果传给引擎进行最终全貌生成
         const result = divinateByCoin(results, new Date(), question, city?.longitude, city?.name);
 
         const persistWithRetry = async (): Promise<boolean> => {
@@ -254,7 +277,6 @@ export default function CoinDivination() {
             </View>
 
             <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-                {/* 占问事项 */}
                 <View style={styles.questionSection}>
                     <TextInput
                         style={styles.questionInput}
@@ -266,40 +288,13 @@ export default function CoinDivination() {
                     />
                 </View>
 
-                {/* 真太阳时参考地点 */}
                 <LocationBar city={city} onPress={openPicker} />
 
-                {/* 硬币中心区域：将整个板块转为 Touchable，点击空白即可摇铜钱 */}
-                <TouchableOpacity
-                    style={styles.coinSection}
-                    activeOpacity={1}
-                    onPress={currentYao < 6 && !shaking ? handleThrow : undefined}
-                >
+                <View style={styles.coinSection}>
                     <View style={styles.coinsDisplay}>
-                        {spinValues.map((spinVal, idx) => {
-                            // 插值动画映射。将累计的大数字转为 CSS 的 deg 值。
-                            // 由于使用了极大的范围保护，不会出现出界异常。
-                            const rotateYFront = spinVal.interpolate({
-                                inputRange: [0, 100000],
-                                outputRange: ['0deg', '100000deg']
-                            });
-                            // 背面组件的挂载必须比前面的角度高出 180 度，才能形成正反对立面
-                            const rotateYBack = spinVal.interpolate({
-                                inputRange: [0, 100000],
-                                outputRange: ['180deg', '100180deg']
-                            });
-
-                            return (
-                                <View key={idx} style={styles.coinWrapper}>
-                                    <Animated.View style={[styles.coinSide, { transform: [{ perspective: 1000 }, { rotateY: rotateYBack }] }]}>
-                                        <CoinBack size={76} color={Colors.accent.gold} />
-                                    </Animated.View>
-                                    <Animated.View style={[styles.coinSide, { transform: [{ perspective: 1000 }, { rotateY: rotateYFront }] }]}>
-                                        <CoinFront size={76} color={Colors.accent.gold} textColor={Colors.bg.primary} />
-                                    </Animated.View>
-                                </View>
-                            );
-                        })}
+                        <Coin3D motion={coinA} themeName={theme} styles={styles} />
+                        <Coin3D motion={coinB} themeName={theme} styles={styles} />
+                        <Coin3D motion={coinC} themeName={theme} styles={styles} />
                     </View>
 
                     {currentYao < 6 ? (
@@ -317,7 +312,6 @@ export default function CoinDivination() {
                                     {shaking ? '摇晃中...' : '抛掷求卦'}
                                 </Text>
                             </TouchableOpacity>
-                            <Text style={styles.clickHint}>提示：也可直接点击空白处抛掷</Text>
                         </View>
                     ) : (
                         <TouchableOpacity
@@ -331,9 +325,8 @@ export default function CoinDivination() {
                             </Text>
                         </TouchableOpacity>
                     )}
-                </TouchableOpacity>
+                </View>
 
-                {/* 摇掷已成结果列表清单 */}
                 <View style={styles.resultsSection}>
                     <Text style={styles.sectionLabel}>
                         摇掷记录 ({results.length}/6)
@@ -368,7 +361,6 @@ export default function CoinDivination() {
                         );
                     })}
 
-                    {/* 未求出的空位占位提示 */}
                     {Array.from({ length: 6 - results.length }).map((_, i) => (
                         <View key={`empty-${i}`} style={[styles.resultRow, styles.resultRowEmpty]}>
                             <Text style={styles.resultYaoName}>{YAO_NAMES[results.length + i]}</Text>
@@ -413,12 +405,36 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         flexDirection: 'row', gap: Spacing.lg, marginBottom: Spacing.xxl,
     },
     coinWrapper: {
-        width: 76, height: 76,
-        alignItems: 'center', justifyContent: 'center',
+        width: COIN_SIZE,
+        height: COIN_SIZE + 14,
+        alignItems: 'center',
+        justifyContent: 'flex-start',
+    },
+    coin3DContainer: {
+        width: COIN_SIZE,
+        height: COIN_SIZE,
+        alignItems: 'center',
+        justifyContent: 'center',
+        position: 'relative',
+        overflow: 'visible',
     },
     coinSide: {
         position: 'absolute',
+        top: 0,
+        left: 0,
+        width: COIN_SIZE,
+        height: COIN_SIZE,
+        alignItems: 'center',
+        justifyContent: 'center',
         backfaceVisibility: 'hidden',
+    },
+    coinShadow: {
+        position: 'absolute',
+        bottom: 2,
+        width: COIN_SIZE * 0.8,
+        height: 12,
+        borderRadius: 999,
+        backgroundColor: 'rgba(0,0,0,0.35)',
     },
     throwInfo: { alignItems: 'center' },
     throwHint: {
@@ -457,7 +473,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     resultRowEmpty: { opacity: 0.4 },
     resultYaoName: { fontSize: FontSize.sm, color: Colors.text.secondary, width: 40 },
     resultBadge: {
-        flex: 1, paddingVertical: 4, paddingHorizontal: Spacing.md,
+        flex: 1, paddingVertical: 8, paddingHorizontal: Spacing.md,
         backgroundColor: Colors.bg.elevated, borderRadius: BorderRadius.sm,
     },
     resultValueContainer: {
@@ -466,7 +482,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     resultBadgeMoving: { backgroundColor: Colors.yao.movingBg },
     resultValue: { fontSize: FontSize.md, color: Colors.text.primary },
     resultValueMoving: { color: Colors.accent.red },
-    resultType: { fontSize: FontSize.xs, color: Colors.text.tertiary, width: 40 },
+    resultType: { fontSize: FontSize.xs, color: Colors.text.tertiary },
     resultTypeMoving: { color: Colors.accent.red },
     resultEmpty: { fontSize: FontSize.sm, color: Colors.text.tertiary },
 });
