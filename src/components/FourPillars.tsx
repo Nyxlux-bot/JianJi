@@ -42,9 +42,8 @@ const FourPillars: React.FC<FourPillarsProps> = React.memo(({ result }) => {
     const { yearNaYin, monthNaYin, dayNaYin, hourNaYin } = result;
     const monthGeneral = result.monthGeneral || getMonthGeneralByJieqi(result.jieqi?.current || '', result.monthGanZhi?.[1]);
     const createdAtDate = new Date(result.createdAt);
-    const moonPhase = result.moonPhase || getMoonPhase(
-        Number.isNaN(createdAtDate.getTime()) ? new Date() : createdAtDate
-    );
+    const moonPhaseDate = Number.isNaN(createdAtDate.getTime()) ? new Date() : createdAtDate;
+    const moonPhase = getMoonPhase(moonPhaseDate, result.lunarInfo?.day);
     const shenShaItems = result.shenSha ? [
         { label: '驿马', value: result.shenSha.yiMa || '无' },
         { label: '桃花', value: result.shenSha.taoHua || '无' },
@@ -103,16 +102,18 @@ const FourPillars: React.FC<FourPillarsProps> = React.memo(({ result }) => {
                             <Text style={styles.metaKeyValue}>{result.xunKong.join(' ') || '无'}</Text>
                         </View>
 
-                        <View style={styles.metaKeyBlock}>
-                            <Text style={styles.metaKeyLabel}>月将</Text>
-                            <Text style={styles.metaKeyValue}>{`${monthGeneral.zhi}将 · ${monthGeneral.name}`}</Text>
-                            <Text style={styles.metaHintText}>{`依据节气：${monthGeneral.basedOnTerm}`}</Text>
-                        </View>
+                        <View style={styles.metaDualRow}>
+                            <View style={[styles.metaKeyBlock, styles.metaHalfBlock]}>
+                                <Text style={styles.metaKeyLabel}>月将</Text>
+                                <Text style={styles.metaKeyValue}>{`${monthGeneral.zhi}将 · ${monthGeneral.name}`}</Text>
+                                <Text style={styles.metaHintText}>{`依据节气：${monthGeneral.basedOnTerm}`}</Text>
+                            </View>
 
-                        <View style={styles.metaKeyBlock}>
-                            <Text style={styles.metaKeyLabel}>月相</Text>
-                            <Text style={styles.metaKeyValue}>{moonPhase.name}</Text>
-                            <Text style={styles.metaHintText}>{`月龄 ${moonPhase.ageDays.toFixed(2)} 天 · 亮度 ${moonPhase.illuminationPct}%`}</Text>
+                            <View style={[styles.metaKeyBlock, styles.metaHalfBlock]}>
+                                <Text style={styles.metaKeyLabel}>月相</Text>
+                                <Text style={styles.metaKeyValue}>{moonPhase.name}</Text>
+                                <Text style={styles.metaHintText}>{`月龄 ${moonPhase.ageDays.toFixed(2)} 天 · 亮度 ${moonPhase.illuminationPct}%`}</Text>
+                            </View>
                         </View>
                     </View>
 
@@ -196,6 +197,10 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     metaKeyGrid: {
         gap: Spacing.sm,
     },
+    metaDualRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+    },
     metaKeyBlock: {
         backgroundColor: Colors.bg.elevated,
         borderRadius: BorderRadius.md,
@@ -203,6 +208,9 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         borderColor: Colors.border.subtle,
         paddingHorizontal: Spacing.md,
         paddingVertical: Spacing.sm,
+    },
+    metaHalfBlock: {
+        width: '48%',
     },
     metaKeyLabel: {
         fontSize: FontSize.xs,

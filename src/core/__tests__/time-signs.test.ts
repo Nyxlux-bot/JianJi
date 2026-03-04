@@ -55,6 +55,18 @@ describe('time-signs', () => {
             expect(result.illuminationPct).toBeGreaterThan(95);
         });
 
+        it('forces 望月 on lunar day 15', () => {
+            const anyDate = new Date('2026-02-15T12:00:00Z');
+            const result = getMoonPhase(anyDate, 15);
+            expect(result.name).toBe('望月');
+        });
+
+        it('forces 既望 on lunar day 16', () => {
+            const anyDate = new Date('2026-02-16T12:00:00Z');
+            const result = getMoonPhase(anyDate, 16);
+            expect(result.name).toBe('既望');
+        });
+
         it('keeps ageDays within [0, synodicMonth)', () => {
             const dates = [
                 new Date('1998-04-12T00:00:00Z'),
