@@ -9,6 +9,7 @@ import { getSettings } from './settings';
 import EventSource from 'react-native-sse';
 import { getAllRelatedGua } from '../core/hexagramTransform';
 import ichingData from '../data/iching.json';
+import { getMonthGeneralByJieqi, getMoonPhase } from '../core/time-signs';
 
 const ICHING_MAP = new Map<string, string>();
 (ichingData as any[]).forEach(d => {
@@ -29,6 +30,11 @@ function getGongWuXing(gongName: string): string {
  */
 function formatPanForAI(result: PanResult): string {
     const lines: string[] = [];
+    const monthGeneral = result.monthGeneral || getMonthGeneralByJieqi(result.jieqi?.current || '', result.monthGanZhi?.[1]);
+    const createdAtDate = new Date(result.createdAt);
+    const moonPhase = result.moonPhase || getMoonPhase(
+        Number.isNaN(createdAtDate.getTime()) ? new Date() : createdAtDate
+    );
 
     // ===== 排盘信息 =====
     lines.push(`【排盘信息】`);
@@ -47,6 +53,8 @@ function formatPanForAI(result: PanResult): string {
     lines.push(`月柱：${result.monthGanZhi}（${result.monthNaYin}）`);
     lines.push(`日柱：${result.dayGanZhi}（${result.dayNaYin}）`);
     lines.push(`时柱：${result.hourGanZhi}（${result.hourNaYin}）`);
+    lines.push(`【月将】${monthGeneral.zhi}将${monthGeneral.name}（依据节气：${monthGeneral.basedOnTerm}）`);
+    lines.push(`【月相】${moonPhase.name}（月龄${moonPhase.ageDays.toFixed(2)}天，亮度${moonPhase.illuminationPct}%）`);
     if (result.xunKong && result.shenSha) {
         lines.push(`【空亡】日空：${result.xunKong.join(' ')}`);
         lines.push(`【神煞】驿马:${result.shenSha.yiMa || '无'} 桃花:${result.shenSha.taoHua || '无'} 贵人:${result.shenSha.tianYiGuiRen.join(' ')} 禄神:${result.shenSha.luShen || '无'} 羊刃:${result.shenSha.yangRen || '无'} 文昌:${result.shenSha.wenChang || '无'} 将星:${result.shenSha.jiangXing || '无'} 华盖:${result.shenSha.huaGai || '无'} 劫煞:${result.shenSha.jieSha || '无'} 灾煞:${result.shenSha.zaiSha || '无'}`);

@@ -13,6 +13,7 @@ import { solarToLunar, getNaYin, getCurrentJieqi, LunarDate } from './lunar';
 import { calculateTrueSolarTime, formatTrueSolarTime } from './true-solar-time';
 import { getXunKong } from './xun-kong';
 import { getShenSha, ShenShaResult } from './shen-sha';
+import { getMonthGeneralByJieqi, getMoonPhase, MonthGeneral, MoonPhase } from './time-signs';
 
 // ==================== 排盘结果类型 ====================
 
@@ -71,6 +72,8 @@ export interface PanResult {
     // 旬空与神煞
     xunKong: [string, string];
     shenSha: ShenShaResult;
+    monthGeneral?: MonthGeneral;
+    moonPhase?: MoonPhase;
     // 本卦
     benGua: GuaInfo;
     benGuaYao: YaoDetail[];
@@ -309,6 +312,8 @@ export function calculatePan(
         hourNaYin: getNaYin(lunarInfo.hourGanZhi),
         xunKong: getXunKong(lunarInfo.dayGanZhi),
         shenSha: getShenSha(lunarInfo.dayGanZhi[0], lunarInfo.dayGanZhi[1]),
+        monthGeneral: getMonthGeneralByJieqi(jieqi.current, lunarInfo.monthGanZhi[1]),
+        moonPhase: getMoonPhase(date),
         benGua,
         benGuaYao,
         bianGua,
