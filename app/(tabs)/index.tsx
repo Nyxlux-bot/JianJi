@@ -19,6 +19,7 @@ import { useTheme } from "../../src/theme/ThemeContext";
 import {
     AISettings, getSettings, saveSettings, DEFAULT_SETTINGS, lockAISettings, unlockAISettings
 } from '../../src/services/settings';
+import { CURRENT_PROMPT_VERSION } from '../../src/services/default-prompts';
 
 const { width } = Dimensions.get('window');
 
@@ -98,6 +99,8 @@ export default function HomePage() {
                     setSettings(prev => ({
                         ...prev,
                         systemPrompt: DEFAULT_SETTINGS.systemPrompt,
+                        promptIsCustom: false,
+                        promptVersion: CURRENT_PROMPT_VERSION,
                     }));
                 },
             },
@@ -339,7 +342,12 @@ export default function HomePage() {
                                 <TextInput
                                     style={styles.promptInput}
                                     value={settings.systemPrompt}
-                                    onChangeText={v => setSettings(prev => ({ ...prev, systemPrompt: v }))}
+                                    onChangeText={v => setSettings(prev => ({
+                                        ...prev,
+                                        systemPrompt: v,
+                                        promptIsCustom: v.trim() !== DEFAULT_SETTINGS.systemPrompt.trim(),
+                                        promptVersion: CURRENT_PROMPT_VERSION,
+                                    }))}
                                     placeholder="输入六爻测算的系统指令..."
                                     placeholderTextColor={Colors.text.tertiary}
                                     multiline

@@ -26,7 +26,7 @@ export default function ScrollPicker({
 }: ScrollPickerProps) {
     const { Colors: ContextColors } = useTheme();
     const Colors = PropColors || ContextColors;
-    const styles = makeStyles(Colors);
+    const styles = useMemo(() => makeStyles(Colors), [Colors]);
 
     const resolvedActiveTextColor = activeTextColor || Colors.text.primary;
     const resolvedInactiveTextColor = inactiveTextColor || Colors.text.tertiary;

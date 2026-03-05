@@ -5,6 +5,7 @@
 
 import { Platform } from 'react-native';
 import { PanResult } from '../core/liuyao-calc';
+import { validateImportRecords } from './import-validation';
 
 // ==================== 类型定义 ====================
 
@@ -119,8 +120,10 @@ const webDb = {
         return getWebRecords().map(r => r.fullResult);
     },
     async importAll(results: PanResult[], mode: ImportMode = 'merge'): Promise<void> {
-        let records = mode === 'replace' ? [] : getWebRecords();
-        for (const res of results) {
+        const validatedResults = validateImportRecords(results as unknown[]);
+        const sourceRecords = mode === 'replace' ? [] : getWebRecords();
+        const records = [...sourceRecords];
+        for (const res of validatedResults) {
             mergeWebRecord(records, res);
         }
         setWebRecords(records);
@@ -162,7 +165,7 @@ const nativeDb = {
         const database = await getNativeDatabase();
         await database.runAsync(
             `INSERT OR REPLACE INTO records (id, created_at, method, question, gua_name, bian_gua_name, full_result, is_favorite)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+             VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT is_favorite FROM records WHERE id = ?), 0))`,
             [
                 result.id,
                 result.createdAt,
@@ -171,6 +174,7 @@ const nativeDb = {
                 result.benGua.fullName,
                 result.bianGua?.fullName || '',
                 JSON.stringify(result),
+                result.id,
             ]
         );
     },
@@ -233,42 +237,47 @@ const nativeDb = {
     },
     async importAll(results: PanResult[], mode: ImportMode = 'merge'): Promise<void> {
         const database = await getNativeDatabase();
-        if (mode === 'replace') {
-            await database.runAsync(`DELETE FROM records`);
-        }
-        // 原生 SQLite 推荐使用异步串行避免卡顿死锁
-        for (const res of results) {
+        const validatedResults = validateImportRecords(results as unknown[]);
+
+        await database.withTransactionAsync(async () => {
             if (mode === 'replace') {
-                await database.runAsync(
-                    `INSERT OR REPLACE INTO records (id, created_at, method, question, gua_name, bian_gua_name, full_result, is_favorite)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
-                    [
-                        res.id,
-                        res.createdAt,
-                        res.method,
-                        res.question,
-                        res.benGua.fullName,
-                        res.bianGua?.fullName || '',
-                        JSON.stringify(res),
-                    ]
-                );
-            } else {
-                await database.runAsync(
-                    `INSERT OR REPLACE INTO records (id, created_at, method, question, gua_name, bian_gua_name, full_result, is_favorite)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT is_favorite FROM records WHERE id = ?), 0))`,
-                    [
-                        res.id,
-                        res.createdAt,
-                        res.method,
-                        res.question,
-                        res.benGua.fullName,
-                        res.bianGua?.fullName || '',
-                        JSON.stringify(res),
-                        res.id
-                    ]
-                );
+                await database.runAsync(`DELETE FROM records`);
             }
-        }
+
+            // 原生 SQLite 推荐使用异步串行避免卡顿死锁
+            for (const res of validatedResults) {
+                if (mode === 'replace') {
+                    await database.runAsync(
+                        `INSERT OR REPLACE INTO records (id, created_at, method, question, gua_name, bian_gua_name, full_result, is_favorite)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+                        [
+                            res.id,
+                            res.createdAt,
+                            res.method,
+                            res.question,
+                            res.benGua.fullName,
+                            res.bianGua?.fullName || '',
+                            JSON.stringify(res),
+                        ]
+                    );
+                } else {
+                    await database.runAsync(
+                        `INSERT OR REPLACE INTO records (id, created_at, method, question, gua_name, bian_gua_name, full_result, is_favorite)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT is_favorite FROM records WHERE id = ?), 0))`,
+                        [
+                            res.id,
+                            res.createdAt,
+                            res.method,
+                            res.question,
+                            res.benGua.fullName,
+                            res.bianGua?.fullName || '',
+                            JSON.stringify(res),
+                            res.id
+                        ]
+                    );
+                }
+            }
+        });
     }
 };
 
