@@ -3,18 +3,20 @@
  * 展示所有排盘记录，支持查看和删除
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity,
-    FlatList, Alert,
+    FlatList, TextInput,
 } from 'react-native';
 import StatusBarDecor from '../../src/components/StatusBarDecor';
 import { router, useFocusEffect } from 'expo-router';
 import { Spacing, FontSize, BorderRadius } from '../../src/theme/colors';
-import { BackIcon, TrashIcon, ChevronRightIcon } from '../../src/components/Icons';
-import { getAllRecords, deleteRecord, RecordSummary } from '../../src/db/database';
+import { TrashIcon, ChevronRightIcon, StarIcon } from '../../src/components/Icons';
+import { getAllRecords, deleteRecord, toggleFavorite, RecordSummary } from '../../src/db/database';
 import ConfirmModal from '../../src/components/ConfirmModal';
 import { useTheme } from "../../src/theme/ThemeContext";
+import { DivinationMethod } from '../../src/core/liuyao-data';
+import { DEFAULT_HISTORY_FILTER, filterHistoryRecords, HistoryFilterState } from '../../src/app/history-filter';
 
 const METHOD_CN: Record<string, string> = {
     time: '时间', coin: '硬币', number: '数字', manual: '手动',
@@ -24,6 +26,7 @@ export default function HistoryPage() {
     const { Colors } = useTheme();
     const styles = makeStyles(Colors);
     const [records, setRecords] = useState<RecordSummary[]>([]);
+    const [filters, setFilters] = useState<HistoryFilterState>(DEFAULT_HISTORY_FILTER);
     const [deleteModalVisible, setDeleteModalVisible] = useState(false);
     const [deletingRecord, setDeletingRecord] = useState<{ id: string, name: string } | null>(null);
 
@@ -51,6 +54,26 @@ export default function HistoryPage() {
         setDeletingRecord({ id, name });
         setDeleteModalVisible(true);
     };
+
+    const handleToggleFavorite = async (id: string) => {
+        await toggleFavorite(id);
+        loadRecords();
+    };
+
+    const handleToggleMethod = (method: DivinationMethod) => {
+        setFilters((prev) => {
+            const exists = prev.methods.includes(method);
+            return {
+                ...prev,
+                methods: exists ? prev.methods.filter(m => m !== method) : [...prev.methods, method],
+            };
+        });
+    };
+
+    const filteredRecords = useMemo(
+        () => filterHistoryRecords(records, filters),
+        [records, filters]
+    );
 
     const formatDate = (iso: string) => {
         const d = new Date(iso);
@@ -86,13 +109,22 @@ export default function HistoryPage() {
                     </Text>
                 ) : null}
             </View>
-            <TouchableOpacity
-                style={styles.deleteBtn}
-                onPress={() => handleDelete(item.id, item.guaName)}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-                <TrashIcon size={16} color={Colors.text.tertiary} />
-            </TouchableOpacity>
+            <View style={styles.actions}>
+                <TouchableOpacity
+                    style={styles.actionBtn}
+                    onPress={() => handleToggleFavorite(item.id)}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                    <StarIcon size={17} color={item.isFavorite ? Colors.accent.gold : Colors.text.tertiary} filled={item.isFavorite} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={styles.actionBtn}
+                    onPress={() => handleDelete(item.id, item.guaName)}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                    <TrashIcon size={16} color={Colors.text.tertiary} />
+                </TouchableOpacity>
+            </View>
         </TouchableOpacity>
     );
 
@@ -105,14 +137,54 @@ export default function HistoryPage() {
                 <View style={styles.backBtn} />
             </View>
 
+            <View style={styles.filterArea}>
+                <TextInput
+                    style={styles.searchInput}
+                    value={filters.keyword}
+                    onChangeText={(text) => setFilters(prev => ({ ...prev, keyword: text }))}
+                    placeholder="搜索占问、本卦、变卦"
+                    placeholderTextColor={Colors.text.tertiary}
+                    clearButtonMode="while-editing"
+                />
+                <View style={styles.filterRow}>
+                    <TouchableOpacity
+                        style={[styles.filterChip, filters.onlyFavorite && styles.filterChipActive]}
+                        onPress={() => setFilters(prev => ({ ...prev, onlyFavorite: !prev.onlyFavorite }))}
+                    >
+                        <Text style={[styles.filterChipText, filters.onlyFavorite && styles.filterChipTextActive]}>
+                            仅收藏
+                        </Text>
+                    </TouchableOpacity>
+                    {(Object.keys(METHOD_CN) as DivinationMethod[]).map((method) => {
+                        const active = filters.methods.includes(method);
+                        return (
+                            <TouchableOpacity
+                                key={method}
+                                style={[styles.filterChip, active && styles.filterChipActive]}
+                                onPress={() => handleToggleMethod(method)}
+                            >
+                                <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
+                                    {METHOD_CN[method]}
+                                </Text>
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
+            </View>
+
             {records.length === 0 ? (
                 <View style={styles.empty}>
                     <Text style={styles.emptyText}>暂无排盘记录</Text>
                     <Text style={styles.emptyHint}>起卦后的记录将保存在这里</Text>
                 </View>
+            ) : filteredRecords.length === 0 ? (
+                <View style={styles.empty}>
+                    <Text style={styles.emptyText}>未找到匹配记录</Text>
+                    <Text style={styles.emptyHint}>调整关键词或筛选条件后重试</Text>
+                </View>
             ) : (
                 <FlatList
-                    data={records}
+                    data={filteredRecords}
                     keyExtractor={item => item.id}
                     renderItem={renderItem}
                     contentContainerStyle={styles.listContent}
@@ -141,6 +213,47 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     },
     backBtn: { width: 40, height: 40, justifyContent: 'center' },
     headerTitle: { fontSize: FontSize.lg, color: Colors.text.heading, fontWeight: '400' },
+    filterArea: {
+        paddingHorizontal: Spacing.md,
+        paddingBottom: Spacing.md,
+        gap: Spacing.sm,
+    },
+    searchInput: {
+        minHeight: 44,
+        borderRadius: BorderRadius.md,
+        borderWidth: 1,
+        borderColor: Colors.border.subtle,
+        backgroundColor: Colors.bg.card,
+        color: Colors.text.primary,
+        paddingHorizontal: Spacing.md,
+        fontSize: FontSize.md,
+    },
+    filterRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: Spacing.sm,
+    },
+    filterChip: {
+        minHeight: 36,
+        paddingHorizontal: Spacing.md,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: Colors.border.subtle,
+        backgroundColor: Colors.bg.elevated,
+        justifyContent: 'center',
+    },
+    filterChipActive: {
+        borderColor: Colors.accent.gold,
+        backgroundColor: Colors.bg.card,
+    },
+    filterChipText: {
+        fontSize: FontSize.sm,
+        color: Colors.text.secondary,
+    },
+    filterChipTextActive: {
+        color: Colors.accent.gold,
+        fontWeight: '600',
+    },
     listContent: { paddingHorizontal: Spacing.md, paddingBottom: 40 },
     recordCard: {
         flexDirection: 'row', alignItems: 'center',
@@ -158,8 +271,12 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     recordQuestion: {
         fontSize: FontSize.sm, color: Colors.text.secondary, marginTop: Spacing.xs,
     },
-    deleteBtn: {
-        width: 36, height: 36, justifyContent: 'center', alignItems: 'center',
+    actions: {
+        alignItems: 'center',
+        marginLeft: Spacing.sm,
+    },
+    actionBtn: {
+        width: 40, height: 40, justifyContent: 'center', alignItems: 'center',
     },
     empty: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     emptyText: { fontSize: FontSize.lg, color: Colors.text.tertiary },

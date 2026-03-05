@@ -6,6 +6,7 @@
 import { Platform } from 'react-native';
 import { PanResult } from '../core/liuyao-calc';
 import { validateImportRecords } from './import-validation';
+import { resolveImportAction } from './import-strategy';
 
 // ==================== 类型定义 ====================
 
@@ -30,6 +31,18 @@ export interface RecordSummary {
 }
 
 export type ImportMode = 'merge' | 'replace';
+export type ImportConflictPolicy = 'skip' | 'replace';
+
+export interface ImportStats {
+    inserted: number;
+    updated: number;
+    skipped: number;
+}
+
+export interface ImportOptions {
+    mode?: ImportMode;
+    conflictPolicy?: ImportConflictPolicy;
+}
 
 // ==================== Web 端 localStorage 实现 ====================
 
@@ -82,6 +95,19 @@ function mergeWebRecord(records: WebRecord[], res: PanResult): void {
     }
 }
 
+function toWebRecord(res: PanResult, isFavorite: boolean): WebRecord {
+    return {
+        id: res.id,
+        createdAt: res.createdAt,
+        method: res.method,
+        question: res.question,
+        guaName: res.benGua.fullName,
+        bianGuaName: res.bianGua?.fullName || '',
+        fullResult: res,
+        isFavorite,
+    };
+}
+
 const webDb = {
     async save(result: PanResult): Promise<void> {
         const records = getWebRecords();
@@ -119,14 +145,37 @@ const webDb = {
     async exportAll(): Promise<PanResult[]> {
         return getWebRecords().map(r => r.fullResult);
     },
-    async importAll(results: PanResult[], mode: ImportMode = 'merge'): Promise<void> {
+    async importAll(results: PanResult[], options: ImportOptions = {}): Promise<ImportStats> {
+        const mode = options.mode || 'merge';
+        const conflictPolicy = options.conflictPolicy || 'replace';
         const validatedResults = validateImportRecords(results as unknown[]);
         const sourceRecords = mode === 'replace' ? [] : getWebRecords();
         const records = [...sourceRecords];
+        const stats: ImportStats = { inserted: 0, updated: 0, skipped: 0 };
+        const indexById = new Map(records.map((record, index) => [record.id, index]));
+
         for (const res of validatedResults) {
-            mergeWebRecord(records, res);
+            const existingIndex = indexById.get(res.id);
+            const hasExisting = existingIndex !== undefined;
+            const action = resolveImportAction(hasExisting, mode, conflictPolicy);
+
+            if (action === 'skip') {
+                stats.skipped += 1;
+            } else if (action === 'update') {
+                const targetIndex = existingIndex as number;
+                const previous = records[targetIndex];
+                records[targetIndex] = toWebRecord(res, mode === 'replace' ? false : previous.isFavorite);
+                stats.updated += 1;
+            } else {
+                records.push(toWebRecord(res, false));
+                indexById.set(res.id, records.length - 1);
+                stats.inserted += 1;
+            }
         }
+
+        records.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
         setWebRecords(records);
+        return stats;
     }
 };
 
@@ -235,9 +284,12 @@ const nativeDb = {
         }
         return results;
     },
-    async importAll(results: PanResult[], mode: ImportMode = 'merge'): Promise<void> {
+    async importAll(results: PanResult[], options: ImportOptions = {}): Promise<ImportStats> {
+        const mode = options.mode || 'merge';
+        const conflictPolicy = options.conflictPolicy || 'replace';
         const database = await getNativeDatabase();
         const validatedResults = validateImportRecords(results as unknown[]);
+        const stats: ImportStats = { inserted: 0, updated: 0, skipped: 0 };
 
         await database.withTransactionAsync(async () => {
             if (mode === 'replace') {
@@ -246,38 +298,42 @@ const nativeDb = {
 
             // 原生 SQLite 推荐使用异步串行避免卡顿死锁
             for (const res of validatedResults) {
-                if (mode === 'replace') {
-                    await database.runAsync(
-                        `INSERT OR REPLACE INTO records (id, created_at, method, question, gua_name, bian_gua_name, full_result, is_favorite)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
-                        [
-                            res.id,
-                            res.createdAt,
-                            res.method,
-                            res.question,
-                            res.benGua.fullName,
-                            res.bianGua?.fullName || '',
-                            JSON.stringify(res),
-                        ]
-                    );
+                const existing = await database.getFirstAsync(
+                    `SELECT is_favorite FROM records WHERE id = ?`,
+                    [res.id]
+                ) as { is_favorite: number } | null;
+
+                const action = resolveImportAction(Boolean(existing), mode, conflictPolicy);
+                if (action === 'skip') {
+                    stats.skipped += 1;
+                    continue;
+                }
+
+                const favoriteValue = mode === 'replace' ? 0 : (existing?.is_favorite ?? 0);
+                await database.runAsync(
+                    `INSERT OR REPLACE INTO records (id, created_at, method, question, gua_name, bian_gua_name, full_result, is_favorite)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                        res.id,
+                        res.createdAt,
+                        res.method,
+                        res.question,
+                        res.benGua.fullName,
+                        res.bianGua?.fullName || '',
+                        JSON.stringify(res),
+                        favoriteValue,
+                    ]
+                );
+
+                if (action === 'update') {
+                    stats.updated += 1;
                 } else {
-                    await database.runAsync(
-                        `INSERT OR REPLACE INTO records (id, created_at, method, question, gua_name, bian_gua_name, full_result, is_favorite)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT is_favorite FROM records WHERE id = ?), 0))`,
-                        [
-                            res.id,
-                            res.createdAt,
-                            res.method,
-                            res.question,
-                            res.benGua.fullName,
-                            res.bianGua?.fullName || '',
-                            JSON.stringify(res),
-                            res.id
-                        ]
-                    );
+                    stats.inserted += 1;
                 }
             }
         });
+
+        return stats;
     }
 };
 
@@ -319,7 +375,7 @@ export async function exportAllRecords(): Promise<PanResult[]> {
 /** 批量导入排盘数据 (用于恢复，支持 merge/replace 模式) */
 export async function importRecords(
     records: PanResult[],
-    options: { mode?: ImportMode } = {}
-): Promise<void> {
-    return storage.importAll(records, options.mode || 'merge');
+    options: ImportOptions = {}
+): Promise<ImportStats> {
+    return storage.importAll(records, options);
 }

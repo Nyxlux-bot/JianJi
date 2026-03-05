@@ -6,22 +6,23 @@
 import React, { useEffect, useState } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity,
-    ScrollView, Alert, ActivityIndicator,
+    ScrollView,
 } from 'react-native';
 import StatusBarDecor from '../../src/components/StatusBarDecor';
 import ConfirmModal from '../../src/components/ConfirmModal';
 import { CustomAlert } from '../../src/components/CustomAlertProvider';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Spacing, FontSize, BorderRadius } from '../../src/theme/colors';
-import { BackIcon, TrashIcon, AIIcon, SparklesIcon, CompassIcon } from '../../src/components/Icons';
+import { BackIcon, TrashIcon, SparklesIcon, CompassIcon, StarIcon, ShareIcon } from '../../src/components/Icons';
 import HexagramDisplay from '../../src/components/HexagramDisplay';
 import FourPillars from '../../src/components/FourPillars';
 import { PanResult } from '../../src/core/liuyao-calc';
-import { getRecord, deleteRecord, saveRecord } from '../../src/db/database';
+import { getRecord, deleteRecord, getAllRecords, toggleFavorite } from '../../src/db/database';
 import { isAIConfigured } from '../../src/services/settings';
 import { useTheme } from "../../src/theme/ThemeContext";
 import GuaXiangBottomSheet from '../../src/components/GuaXiangBottomSheet';
 import AIChatModal from '../../src/components/AIChatModal';
+import { shareResultMarkdown } from '../../src/services/share';
 
 const METHOD_CN: Record<string, string> = {
     time: '时间排卦', coin: '硬币排卦', number: '数字排卦', manual: '手动起卦',
@@ -33,10 +34,10 @@ const YAO_TITLE = (pos: number, isYang: boolean) =>
 export default function ResultPage() {
     const { Colors } = useTheme();
     const styles = makeStyles(Colors);
-    const markdownStyles = makeMarkdownStyles(Colors);
 
     const { id } = useLocalSearchParams<{ id: string }>();
     const [result, setResult] = useState<PanResult | null>(null);
+    const [isFavorite, setIsFavorite] = useState(false);
     const [showBasicInfo, setShowBasicInfo] = useState(false);
     const [aiChatVisible, setAiChatVisible] = useState(false);
     const [aiConfigured, setAiConfigured] = useState(false);
@@ -44,12 +45,27 @@ export default function ResultPage() {
     const [sheetVisible, setSheetVisible] = useState(false);
 
     useEffect(() => {
-        if (id) {
-            getRecord(id).then(r => {
-                setResult(r);
-            });
-        }
-        isAIConfigured().then(setAiConfigured);
+        let cancelled = false;
+        const load = async () => {
+            if (id) {
+                const [detail, summaries] = await Promise.all([
+                    getRecord(id),
+                    getAllRecords(),
+                ]);
+                if (!cancelled) {
+                    setResult(detail);
+                    setIsFavorite(Boolean(summaries.find(item => item.id === id)?.isFavorite));
+                }
+            }
+            const configured = await isAIConfigured();
+            if (!cancelled) {
+                setAiConfigured(configured);
+            }
+        };
+        load();
+        return () => {
+            cancelled = true;
+        };
     }, [id]);
 
     const handleOpenAIChat = () => {
@@ -76,6 +92,22 @@ export default function ResultPage() {
         setDeleteModalVisible(true);
     };
 
+    const handleToggleFavorite = async () => {
+        if (!id) return;
+        await toggleFavorite(id);
+        setIsFavorite(prev => !prev);
+    };
+
+    const handleShare = async () => {
+        if (!result) return;
+        try {
+            await shareResultMarkdown(result);
+        } catch (error: any) {
+            const message = typeof error?.message === 'string' ? error.message : '导出失败，请稍后重试';
+            CustomAlert.alert('分享失败', message);
+        }
+    };
+
     if (!result) {
         return (
             <View style={styles.container}>
@@ -98,9 +130,17 @@ export default function ResultPage() {
                     <BackIcon size={24} />
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>排盘结果</Text>
-                <TouchableOpacity onPress={handleDelete} style={styles.headerBtn}>
-                    <TrashIcon size={20} />
-                </TouchableOpacity>
+                <View style={styles.headerActions}>
+                    <TouchableOpacity onPress={handleShare} style={styles.headerBtn}>
+                        <ShareIcon size={18} />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={handleToggleFavorite} style={styles.headerBtn}>
+                        <StarIcon size={19} color={isFavorite ? Colors.accent.gold : Colors.text.primary} filled={isFavorite} />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={handleDelete} style={styles.headerBtn}>
+                        <TrashIcon size={20} />
+                    </TouchableOpacity>
+                </View>
             </View>
 
             <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -316,6 +356,10 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     header: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md,
+    },
+    headerActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
     },
     headerBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
     headerTitle: { fontSize: FontSize.lg, color: Colors.text.heading, fontWeight: '400' },
