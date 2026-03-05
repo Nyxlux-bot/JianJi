@@ -283,3 +283,39 @@ export const SendIcon: React.FC<IconProps> = ({ size = 24, color }) => {
         </Svg>
     );
 };
+
+export const MoreVerticalIcon: React.FC<IconProps> = ({ size = 24, color }) => {
+    const { Colors } = useTheme();
+    const c = color || Colors.text.primary;
+    return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+            <Circle cx="12" cy="5" r="1.8" fill={c} />
+            <Circle cx="12" cy="12" r="1.8" fill={c} />
+            <Circle cx="12" cy="19" r="1.8" fill={c} />
+        </Svg>
+    );
+};
+
+export const GuaArrowIcon: React.FC<IconProps> = ({ size = 20, color }) => {
+    const { Colors } = useTheme();
+    const c = color || Colors.accent.gold;
+    return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+            <Path
+                d="M4 12h13"
+                stroke={c}
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+            <Path
+                d="M13 7l6 5-6 5"
+                stroke={c}
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+            <Circle cx="4" cy="12" r="1.2" fill={c} />
+        </Svg>
+    );
+};
