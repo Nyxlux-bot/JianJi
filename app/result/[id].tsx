@@ -12,8 +12,9 @@ import StatusBarDecor from '../../src/components/StatusBarDecor';
 import ConfirmModal from '../../src/components/ConfirmModal';
 import { CustomAlert } from '../../src/components/CustomAlertProvider';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Spacing, FontSize, BorderRadius } from '../../src/theme/colors';
-import { BackIcon, TrashIcon, SparklesIcon, CompassIcon, StarIcon, ShareIcon } from '../../src/components/Icons';
+import { BackIcon, SparklesIcon, CompassIcon, MoreVerticalIcon } from '../../src/components/Icons';
 import HexagramDisplay from '../../src/components/HexagramDisplay';
 import FourPillars from '../../src/components/FourPillars';
 import { PanResult } from '../../src/core/liuyao-calc';
@@ -23,6 +24,7 @@ import { useTheme } from "../../src/theme/ThemeContext";
 import GuaXiangBottomSheet from '../../src/components/GuaXiangBottomSheet';
 import AIChatModal from '../../src/components/AIChatModal';
 import { shareResultMarkdown } from '../../src/services/share';
+import OverflowMenu, { OverflowMenuItem } from '../../src/components/OverflowMenu';
 
 const METHOD_CN: Record<string, string> = {
     time: '时间排卦', coin: '硬币排卦', number: '数字排卦', manual: '手动起卦',
@@ -34,6 +36,7 @@ const YAO_TITLE = (pos: number, isYang: boolean) =>
 export default function ResultPage() {
     const { Colors } = useTheme();
     const styles = makeStyles(Colors);
+    const insets = useSafeAreaInsets();
 
     const { id } = useLocalSearchParams<{ id: string }>();
     const [result, setResult] = useState<PanResult | null>(null);
@@ -43,6 +46,7 @@ export default function ResultPage() {
     const [aiConfigured, setAiConfigured] = useState(false);
     const [deleteModalVisible, setDeleteModalVisible] = useState(false);
     const [sheetVisible, setSheetVisible] = useState(false);
+    const [menuVisible, setMenuVisible] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -108,6 +112,12 @@ export default function ResultPage() {
         }
     };
 
+    const menuItems: OverflowMenuItem[] = [
+        { key: 'share', label: '导出分享', onPress: handleShare },
+        { key: 'favorite', label: isFavorite ? '取消收藏' : '收藏结果', onPress: handleToggleFavorite },
+        { key: 'delete', label: '删除记录', onPress: handleDelete, destructive: true },
+    ];
+
     if (!result) {
         return (
             <View style={styles.container}>
@@ -130,18 +140,17 @@ export default function ResultPage() {
                     <BackIcon size={24} />
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>排盘结果</Text>
-                <View style={styles.headerActions}>
-                    <TouchableOpacity onPress={handleShare} style={styles.headerBtn}>
-                        <ShareIcon size={18} />
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={handleToggleFavorite} style={styles.headerBtn}>
-                        <StarIcon size={19} color={isFavorite ? Colors.accent.gold : Colors.text.primary} filled={isFavorite} />
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={handleDelete} style={styles.headerBtn}>
-                        <TrashIcon size={20} />
-                    </TouchableOpacity>
-                </View>
+                <TouchableOpacity onPress={() => setMenuVisible(prev => !prev)} style={styles.headerBtn}>
+                    <MoreVerticalIcon size={20} />
+                </TouchableOpacity>
             </View>
+            <OverflowMenu
+                visible={menuVisible}
+                top={insets.top + 54}
+                right={Spacing.lg}
+                items={menuItems}
+                onClose={() => setMenuVisible(false)}
+            />
 
             <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
                 {/* 日期信息卡 */}
@@ -356,10 +365,6 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     header: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md,
-    },
-    headerActions: {
-        flexDirection: 'row',
-        alignItems: 'center',
     },
     headerBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
     headerTitle: { fontSize: FontSize.lg, color: Colors.text.heading, fontWeight: '400' },

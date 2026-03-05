@@ -7,7 +7,7 @@ import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeContext';
 import { Spacing, FontSize, BorderRadius } from '../theme/colors';
-import { BackIcon, SendIcon } from './Icons';
+import { BackIcon, SendIcon, MoreVerticalIcon, GuaArrowIcon } from './Icons';
 import Markdown from 'react-native-markdown-display';
 import { PanResult } from '../core/liuyao-calc';
 import { AIChatMessage, buildSystemMessage, analyzeWithAIChatStream, generateQuickReplies } from '../services/ai';
@@ -15,6 +15,7 @@ import { CustomAlert } from './CustomAlertProvider';
 import { saveRecord } from '../db/database';
 import { shareChatMarkdown } from '../services/share';
 import { buildRetryPlan, getLastAssistantContent } from './ai-chat-actions';
+import OverflowMenu, { OverflowMenuItem } from './OverflowMenu';
 
 interface AIChatModalProps {
     visible: boolean;
@@ -56,6 +57,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult }
     const [inputText, setInputText] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [quickReplies, setQuickReplies] = useState<string[]>([]);
+    const [menuVisible, setMenuVisible] = useState(false);
     const flatListRef = useRef<FlatList>(null);
     const isMounted = useRef(true);
 
@@ -65,6 +67,12 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult }
             isMounted.current = false;
         };
     }, []);
+
+    useEffect(() => {
+        if (!visible) {
+            setMenuVisible(false);
+        }
+    }, [visible]);
 
     // 回显初始化：读取盘中的 aiChatHistory 或是兼容老的 aiAnalysis
     useEffect(() => {
@@ -209,6 +217,17 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult }
         }
     };
 
+    const handleClose = () => {
+        setMenuVisible(false);
+        onClose();
+    };
+
+    const menuItems: OverflowMenuItem[] = [
+        { key: 'copy', label: '复制回复', onPress: handleCopyLatestAssistant, disabled: isLoading },
+        { key: 'retry', label: '重试上一问', onPress: handleRetryLastQuestion, disabled: isLoading },
+        { key: 'export', label: '导出会话', onPress: handleExportChat, disabled: isLoading },
+    ];
+
     const renderMessage = ({ item }: { item: UIChatMessage }) => {
         if (item.role === 'system') return null;
 
@@ -232,41 +251,33 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult }
         <Modal
             visible={visible}
             animationType="slide"
-            onRequestClose={onClose}
+            onRequestClose={handleClose}
         >
             <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
                 <View style={styles.header}>
-                    <TouchableOpacity onPress={onClose} style={styles.headerBtn}>
+                    <TouchableOpacity onPress={handleClose} style={styles.headerBtn}>
                         <BackIcon size={24} color={Colors.text.primary} />
                     </TouchableOpacity>
-                    {result.question ? (
-                        <Text style={styles.headerTitle} numberOfLines={1}>{result.question}</Text>
-                    ) : null}
-                    <View style={styles.headerBtn} />
-                </View>
-                <View style={styles.actionBar}>
-                    <TouchableOpacity
-                        style={[styles.actionBarBtn, isLoading && styles.actionBarBtnDisabled]}
-                        onPress={handleCopyLatestAssistant}
-                        disabled={isLoading}
-                    >
-                        <Text style={styles.actionBarBtnText}>复制回复</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[styles.actionBarBtn, isLoading && styles.actionBarBtnDisabled]}
-                        onPress={handleRetryLastQuestion}
-                        disabled={isLoading}
-                    >
-                        <Text style={styles.actionBarBtnText}>重试上一问</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[styles.actionBarBtn, isLoading && styles.actionBarBtnDisabled]}
-                        onPress={handleExportChat}
-                        disabled={isLoading}
-                    >
-                        <Text style={styles.actionBarBtnText}>导出会话</Text>
+                    <View style={styles.headerTitleWrap}>
+                        <Text style={styles.headerGuaName} numberOfLines={1}>
+                            {result.benGua.fullName}
+                        </Text>
+                        <GuaArrowIcon size={16} color={Colors.accent.gold} />
+                        <Text style={styles.headerGuaName} numberOfLines={1}>
+                            {result.bianGua?.fullName || '无变卦'}
+                        </Text>
+                    </View>
+                    <TouchableOpacity onPress={() => setMenuVisible(prev => !prev)} style={styles.headerBtn}>
+                        <MoreVerticalIcon size={20} color={Colors.text.primary} />
                     </TouchableOpacity>
                 </View>
+                <OverflowMenu
+                    visible={menuVisible}
+                    top={insets.top + 54}
+                    right={Spacing.lg}
+                    items={menuItems}
+                    onClose={() => setMenuVisible(false)}
+                />
 
                 <KeyboardAvoidingView
                     style={styles.keyboardView}
@@ -368,36 +379,22 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         width: 40, height: 40,
         justifyContent: 'center', alignItems: 'center'
     },
-    headerTitle: {
-        fontSize: FontSize.lg, color: Colors.text.heading, fontWeight: '500'
+    headerTitleWrap: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: Spacing.xs,
+        marginHorizontal: Spacing.sm,
+    },
+    headerGuaName: {
+        maxWidth: '42%',
+        fontSize: FontSize.md,
+        color: Colors.text.heading,
+        fontWeight: '500',
     },
     keyboardView: {
         flex: 1,
-    },
-    actionBar: {
-        flexDirection: 'row',
-        paddingHorizontal: Spacing.md,
-        paddingBottom: Spacing.sm,
-        gap: Spacing.sm,
-        borderBottomWidth: 1,
-        borderBottomColor: Colors.border.subtle,
-    },
-    actionBarBtn: {
-        flex: 1,
-        minHeight: 40,
-        borderWidth: 1,
-        borderColor: Colors.border.subtle,
-        borderRadius: BorderRadius.md,
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: Colors.bg.elevated,
-    },
-    actionBarBtnDisabled: {
-        opacity: 0.6,
-    },
-    actionBarBtnText: {
-        color: Colors.text.secondary,
-        fontSize: FontSize.xs,
     },
     chatContainer: {
         padding: Spacing.md,
