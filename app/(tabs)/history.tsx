@@ -16,7 +16,7 @@ import { getAllRecords, deleteRecord, toggleFavorite, RecordSummary } from '../.
 import ConfirmModal from '../../src/components/ConfirmModal';
 import { useTheme } from "../../src/theme/ThemeContext";
 import { DivinationMethod } from '../../src/core/liuyao-data';
-import { DEFAULT_HISTORY_FILTER, filterHistoryRecords, HistoryFilterState } from '../../src/app/history-filter';
+import { DEFAULT_HISTORY_FILTER, filterHistoryRecords, HistoryFilterState } from '../../src/utils/history-filter';
 
 const METHOD_CN: Record<string, string> = {
     time: '时间', coin: '硬币', number: '数字', manual: '手动',
