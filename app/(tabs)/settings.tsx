@@ -12,16 +12,17 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 import { CustomAlert } from '../../src/components/CustomAlertProvider';
-import { exportAllRecords, importRecords, type ImportMode } from '../../src/db/database';
+import { exportAllRecords, getAllRecords, importRecords, type ImportConflictPolicy } from '../../src/db/database';
 import StatusBarDecor from '../../src/components/StatusBarDecor';
-import { router } from 'expo-router';
 import { Spacing, FontSize, BorderRadius } from '../../src/theme/colors';
-import { BackIcon } from '../../src/components/Icons';
 import {
     AISettings, getSettings, saveSettings, DEFAULT_SETTINGS
 } from '../../src/services/settings';
 import { CURRENT_PROMPT_VERSION } from '../../src/services/default-prompts';
 import { useTheme } from "../../src/theme/ThemeContext";
+import { PanResult } from '../../src/core/liuyao-calc';
+import { validateImportRecords } from '../../src/db/import-validation';
+import ImportPreviewModal from '../../src/components/ImportPreviewModal';
 
 function buildBackupSettings(settings: AISettings): AISettings {
     return {
@@ -72,6 +73,10 @@ export default function SettingsPage() {
     const styles = makeStyles(Colors);
     const [settings, setSettings] = useState<AISettings>(DEFAULT_SETTINGS);
     const [loading, setLoading] = useState(true);
+    const [previewVisible, setPreviewVisible] = useState(false);
+    const [pendingRecords, setPendingRecords] = useState<PanResult[]>([]);
+    const [pendingSettingsRaw, setPendingSettingsRaw] = useState<unknown>(null);
+    const [pendingDuplicateCount, setPendingDuplicateCount] = useState(0);
 
     useEffect(() => {
         getSettings().then(s => {
@@ -117,34 +122,6 @@ export default function SettingsPage() {
     };
 
     const handleRestore = async () => {
-        const performRestore = async (backupData: any, mode: ImportMode) => {
-            try {
-                setLoading(true);
-
-                if (backupData.settings) {
-                    const normalizedSettings = normalizeImportedSettings(backupData.settings, settings);
-                    try {
-                        await saveSettings(normalizedSettings);
-                        setSettings(normalizedSettings);
-                    } catch (error: any) {
-                        const message = typeof error?.message === 'string' ? error.message : '持久化设置失败';
-                        throw new Error(`设置恢复失败：${message}`);
-                    }
-                }
-
-                await importRecords(backupData.records, { mode });
-
-                const modeText = mode === 'replace' ? '覆盖恢复' : '合并恢复';
-                CustomAlert.alert('恢复成功', `${modeText}完成，成功恢复 ${backupData.records.length || 0} 条占卜记录。`, [
-                    { text: '确定', onPress: () => router.back() }
-                ]);
-            } catch (e: any) {
-                CustomAlert.alert('恢复失败', typeof e.message === 'string' ? e.message : '文件解析错误');
-            } finally {
-                setLoading(false);
-            }
-        };
-
         try {
             const result = await DocumentPicker.getDocumentAsync({
                 type: 'application/json',
@@ -160,21 +137,55 @@ export default function SettingsPage() {
             if (!Array.isArray(backupData.records)) {
                 throw new Error('无效的备份文件：缺失记录数据');
             }
+            const validatedRecords = validateImportRecords(backupData.records as unknown[]);
+            const existingRecords = await getAllRecords();
+            const existingIdSet = new Set(existingRecords.map(record => record.id));
+            const duplicateCount = validatedRecords.reduce(
+                (count, record) => count + (existingIdSet.has(record.id) ? 1 : 0),
+                0
+            );
 
-            const promptReplaceRestore = () => {
-                CustomAlert.alert('确认覆盖恢复', '覆盖恢复会先清空本地全部记录，再导入备份内容。确定继续吗？', [
-                    { text: '取消', style: 'cancel' },
-                    { text: '确认覆盖', style: 'destructive', onPress: () => performRestore(backupData, 'replace') },
-                ]);
-            };
-
-            CustomAlert.alert('选择恢复方式', '请选择导入策略（默认推荐：合并恢复）', [
-                { text: '合并恢复', onPress: () => performRestore(backupData, 'merge') },
-                { text: '覆盖恢复', style: 'destructive', onPress: promptReplaceRestore },
-                { text: '取消', style: 'cancel' },
-            ]);
+            setPendingRecords(validatedRecords);
+            setPendingSettingsRaw(backupData.settings);
+            setPendingDuplicateCount(duplicateCount);
+            setPreviewVisible(true);
         } catch (e: any) {
             CustomAlert.alert('恢复失败', typeof e.message === 'string' ? e.message : '文件解析错误');
+        }
+    };
+
+    const handleConfirmRestore = async (payload: { selectedRecords: PanResult[]; conflictPolicy: ImportConflictPolicy }) => {
+        try {
+            setLoading(true);
+
+            if (pendingSettingsRaw) {
+                const normalizedSettings = normalizeImportedSettings(pendingSettingsRaw, settings);
+                try {
+                    await saveSettings(normalizedSettings);
+                    setSettings(normalizedSettings);
+                } catch (error: any) {
+                    const message = typeof error?.message === 'string' ? error.message : '持久化设置失败';
+                    throw new Error(`设置恢复失败：${message}`);
+                }
+            }
+
+            const stats = await importRecords(payload.selectedRecords, {
+                mode: 'merge',
+                conflictPolicy: payload.conflictPolicy,
+            });
+
+            setPreviewVisible(false);
+            setPendingRecords([]);
+            setPendingSettingsRaw(null);
+
+            CustomAlert.alert(
+                '恢复成功',
+                `导入完成：新增 ${stats.inserted} 条，覆盖 ${stats.updated} 条，跳过 ${stats.skipped} 条。`
+            );
+        } catch (e: any) {
+            CustomAlert.alert('恢复失败', typeof e.message === 'string' ? e.message : '文件解析错误');
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -250,6 +261,19 @@ export default function SettingsPage() {
                 <View style={{ height: 60 }} />
             </ScrollView>
 
+            <ImportPreviewModal
+                visible={previewVisible}
+                loading={loading}
+                records={pendingRecords}
+                duplicateCount={pendingDuplicateCount}
+                allowEmptySelection={pendingSettingsRaw !== null && pendingSettingsRaw !== undefined}
+                onCancel={() => {
+                    setPreviewVisible(false);
+                    setPendingRecords([]);
+                    setPendingSettingsRaw(null);
+                }}
+                onConfirm={handleConfirmRestore}
+            />
         </View>
     );
 }

@@ -3,6 +3,7 @@ import {
     View, Text, StyleSheet, Modal, TouchableOpacity, TextInput,
     FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Keyboard
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeContext';
 import { Spacing, FontSize, BorderRadius } from '../theme/colors';
@@ -12,6 +13,8 @@ import { PanResult } from '../core/liuyao-calc';
 import { AIChatMessage, buildSystemMessage, analyzeWithAIChatStream, generateQuickReplies } from '../services/ai';
 import { CustomAlert } from './CustomAlertProvider';
 import { saveRecord } from '../db/database';
+import { shareChatMarkdown } from '../services/share';
+import { buildRetryPlan, getLastAssistantContent } from './ai-chat-actions';
 
 interface AIChatModalProps {
     visible: boolean;
@@ -103,16 +106,21 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult }
         onUpdateResult(updatedResult);
     };
 
-    const handleSend = async (textOverride?: string, isAutoInitial = false) => {
+    const handleSend = async (
+        textOverride?: string,
+        isAutoInitial = false,
+        baseMessagesOverride?: UIChatMessage[]
+    ) => {
         const text = (textOverride || inputText).trim();
         if (!text && !isAutoInitial) return;
+        const baseMessages = baseMessagesOverride || messages;
 
         Keyboard.dismiss();
         setInputText('');
         setQuickReplies([]);
 
         const newMessages: UIChatMessage[] = [
-            ...messages,
+            ...baseMessages,
             { role: 'user', content: text, uiId: generateMessageId('user') }
         ];
         setMessages(newMessages);
@@ -171,6 +179,36 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult }
         }
     };
 
+    const handleCopyLatestAssistant = async () => {
+        const assistantText = getLastAssistantContent(messages);
+        if (!assistantText) {
+            CustomAlert.alert('暂无可复制内容', '当前没有助手回复可复制。');
+            return;
+        }
+        await Clipboard.setStringAsync(assistantText);
+        CustomAlert.alert('复制成功', '已复制最后一条助手回复。');
+    };
+
+    const handleRetryLastQuestion = async () => {
+        const retryPlan = buildRetryPlan(messages);
+        if (!retryPlan) {
+            CustomAlert.alert('无法重试', '当前会话中没有可重试的问题。');
+            return;
+        }
+        setMessages(retryPlan.baseMessages);
+        setQuickReplies([]);
+        await handleSend(retryPlan.retryText, false, retryPlan.baseMessages);
+    };
+
+    const handleExportChat = async () => {
+        try {
+            await shareChatMarkdown(result, stripUiMessages(messages));
+        } catch (error: any) {
+            const message = typeof error?.message === 'string' ? error.message : '导出失败，请稍后重试';
+            CustomAlert.alert('导出失败', message);
+        }
+    };
+
     const renderMessage = ({ item }: { item: UIChatMessage }) => {
         if (item.role === 'system') return null;
 
@@ -205,6 +243,29 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult }
                         <Text style={styles.headerTitle} numberOfLines={1}>{result.question}</Text>
                     ) : null}
                     <View style={styles.headerBtn} />
+                </View>
+                <View style={styles.actionBar}>
+                    <TouchableOpacity
+                        style={[styles.actionBarBtn, isLoading && styles.actionBarBtnDisabled]}
+                        onPress={handleCopyLatestAssistant}
+                        disabled={isLoading}
+                    >
+                        <Text style={styles.actionBarBtnText}>复制回复</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.actionBarBtn, isLoading && styles.actionBarBtnDisabled]}
+                        onPress={handleRetryLastQuestion}
+                        disabled={isLoading}
+                    >
+                        <Text style={styles.actionBarBtnText}>重试上一问</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.actionBarBtn, isLoading && styles.actionBarBtnDisabled]}
+                        onPress={handleExportChat}
+                        disabled={isLoading}
+                    >
+                        <Text style={styles.actionBarBtnText}>导出会话</Text>
+                    </TouchableOpacity>
                 </View>
 
                 <KeyboardAvoidingView
@@ -312,6 +373,31 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     },
     keyboardView: {
         flex: 1,
+    },
+    actionBar: {
+        flexDirection: 'row',
+        paddingHorizontal: Spacing.md,
+        paddingBottom: Spacing.sm,
+        gap: Spacing.sm,
+        borderBottomWidth: 1,
+        borderBottomColor: Colors.border.subtle,
+    },
+    actionBarBtn: {
+        flex: 1,
+        minHeight: 40,
+        borderWidth: 1,
+        borderColor: Colors.border.subtle,
+        borderRadius: BorderRadius.md,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: Colors.bg.elevated,
+    },
+    actionBarBtnDisabled: {
+        opacity: 0.6,
+    },
+    actionBarBtnText: {
+        color: Colors.text.secondary,
+        fontSize: FontSize.xs,
     },
     chatContainer: {
         padding: Spacing.md,
