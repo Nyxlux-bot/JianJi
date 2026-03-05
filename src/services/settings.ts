@@ -49,26 +49,29 @@ export async function getSettings(): Promise<AISettings> {
             AsyncStorage.getItem(KEYS.PROMPT_IS_CUSTOM).catch(() => null),
         ]);
 
-        const isCustom = pCustomStr === 'true';
-        let pVersion = pVersionStr ? parseInt(pVersionStr, 10) : 1;
-        let finalSystemPrompt = systemPrompt || DEFAULT_SETTINGS.systemPrompt;
+        const storedPrompt = systemPrompt || DEFAULT_SETTINGS.systemPrompt;
+        const parsedVersion = pVersionStr ? parseInt(pVersionStr, 10) : NaN;
+        let pVersion = Number.isFinite(parsedVersion) && parsedVersion > 0 ? parsedVersion : 1;
 
-        // 如果用户从未修改过Prompt，并且版本落后，则自动覆盖升级为最新版
+        // 历史兼容：当旧版本没有 promptIsCustom 标志时，按内容是否等于默认串推断
+        const inferredCustom = pCustomStr === null
+            ? storedPrompt.trim() !== DEFAULT_SETTINGS.systemPrompt.trim()
+            : pCustomStr === 'true';
+
+        let finalSystemPrompt = storedPrompt;
+        let isCustom = inferredCustom;
+
+        // 如果用户未自定义 Prompt，且版本落后，则自动升级为最新版默认 Prompt
         if (!isCustom && pVersion < CURRENT_PROMPT_VERSION) {
             finalSystemPrompt = DEFAULT_SETTINGS.systemPrompt;
             pVersion = CURRENT_PROMPT_VERSION;
+            isCustom = false;
 
-            AsyncStorage.getItem(KEYS.SYSTEM_PROMPT).then(oldPrompt => {
-                // 历史遗留问题兜底防御：如果用户在引入 isCustom 机制前修改过提示词，且内容和任何已知官方版本都不一样，则不再强行覆盖
-                // 但由于我们现在找不到旧版串了，只要它不是空的且跟当前不一样，并且没记录 isCustom，这里有一定的覆盖风险。
-                // 上述逻辑是当isCustom不存在(pCustomStr == null，即老版本)时，isCustom被当做false。
-                // 修正：如果pCustomStr是null，我们需要通过验证它是不是等于已知的默认串。为了不引入巨大的旧串，只验证它如果不是空，且此时认为是 false。
-                // 为了极致保护用户：只要用户在之前的版本输入了东西（pVersionStr == null），其实最好不覆写。
-            }).catch();
-
-            // 简单化：覆盖并将版本号推到最新
-            AsyncStorage.setItem(KEYS.SYSTEM_PROMPT, finalSystemPrompt).catch();
-            AsyncStorage.setItem(KEYS.PROMPT_VERSION, pVersion.toString()).catch();
+            await Promise.allSettled([
+                AsyncStorage.setItem(KEYS.SYSTEM_PROMPT, finalSystemPrompt),
+                AsyncStorage.setItem(KEYS.PROMPT_VERSION, pVersion.toString()),
+                AsyncStorage.setItem(KEYS.PROMPT_IS_CUSTOM, 'false'),
+            ]);
         }
 
         return {
@@ -87,18 +90,14 @@ export async function getSettings(): Promise<AISettings> {
 
 /** 保存全部设置 */
 export async function saveSettings(settings: AISettings): Promise<void> {
-    try {
-        await Promise.all([
-            AsyncStorage.setItem(KEYS.API_URL, settings.apiUrl).catch(() => { }),
-            AsyncStorage.setItem(KEYS.API_KEY, settings.apiKey).catch(() => { }),
-            AsyncStorage.setItem(KEYS.MODEL, settings.model).catch(() => { }),
-            AsyncStorage.setItem(KEYS.SYSTEM_PROMPT, settings.systemPrompt).catch(() => { }),
-            AsyncStorage.setItem(KEYS.PROMPT_VERSION, settings.promptVersion.toString()).catch(() => { }),
-            AsyncStorage.setItem(KEYS.PROMPT_IS_CUSTOM, settings.promptIsCustom.toString()).catch(() => { }),
-        ]);
-    } catch {
-        // failed quietly
-    }
+    await Promise.all([
+        AsyncStorage.setItem(KEYS.API_URL, settings.apiUrl),
+        AsyncStorage.setItem(KEYS.API_KEY, settings.apiKey),
+        AsyncStorage.setItem(KEYS.MODEL, settings.model),
+        AsyncStorage.setItem(KEYS.SYSTEM_PROMPT, settings.systemPrompt),
+        AsyncStorage.setItem(KEYS.PROMPT_VERSION, settings.promptVersion.toString()),
+        AsyncStorage.setItem(KEYS.PROMPT_IS_CUSTOM, settings.promptIsCustom.toString()),
+    ]);
 }
 
 /** 专门触发展示隐藏模块 */

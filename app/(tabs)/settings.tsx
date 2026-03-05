@@ -20,7 +20,52 @@ import { BackIcon } from '../../src/components/Icons';
 import {
     AISettings, getSettings, saveSettings, DEFAULT_SETTINGS
 } from '../../src/services/settings';
+import { CURRENT_PROMPT_VERSION } from '../../src/services/default-prompts';
 import { useTheme } from "../../src/theme/ThemeContext";
+
+function buildBackupSettings(settings: AISettings): AISettings {
+    return {
+        ...settings,
+        apiKey: '',
+    };
+}
+
+function normalizeImportedSettings(rawSettings: unknown, currentSettings: AISettings): AISettings {
+    if (!rawSettings || typeof rawSettings !== 'object') {
+        return currentSettings;
+    }
+
+    const incoming = rawSettings as Partial<AISettings>;
+    const incomingApiKey = typeof incoming.apiKey === 'string' ? incoming.apiKey.trim() : '';
+    const incomingPrompt = typeof incoming.systemPrompt === 'string'
+        ? incoming.systemPrompt
+        : currentSettings.systemPrompt;
+
+    const resolvedPromptIsCustom = typeof incoming.promptIsCustom === 'boolean'
+        ? incoming.promptIsCustom
+        : incomingPrompt.trim() !== DEFAULT_SETTINGS.systemPrompt.trim();
+
+    const parsedPromptVersion = typeof incoming.promptVersion === 'number' && Number.isFinite(incoming.promptVersion)
+        ? incoming.promptVersion
+        : currentSettings.promptVersion;
+
+    return {
+        ...currentSettings,
+        apiUrl: typeof incoming.apiUrl === 'string' && incoming.apiUrl.trim().length > 0
+            ? incoming.apiUrl
+            : currentSettings.apiUrl,
+        apiKey: incomingApiKey.length > 0 ? incoming.apiKey! : currentSettings.apiKey,
+        model: typeof incoming.model === 'string' && incoming.model.trim().length > 0
+            ? incoming.model
+            : currentSettings.model,
+        systemPrompt: incomingPrompt,
+        aiSettingsUnlocked: typeof incoming.aiSettingsUnlocked === 'boolean'
+            ? incoming.aiSettingsUnlocked
+            : currentSettings.aiSettingsUnlocked,
+        promptVersion: parsedPromptVersion > 0 ? parsedPromptVersion : CURRENT_PROMPT_VERSION,
+        promptIsCustom: resolvedPromptIsCustom,
+    };
+}
 
 export default function SettingsPage() {
     const { Colors, theme, setTheme } = useTheme();
@@ -42,7 +87,10 @@ export default function SettingsPage() {
             const backupData = {
                 version: 1,
                 timestamp: new Date().toISOString(),
-                settings: settings,
+                settings: buildBackupSettings(settings),
+                meta: {
+                    apiKeyIncluded: false,
+                },
                 records: records
             };
             const jsonStr = JSON.stringify(backupData, null, 2);
@@ -57,6 +105,7 @@ export default function SettingsPage() {
                     dialogTitle: '备份易学数据',
                     UTI: 'public.json'
                 });
+                CustomAlert.alert('备份已导出', '为安全起见，备份文件默认不包含 API Key，恢复后请手动填写。');
             } else {
                 CustomAlert.alert('提示', '当前设备不支持分享文件');
             }
@@ -73,8 +122,14 @@ export default function SettingsPage() {
                 setLoading(true);
 
                 if (backupData.settings) {
-                    await saveSettings(backupData.settings);
-                    setSettings(backupData.settings);
+                    const normalizedSettings = normalizeImportedSettings(backupData.settings, settings);
+                    try {
+                        await saveSettings(normalizedSettings);
+                        setSettings(normalizedSettings);
+                    } catch (error: any) {
+                        const message = typeof error?.message === 'string' ? error.message : '持久化设置失败';
+                        throw new Error(`设置恢复失败：${message}`);
+                    }
                 }
 
                 await importRecords(backupData.records, { mode });
@@ -180,7 +235,7 @@ export default function SettingsPage() {
                 {/* 卷宗档：数据备份与恢复 */}
                 <Text style={styles.sectionTitle}>卷宗备份与迁移</Text>
                 <Text style={styles.sectionHint}>
-                    将您的设置状态和占卜记录安全打包为本地文件脱离系统沙盒存储，或从您早期的备份档案中覆盖导入。
+                    将设置与占卜记录安全打包为本地文件并支持恢复。为保护隐私，导出备份默认不包含 API Key。
                 </Text>
 
                 <View style={styles.backupOptionsContainer}>

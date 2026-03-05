@@ -40,12 +40,19 @@
 
 项目基于最新的生态圈开发，轻量且极致响应：
 
-* **核心框架**：`Expo` (SDK 52+), `React Native`, `TypeScript`, `React` (v19)
+* **核心框架**：`Expo` (SDK 54), `React Native` (0.81), `TypeScript` (5.9), `React` (19.1)
 * **路由导航**：`Expo Router` (基于文件系统路由编织的 `app/`)
 * **本地存储**：`expo-sqlite` (结构化数据层), `@react-native-async-storage/async-storage` (系统 KV 级设置存储持久化)
 * **网络与扩展**：`react-native-sse` (EventSource 流请求), `react-native-markdown-display`
 * **原生桥接**：`expo-sharing` (原生分享底座), `expo-document-picker` (沙箱外文件选取)
 * **图形与动画**：`react-native-svg` (自绘 UI 图标和爻符), `react-native-reanimated`, `react-native-gesture-handler`
+
+### 数据安全与恢复一致性
+
+- **备份默认不包含 API Key**：导出备份时自动清空密钥字段，防止明文泄露。
+- **恢复导入具备结构校验**：导入前会校验记录关键字段（`id/createdAt/method/benGua`），非法数据会被拦截并提示具体条目。
+- **覆盖恢复具备原子性**：原生端恢复流程使用事务，避免“先清库、后半成功”的中间损坏状态。
+- **Prompt 自定义受保护**：自定义提示词会被标记为用户配置，不会被版本升级自动覆盖。
 
 ### 目录结构（速览）
 
@@ -99,7 +106,13 @@ npx expo start --clear
 npx tsc --noEmit
 ```
 
-### 4. EAS 打包生产
+### 4. 单元测试
+项目当前已覆盖核心计算与关键稳定性逻辑，可直接运行：
+```bash
+npx jest --runInBand
+```
+
+### 5. EAS 打包生产
 如需上架与本地基座应用分发，内部依据设定好的 `eas.json` 即可进行编译：
 ```bash
 npm install -g eas-cli

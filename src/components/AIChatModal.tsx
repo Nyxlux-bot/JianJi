@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
     View, Text, StyleSheet, Modal, TouchableOpacity, TextInput,
     FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Keyboard
@@ -20,19 +20,40 @@ interface AIChatModalProps {
     onUpdateResult: (r: PanResult) => void;
 }
 
+interface UIChatMessage extends AIChatMessage {
+    uiId: string;
+}
+
+let messageSeq = 0;
+
+function generateMessageId(prefix: 'user' | 'assistant' | 'history'): string {
+    messageSeq += 1;
+    return `${prefix}-${Date.now()}-${messageSeq}`;
+}
+
+function hydrateMessages(messages: AIChatMessage[]): UIChatMessage[] {
+    return messages.map((message) => ({
+        ...message,
+        uiId: generateMessageId('history'),
+    }));
+}
+
+function stripUiMessages(messages: UIChatMessage[]): AIChatMessage[] {
+    return messages.map(({ role, content }) => ({ role, content }));
+}
+
 
 export default function AIChatModal({ visible, onClose, result, onUpdateResult }: AIChatModalProps) {
     const { Colors } = useTheme();
-    const styles = makeStyles(Colors);
-    const markdownStyles = makeMarkdownStyles(Colors);
+    const styles = useMemo(() => makeStyles(Colors), [Colors]);
+    const markdownStyles = useMemo(() => makeMarkdownStyles(Colors), [Colors]);
     const insets = useSafeAreaInsets();
 
-    const [messages, setMessages] = useState<AIChatMessage[]>([]);
+    const [messages, setMessages] = useState<UIChatMessage[]>([]);
     const [inputText, setInputText] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [quickReplies, setQuickReplies] = useState<string[]>([]);
     const flatListRef = useRef<FlatList>(null);
-    const abortControllerRef = useRef<AbortController | null>(null);
     const isMounted = useRef(true);
 
     useEffect(() => {
@@ -54,7 +75,8 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult }
             } else if (result.aiAnalysis) {
                 initialMsgs = [{ role: 'assistant', content: result.aiAnalysis }];
             }
-            setMessages(initialMsgs);
+            const initialUiMessages = hydrateMessages(initialMsgs);
+            setMessages(initialUiMessages);
 
             // 读取历史存在的快捷药丸
             if (result.quickReplies && result.quickReplies.length > 0) {
@@ -62,7 +84,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult }
             }
 
             // 如果是空盘且第一次打开这个Modal，则自动发一条测算指令
-            if (initialMsgs.length === 0) {
+            if (initialUiMessages.length === 0) {
                 handleSend("请帮我全面分析一下此卦！", true);
             }
         } else {
@@ -71,8 +93,9 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult }
         }
     }, [visible, result.id]);
 
-    const saveAndSync = async (newMessages: AIChatMessage[], newReplies?: string[]) => {
-        const updatedResult = { ...result, aiChatHistory: newMessages };
+    const saveAndSync = async (newMessages: UIChatMessage[], newReplies?: string[]) => {
+        const persistedMessages = stripUiMessages(newMessages);
+        const updatedResult = { ...result, aiChatHistory: persistedMessages };
         if (newReplies) {
             updatedResult.quickReplies = newReplies;
         }
@@ -88,25 +111,28 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult }
         setInputText('');
         setQuickReplies([]);
 
-        const newMessages: AIChatMessage[] = [...messages, { role: 'user', content: text }];
+        const newMessages: UIChatMessage[] = [
+            ...messages,
+            { role: 'user', content: text, uiId: generateMessageId('user') }
+        ];
         setMessages(newMessages);
         setIsLoading(true);
 
         try {
             const systemMsg = await buildSystemMessage(result);
             // 给发往远端的数据注入 system prompt，但是前端显示的永远只有 user / assistant
-            const messagesForAPI = [systemMsg, ...newMessages];
+            const messagesForAPI = [systemMsg, ...stripUiMessages(newMessages)];
 
             const streamRes = await analyzeWithAIChatStream(messagesForAPI, (chunkText) => {
                 if (!isMounted.current) return;
                 setMessages(prev => {
                     const last = prev[prev.length - 1];
-                    if (last.role === 'assistant') {
+                    if (last && last.role === 'assistant') {
                         const updated = [...prev];
-                        updated[updated.length - 1] = { role: 'assistant', content: last.content + chunkText };
+                        updated[updated.length - 1] = { ...last, content: last.content + chunkText };
                         return updated;
                     } else {
-                        return [...prev, { role: 'assistant', content: chunkText }];
+                        return [...prev, { role: 'assistant', content: chunkText, uiId: generateMessageId('assistant') }];
                     }
                 });
             });
@@ -124,7 +150,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult }
                     saveAndSync(finalMsgs);
 
                     if (result.question) {
-                        generateQuickReplies(result, finalMsgs).then(replies => {
+                        generateQuickReplies(result, stripUiMessages(finalMsgs)).then(replies => {
                             if (!isMounted.current) return;
                             if (replies && replies.length > 0) {
                                 setQuickReplies(replies);
@@ -145,7 +171,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult }
         }
     };
 
-    const renderMessage = ({ item }: { item: AIChatMessage }) => {
+    const renderMessage = ({ item }: { item: UIChatMessage }) => {
         if (item.role === 'system') return null;
 
         const isUser = item.role === 'user';
@@ -188,7 +214,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult }
                     <FlatList
                         ref={flatListRef}
                         data={messages}
-                        keyExtractor={(_, index) => index.toString()}
+                        keyExtractor={(item) => item.uiId}
                         renderItem={renderMessage}
                         contentContainerStyle={styles.chatContainer}
                         onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
