@@ -19,7 +19,7 @@
 
 ### 2.1 运行时入口链路
 
-当前应用真正的入口不是 `App.tsx`，而是：
+当前应用的运行入口为：
 
 1. `package.json`
    - `"main": "expo-router/entry"`
@@ -29,16 +29,13 @@
 3. `app/(tabs)/_layout.tsx`
    - 主标签页容器，定义首页、学习、历史、设置四个顶级页面
 
-### 2.2 非实际入口文件
+### 2.2 入口收敛状态
 
-以下文件存在于仓库中，但不属于当前运行链路：
+仓库已移除传统 Expo 模板残留的 `index.ts` 和 `App.tsx`。当前入口只有一条：
 
-- `index.ts`
-  - 仍保留传统 Expo `registerRootComponent(App)` 模板写法
-- `App.tsx`
-  - 仍是 Expo 初始模板页，当前不会被 `expo-router/entry` 使用
+- `package.json` -> `expo-router/entry`
 
-这两个文件可以视为历史残留或模板残留，而不是当前架构主干。
+后续如果继续维护本项目，应默认从 `app/_layout.tsx` 和 `app/(tabs)/_layout.tsx` 理解启动链路，而不是再引入独立的 `App.tsx` 入口。
 
 ## 3. 架构总览
 
@@ -480,12 +477,12 @@ AI 服务是整个应用最复杂的服务文件，负责：
 
 这是本次重新梳理后确认的几个关键事实：
 
-- 当前运行入口是 `expo-router/entry`，不是 `App.tsx`
+- 当前运行入口已经收敛到 `expo-router/entry`
 - 首页 `app/(tabs)/index.tsx` 才是 AI 配置入口，设置页不是
 - `src/services/location.ts` 只是城市选择持久化，不是 GPS 定位服务
 - 项目虽然安装了 `react-native-reanimated`，但当前首页 Tab 动画和铜钱动画主实现都使用的是 React Native `Animated`
 - `app/learn/hexagrams.tsx` 自己实现了一套卦象详情 Modal，而 `GuaXiangBottomSheet.tsx` 则复用了 `HexagramDetailView.tsx`；这两处存在展示逻辑重复
-- `App.tsx` 与 `index.ts` 仍在仓库中，但可视为非运行时残留文件
+- 历史残留的 `App.tsx` 与 `index.ts` 已删除，避免继续误导入口认知
 
 ## 15. 建议的阅读顺序
 
