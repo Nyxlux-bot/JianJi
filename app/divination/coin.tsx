@@ -234,7 +234,10 @@ export default function CoinDivination() {
             const maxAttempts = 3;
             for (let i = 1; i <= maxAttempts; i++) {
                 try {
-                    await saveRecord(result);
+                    await saveRecord({
+                        engineType: 'liuyao',
+                        result,
+                    });
                     const saved = await getRecord(result.id);
                     if (saved) return true;
                 } catch (error) {

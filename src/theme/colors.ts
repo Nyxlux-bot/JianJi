@@ -1,7 +1,6 @@
-/**
- * 六爻排盘 - 新中式禅意设计系统色彩
- */
-export const Colors = {
+import { buildBaziThemeTokens } from './bazi-theme';
+
+const baseColors = {
   // 背景色
   bg: {
     primary: '#121212',      // 主背景（深灰近黑）
@@ -56,6 +55,14 @@ export const Colors = {
     normal: '#424242',       // 普通边框
     accent: '#CFB53B',       // 强调边框
   },
+};
+
+/**
+ * 六爻排盘 - 新中式禅意设计系统色彩
+ */
+export const Colors = {
+  ...baseColors,
+  bazi: buildBaziThemeTokens(baseColors),
 };
 
 export const Spacing = {

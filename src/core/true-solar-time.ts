@@ -1,10 +1,15 @@
 /**
  * 真太阳时计算模块
- * 
- * 真太阳时 = 北京时间 + 经度时间修正 + 时差方程修正
- * - 经度修正: (当地经度 - 120°) × 4 分钟
- * - 时差方程: 根据日期计算地球公转偏差（Spencer公式，误差<30秒）
+ *
+ * 以设备当前时区的标准经线为基准：
+ * - 平太阳时 = 本地钟表时 + 经度修正 + 夏令时修正（可选）
+ * - 真太阳时 = 平太阳时 + 时差方程修正
  */
+
+export interface SolarTimeCorrectionOptions {
+    timezoneOffsetMinutes?: number;
+    daylightSavingEnabled?: boolean;
+}
 
 /**
  * 时差方程 (Equation of Time)
@@ -36,29 +41,67 @@ function getDayOfYear(date: Date): number {
 }
 
 /**
- * 计算真太阳时
- * @param date 北京时间（UTC+8）
- * @param longitude 当地经度（东经为正）
- * @returns 真太阳时 Date 对象
+ * 推断当前时区的标准时区偏移（分钟）。
+ * `Date#getTimezoneOffset()` 使用“西正东负”的约定。
  */
-export function calculateTrueSolarTime(date: Date, longitude: number): Date {
+export function getStandardTimezoneOffsetMinutes(date: Date): number {
+    const januaryOffset = new Date(date.getFullYear(), 0, 1).getTimezoneOffset();
+    const julyOffset = new Date(date.getFullYear(), 6, 1).getTimezoneOffset();
+    return Math.max(januaryOffset, julyOffset);
+}
+
+/**
+ * 根据时区偏移计算标准经线（经度，东正西负）。
+ */
+export function getStandardMeridianLongitude(
+    date: Date,
+    timezoneOffsetMinutes: number = getStandardTimezoneOffsetMinutes(date),
+): number {
+    return (-timezoneOffsetMinutes / 60) * 15;
+}
+
+/**
+ * 计算平太阳时。
+ * @param date 本地钟表时
+ * @param longitude 当地经度（东经为正）
+ * @param options 时区与夏令时选项
+ * @returns 平太阳时 Date 对象
+ */
+export function calculateMeanSolarTime(
+    date: Date,
+    longitude: number,
+    options: SolarTimeCorrectionOptions = {},
+): Date {
     if (longitude < -180 || longitude > 180) {
         throw new Error(`无效的经度: ${longitude}，经度必须在 -180 到 180 之间`);
     }
 
-    // 经度修正：每度经度差4分钟
-    // 北京时间基准经度为 120°E
-    const longitudeCorrection = (longitude - 120) * 4; // 分钟
+    const standardMeridian = getStandardMeridianLongitude(
+        date,
+        options.timezoneOffsetMinutes ?? getStandardTimezoneOffsetMinutes(date),
+    );
+    const longitudeCorrectionMinutes = (longitude - standardMeridian) * 4;
+    const daylightSavingCorrectionMinutes = options.daylightSavingEnabled ? -60 : 0;
+    const totalCorrectionMinutes = longitudeCorrectionMinutes + daylightSavingCorrectionMinutes;
 
-    // 时差方程修正
-    const eot = equationOfTime(date);
+    return new Date(date.getTime() + totalCorrectionMinutes * 60 * 1000);
+}
 
-    // 总修正量（分钟）
-    const totalCorrectionMinutes = longitudeCorrection + eot;
-
-    // 创建修正后的 Date
-    const result = new Date(date.getTime() + totalCorrectionMinutes * 60 * 1000);
-    return result;
+/**
+ * 计算真太阳时
+ * @param date 本地钟表时
+ * @param longitude 当地经度（东经为正）
+ * @param options 时区与夏令时选项
+ * @returns 真太阳时 Date 对象
+ */
+export function calculateTrueSolarTime(
+    date: Date,
+    longitude: number,
+    options: SolarTimeCorrectionOptions = {},
+): Date {
+    const meanSolarTime = calculateMeanSolarTime(date, longitude, options);
+    const eot = equationOfTime(meanSolarTime);
+    return new Date(meanSolarTime.getTime() + eot * 60 * 1000);
 }
 
 /**
@@ -72,7 +115,7 @@ export function formatTrueSolarTime(date: Date): string {
 
 /**
  * 获取时间修正差值描述
- * @param original 原始北京时间
+ * @param original 原始本地钟表时
  * @param adjusted 修正后的真太阳时
  * @returns 差值描述，如 "+14分钟" 或 "-8分钟"
  */

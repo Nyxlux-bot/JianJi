@@ -57,7 +57,14 @@ export default function ResultPage() {
                     getAllRecords(),
                 ]);
                 if (!cancelled) {
-                    setResult(detail);
+                    if (!detail) {
+                        setResult(null);
+                    } else if (detail.engineType === 'liuyao') {
+                        setResult(detail.result);
+                    } else {
+                        router.replace(`/bazi/result/${id}`);
+                        return;
+                    }
                     setIsFavorite(Boolean(summaries.find(item => item.id === id)?.isFavorite));
                 }
             }
@@ -286,7 +293,7 @@ export default function ResultPage() {
                 onClose={() => setAiChatVisible(false)}
                 result={result}
                 onUpdateResult={(updatedResult) => {
-                    setResult(updatedResult);
+                    setResult(updatedResult as PanResult);
                 }}
             />
         </View>

@@ -53,7 +53,10 @@ export default function ManualDivination() {
         }
         try {
             const result = divinateManual(yaoValues as YaoValue[], new Date(), question, city?.longitude, city?.name);
-            await saveRecord(result);
+            await saveRecord({
+                engineType: 'liuyao',
+                result,
+            });
             router.push(`/result/${result.id}`);
         } catch (e: any) {
             CustomAlert.alert('错误', e.message || '排卦失败');

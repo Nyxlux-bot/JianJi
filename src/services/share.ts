@@ -1,7 +1,8 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import { PersistedAIChatMessage } from '../core/ai-meta';
+import { BaziResult } from '../core/bazi-types';
 import { PanResult } from '../core/liuyao-calc';
-import { AIChatMessage } from './ai';
 
 const METHOD_LABEL: Record<string, string> = {
     time: '时间排卦',
@@ -29,6 +30,10 @@ async function shareMarkdownFile(fileName: string, markdown: string): Promise<vo
         dialogTitle: '分享内容',
         UTI: 'net.daringfireball.markdown',
     });
+}
+
+function isBaziResult(result: PanResult | BaziResult): result is BaziResult {
+    return Array.isArray((result as BaziResult).fourPillars);
 }
 
 function pickLastAssistant(result: PanResult): string {
@@ -76,24 +81,31 @@ export async function shareResultMarkdown(result: PanResult): Promise<void> {
     await shareMarkdownFile(fileName, markdown);
 }
 
-export async function shareChatMarkdown(result: PanResult, messages: AIChatMessage[]): Promise<void> {
-    const lines: string[] = [
-        `# AI 会话导出：${result.benGua.fullName}`,
-        '',
-        `- 起卦方式：${METHOD_LABEL[result.method] || result.method}`,
-        `- 占问事项：${result.question || '未填写'}`,
-        `- 导出时间：${new Date().toISOString()}`,
-        '',
-        '## 对话记录',
-    ];
+export async function shareChatMarkdown(result: PanResult | BaziResult, messages: PersistedAIChatMessage[]): Promise<void> {
+    const lines: string[] = [];
 
-    if (!messages.length) {
+    if (isBaziResult(result)) {
+        const title = result.subject.name?.trim() || result.fourPillars.join(' ');
+        lines.push(`# AI 会话导出：${title}`);
+        lines.push('');
+        lines.push(`- 命造：${result.subject.mingZaoLabel}（${result.subject.genderLabel}）`);
+        lines.push(`- 四柱：${result.fourPillars.join(' ')}`);
+        lines.push(`- 导出时间：${new Date().toISOString()}`);
+    } else {
+        lines.push(`# AI 会话导出：${result.benGua.fullName}`);
+        lines.push('');
+        lines.push(`- 起卦方式：${METHOD_LABEL[result.method] || result.method}`);
+        lines.push(`- 占问事项：${result.question || '未填写'}`);
+        lines.push(`- 导出时间：${new Date().toISOString()}`);
+    }
+    lines.push('');
+    lines.push('## 对话记录');
+
+    const visibleMessages = messages.filter((message) => message.role !== 'system' && !message.hidden);
+    if (!visibleMessages.length) {
         lines.push('- 暂无会话记录');
     } else {
-        messages.forEach((message) => {
-            if (message.role === 'system') {
-                return;
-            }
+        visibleMessages.forEach((message) => {
             const roleLabel = message.role === 'user' ? '用户' : '助手';
             lines.push('');
             lines.push(`### ${roleLabel}`);
@@ -101,6 +113,8 @@ export async function shareChatMarkdown(result: PanResult, messages: AIChatMessa
         });
     }
 
-    const fileName = `liuyao_chat_${sanitizeName(result.benGua.fullName)}_${Date.now()}.md`;
+    const fileName = isBaziResult(result)
+        ? `bazi_chat_${sanitizeName(result.subject.name?.trim() || result.fourPillars.join('_'))}_${Date.now()}.md`
+        : `liuyao_chat_${sanitizeName(result.benGua.fullName)}_${Date.now()}.md`;
     await shareMarkdownFile(fileName, lines.join('\n'));
 }

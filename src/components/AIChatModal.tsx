@@ -1,65 +1,231 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-    View, Text, StyleSheet, Modal, TouchableOpacity, TextInput,
-    FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Keyboard
+    ActivityIndicator,
+    FlatList,
+    Keyboard,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '../theme/ThemeContext';
-import { Spacing, FontSize, BorderRadius } from '../theme/colors';
-import { BackIcon, SendIcon, MoreVerticalIcon, GuaArrowIcon } from './Icons';
 import Markdown from 'react-native-markdown-display';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BaziAIConversationStage, PersistedAIChatMessage } from '../core/ai-meta';
+import { BaziResult } from '../core/bazi-types';
 import { PanResult } from '../core/liuyao-calc';
-import { AIChatMessage, buildSystemMessage, analyzeWithAIChatStream, generateQuickReplies } from '../services/ai';
-import { CustomAlert } from './CustomAlertProvider';
 import { saveRecord } from '../db/database';
+import {
+    AIRequestOptions,
+    analyzeWithAIChatStream,
+    BaziWorkflowResponseKind,
+    buildBaziFiveYearPrompt,
+    buildBaziFollowUpPrompt,
+    buildBaziVerificationPrompt,
+    buildRequestMessages,
+    getBaziFoundationPrompt,
+    getBaziConversationStage,
+    getChatRequestOptions,
+    getLocalBaziFoundationActionLabel,
+    getLocalBaziVerificationActions,
+    generateBaziConversationDigest,
+    generateQuickReplies,
+    sanitizeBaziStreamingContent,
+    shouldGeneratePostResponseArtifacts,
+    stripBaziStageMarkers,
+    validateBaziWorkflowResponse,
+} from '../services/ai';
+import { BaziFormatterContext } from '../services/bazi-formatter';
 import { shareChatMarkdown } from '../services/share';
-import { buildRetryPlan, getLastAssistantContent } from './ai-chat-actions';
+import { BorderRadius, FontSize, Spacing } from '../theme/colors';
+import { useTheme } from '../theme/ThemeContext';
+import { CustomAlert } from './CustomAlertProvider';
+import {
+    buildRetryPlan,
+    getLastAssistantContent,
+    shouldShowBaziFoundationRetryAction,
+} from './ai-chat-actions';
+import { BackIcon, GuaArrowIcon, MoreVerticalIcon, SendIcon } from './Icons';
 import OverflowMenu, { OverflowMenuItem } from './OverflowMenu';
 
 interface AIChatModalProps {
     visible: boolean;
     onClose: () => void;
-    result: PanResult;
-    onUpdateResult: (r: PanResult) => void;
+    result: PanResult | BaziResult;
+    onUpdateResult: (result: PanResult | BaziResult) => void;
+    baziContext?: BaziFormatterContext;
 }
 
-interface UIChatMessage extends AIChatMessage {
+interface UIChatMessage extends PersistedAIChatMessage {
     uiId: string;
 }
 
 let messageSeq = 0;
+
+function isBaziResult(result: PanResult | BaziResult): result is BaziResult {
+    return Array.isArray((result as BaziResult).fourPillars);
+}
 
 function generateMessageId(prefix: 'user' | 'assistant' | 'history'): string {
     messageSeq += 1;
     return `${prefix}-${Date.now()}-${messageSeq}`;
 }
 
-function hydrateMessages(messages: AIChatMessage[]): UIChatMessage[] {
+function hydrateMessages(messages: PersistedAIChatMessage[]): UIChatMessage[] {
     return messages.map((message) => ({
         ...message,
         uiId: generateMessageId('history'),
     }));
 }
 
-function stripUiMessages(messages: UIChatMessage[]): AIChatMessage[] {
-    return messages.map(({ role, content }) => ({ role, content }));
+function toPersistedMessages(messages: UIChatMessage[]): PersistedAIChatMessage[] {
+    return messages.map(({ role, content, hidden, requestContent }) => ({
+        role,
+        content,
+        hidden,
+        requestContent,
+    }));
 }
 
+function replaceLastAssistantContent(messages: UIChatMessage[], content: string): UIChatMessage[] {
+    const cloned = [...messages];
+    for (let index = cloned.length - 1; index >= 0; index -= 1) {
+        if (cloned[index].role === 'assistant') {
+            cloned[index] = { ...cloned[index], content };
+            return cloned;
+        }
+    }
+    return cloned;
+}
 
-export default function AIChatModal({ visible, onClose, result, onUpdateResult }: AIChatModalProps) {
+function trimTrailingHiddenUsers(messages: UIChatMessage[]): UIChatMessage[] {
+    const trimmed = [...messages];
+    while (trimmed.length > 0) {
+        const last = trimmed[trimmed.length - 1];
+        if (last.role === 'user' && last.hidden) {
+            trimmed.pop();
+            continue;
+        }
+        break;
+    }
+    return trimmed;
+}
+
+function trimWorkflowMessages(messages: UIChatMessage[], expectedAssistantCount: number): UIChatMessage[] {
+    let visibleAssistantCount = messages.filter((message) => message.role === 'assistant' && !message.hidden).length;
+    if (visibleAssistantCount <= expectedAssistantCount) {
+        return messages;
+    }
+
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (message.role === 'assistant' && !message.hidden) {
+            visibleAssistantCount -= 1;
+            if (visibleAssistantCount === expectedAssistantCount) {
+                return trimTrailingHiddenUsers(messages.slice(0, index));
+            }
+        }
+    }
+
+    return messages;
+}
+
+function withRewrittenLastUserMessage(messages: UIChatMessage[], rewrittenContent: string): UIChatMessage[] {
+    const cloned = [...messages];
+    for (let index = cloned.length - 1; index >= 0; index -= 1) {
+        if (cloned[index].role === 'user') {
+            cloned[index] = { ...cloned[index], content: rewrittenContent };
+            return cloned;
+        }
+    }
+    return cloned;
+}
+
+function buildHeaderMeta(result: PanResult | BaziResult): { title: string; subtitle: string } {
+    if (isBaziResult(result)) {
+        const title = result.subject.name?.trim() || `${result.subject.mingZaoLabel}AI 解盘`;
+        const subtitle = result.fourPillars.join(' ');
+        return { title, subtitle };
+    }
+
+    return {
+        title: result.benGua.fullName,
+        subtitle: result.bianGua?.fullName || '无变卦',
+    };
+}
+
+function buildWorkflowNotice(
+    stage: BaziAIConversationStage | null,
+    isLoading: boolean,
+): { title: string; body: string; tone: 'neutral' | 'accent' | 'ready' } | null {
+    if (!stage) {
+        return null;
+    }
+
+    if (stage === 'foundation_pending') {
+        return {
+            title: isLoading ? '正在生成基础定局' : '基础定局尚未完成',
+            body: isLoading
+                ? '系统当前只会输出基础定局；没有拿到阶段完成标记前，不会进入前事核验。'
+                : '基础定局还未完整结束。你可以重试基础定局，但此时不会开放前事核验或后续追问。',
+            tone: 'neutral',
+        };
+    }
+
+    if (stage === 'foundation_ready') {
+        return {
+            title: '基础定局已完成',
+            body: '现在才能开始前事核验。点击下方按钮后，系统会单独输出过去关键节点供你核对。',
+            tone: 'accent',
+        };
+    }
+
+    if (stage === 'verification_ready') {
+        return {
+            title: '前事核验已完成',
+            body: '请核对上方过去经历是否准确。若较准，继续进入未来五年解盘；若偏差，重新校验会从基础定局整轮重开。',
+            tone: 'accent',
+        };
+    }
+
+    return {
+        title: '未来五年解盘已完成',
+        body: '后续追问会自动继承基础定局、前事核验与未来五年走势的上下文，不会从头丢失前文。',
+        tone: 'ready',
+    };
+}
+
+export default function AIChatModal({ visible, onClose, result, onUpdateResult, baziContext }: AIChatModalProps) {
     const { Colors } = useTheme();
     const styles = useMemo(() => makeStyles(Colors), [Colors]);
     const markdownStyles = useMemo(() => makeMarkdownStyles(Colors), [Colors]);
     const insets = useSafeAreaInsets();
+    const flatListRef = useRef<FlatList>(null);
+    const isMounted = useRef(true);
+    const latestResultRef = useRef<PanResult | BaziResult>(result);
+    const latestBaziContextRef = useRef<BaziFormatterContext | undefined>(baziContext);
+    const latestMessagesRef = useRef<UIChatMessage[]>([]);
 
     const [messages, setMessages] = useState<UIChatMessage[]>([]);
     const [inputText, setInputText] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [quickReplies, setQuickReplies] = useState<string[]>([]);
     const [menuVisible, setMenuVisible] = useState(false);
-    const flatListRef = useRef<FlatList>(null);
-    const isMounted = useRef(true);
+    const [hasFoundationAttempted, setHasFoundationAttempted] = useState(false);
+    const [baziStage, setBaziStage] = useState<BaziAIConversationStage | null>(
+        isBaziResult(result) ? getBaziConversationStage(result) : null,
+    );
+
+    const baziMode = isBaziResult(result);
+    const headerMeta = buildHeaderMeta(result);
+    const workflowNotice = useMemo(
+        () => buildWorkflowNotice(baziStage, isLoading),
+        [baziStage, isLoading],
+    );
 
     useEffect(() => {
         isMounted.current = true;
@@ -69,117 +235,307 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult }
     }, []);
 
     useEffect(() => {
+        latestResultRef.current = result;
+        latestBaziContextRef.current = baziContext;
+        setBaziStage(isBaziResult(result) ? getBaziConversationStage(result) : null);
+    }, [result, baziContext]);
+
+    useEffect(() => {
+        latestMessagesRef.current = messages;
+    }, [messages]);
+
+    useEffect(() => {
         if (!visible) {
             setMenuVisible(false);
+            setHasFoundationAttempted(false);
         }
     }, [visible]);
 
-    // 回显初始化：读取盘中的 aiChatHistory 或是兼容老的 aiAnalysis
     useEffect(() => {
-        if (visible && result) {
-            // 如果当前正在处理大模型流式输出（即使在后台），避免被旧的历史数据冲刷
-            if (isLoading) return;
+        setHasFoundationAttempted(false);
+    }, [result.id]);
 
-            let initialMsgs: AIChatMessage[] = [];
+    useEffect(() => {
+        if (visible) {
+            if (isLoading) {
+                return;
+            }
+
+            let initialMessages: PersistedAIChatMessage[] = [];
             if (result.aiChatHistory && result.aiChatHistory.length > 0) {
-                initialMsgs = result.aiChatHistory;
+                initialMessages = result.aiChatHistory;
             } else if (result.aiAnalysis) {
-                initialMsgs = [{ role: 'assistant', content: result.aiAnalysis }];
-            }
-            const initialUiMessages = hydrateMessages(initialMsgs);
-            setMessages(initialUiMessages);
-
-            // 读取历史存在的快捷药丸
-            if (result.quickReplies && result.quickReplies.length > 0) {
-                setQuickReplies(result.quickReplies);
+                initialMessages = [{ role: 'assistant', content: result.aiAnalysis }];
             }
 
-            // 如果是空盘且第一次打开这个Modal，则自动发一条测算指令
-            if (initialUiMessages.length === 0) {
-                handleSend("请帮我全面分析一下此卦！", true);
+            const hydrated = hydrateMessages(initialMessages);
+            setMessages(hydrated);
+            latestMessagesRef.current = hydrated;
+            setQuickReplies(
+                baziMode && getBaziConversationStage(result) !== 'followup_ready'
+                    ? []
+                    : (result.quickReplies && result.quickReplies.length > 0 ? result.quickReplies : []),
+            );
+
+            if (hydrated.length === 0) {
+                void handleSend(
+                    baziMode ? getBaziFoundationPrompt() : '请帮我全面分析一下此卦！',
+                    {
+                        isAutoInitial: true,
+                        hiddenUser: baziMode,
+                        expectedBaziCompletion: baziMode ? 'foundation' : undefined,
+                        nextBaziStage: baziMode ? 'foundation_ready' : undefined,
+                    },
+                );
             }
         } else {
-            // 关闭时弹窗隐藏：不做任何暴力清空，让消息气泡和可能的流式继续工作
             setInputText('');
         }
     }, [visible, result.id]);
 
-    const saveAndSync = async (newMessages: UIChatMessage[], newReplies?: string[]) => {
-        const persistedMessages = stripUiMessages(newMessages);
-        const updatedResult = { ...result, aiChatHistory: persistedMessages };
-        if (newReplies) {
-            updatedResult.quickReplies = newReplies;
+    const saveAndSync = async (
+        nextMessages: UIChatMessage[],
+        overrides: {
+            quickReplies?: string[];
+            aiConversationDigest?: BaziResult['aiConversationDigest'] | null;
+            aiConversationStage?: BaziAIConversationStage | null;
+            aiVerificationSummary?: string | null;
+        } = {},
+    ): Promise<PanResult | BaziResult> => {
+        const persistedMessages = toPersistedMessages(nextMessages);
+        const baseResult = latestResultRef.current;
+        const lastAssistant = getLastAssistantContent(nextMessages) || undefined;
+        const hasDigestOverride = Object.prototype.hasOwnProperty.call(overrides, 'aiConversationDigest');
+        const hasStageOverride = Object.prototype.hasOwnProperty.call(overrides, 'aiConversationStage');
+        const hasVerificationOverride = Object.prototype.hasOwnProperty.call(overrides, 'aiVerificationSummary');
+
+        const updatedResult: PanResult | BaziResult = isBaziResult(baseResult)
+            ? {
+                ...baseResult,
+                aiAnalysis: lastAssistant,
+                aiChatHistory: persistedMessages,
+                quickReplies: overrides.quickReplies ?? baseResult.quickReplies ?? [],
+                aiConversationDigest: hasDigestOverride ? (overrides.aiConversationDigest ?? undefined) : baseResult.aiConversationDigest,
+                aiConversationStage: hasStageOverride ? (overrides.aiConversationStage ?? undefined) : baseResult.aiConversationStage,
+                aiVerificationSummary: hasVerificationOverride ? (overrides.aiVerificationSummary ?? undefined) : baseResult.aiVerificationSummary,
+            }
+            : {
+                ...baseResult,
+                aiAnalysis: lastAssistant,
+                aiChatHistory: persistedMessages,
+                quickReplies: overrides.quickReplies ?? baseResult.quickReplies ?? [],
+            };
+
+        await saveRecord({
+            engineType: isBaziResult(updatedResult) ? 'bazi' : 'liuyao',
+            result: updatedResult,
+        });
+
+        latestResultRef.current = updatedResult;
+        latestMessagesRef.current = nextMessages;
+        if (isBaziResult(updatedResult)) {
+            setBaziStage(getBaziConversationStage(updatedResult));
         }
-        await saveRecord(updatedResult);
         onUpdateResult(updatedResult);
+        return updatedResult;
+    };
+
+    const refreshArtifacts = async (finalMessages: UIChatMessage[]) => {
+        const persisted = toPersistedMessages(finalMessages);
+        const latest = latestResultRef.current;
+
+        const quickReplyPromise = generateQuickReplies(latest, persisted);
+        const digestPromise = isBaziResult(latest)
+            ? generateBaziConversationDigest(latest, persisted)
+            : Promise.resolve(null);
+
+        const [generatedReplies, generatedDigest] = await Promise.all([quickReplyPromise, digestPromise]);
+        if (!isMounted.current) {
+            return;
+        }
+
+        const quickReplyResult = generatedReplies && generatedReplies.length > 0 ? generatedReplies : [];
+        setQuickReplies(quickReplyResult);
+
+        await saveAndSync(finalMessages, {
+            quickReplies: quickReplyResult,
+            aiConversationDigest: isBaziResult(latestResultRef.current)
+                ? generatedDigest ?? latestResultRef.current.aiConversationDigest
+                : undefined,
+            aiConversationStage: isBaziResult(latestResultRef.current)
+                ? getBaziConversationStage(latestResultRef.current)
+                : undefined,
+        });
     };
 
     const handleSend = async (
         textOverride?: string,
-        isAutoInitial = false,
-        baseMessagesOverride?: UIChatMessage[]
+        options: {
+            isAutoInitial?: boolean;
+            baseMessagesOverride?: UIChatMessage[];
+            hiddenUser?: boolean;
+            isQuickReply?: boolean;
+            requestTextOverride?: string;
+            nextBaziStage?: BaziAIConversationStage;
+            expectedBaziCompletion?: BaziWorkflowResponseKind;
+        } = {},
     ) => {
         const text = (textOverride || inputText).trim();
-        if (!text && !isAutoInitial) return;
-        const baseMessages = baseMessagesOverride || messages;
+        if (!text && !options.isAutoInitial) {
+            return;
+        }
+
+        const rewrittenText = options.requestTextOverride
+            ?? (baziMode && options.isQuickReply
+                ? buildBaziFollowUpPrompt(text)
+                : null);
+
+        const baseMessages = options.baseMessagesOverride || messages;
+        const requestOptions: AIRequestOptions = getChatRequestOptions(
+            latestResultRef.current,
+            options.isAutoInitial ? 'initial' : 'followup',
+        );
+        const phase = options.isAutoInitial ? 'initial' : 'followup';
+        const currentBaziStage = baziMode ? getBaziConversationStage(latestResultRef.current as BaziResult) : null;
+        const nextMessages: UIChatMessage[] = [
+            ...baseMessages,
+            {
+                role: 'user',
+                content: text,
+                hidden: options.hiddenUser,
+                requestContent: rewrittenText && rewrittenText !== text ? rewrittenText : undefined,
+                uiId: generateMessageId('user'),
+            },
+        ];
 
         Keyboard.dismiss();
         setInputText('');
         setQuickReplies([]);
-
-        const newMessages: UIChatMessage[] = [
-            ...baseMessages,
-            { role: 'user', content: text, uiId: generateMessageId('user') }
-        ];
-        setMessages(newMessages);
+        setMessages(nextMessages);
+        latestMessagesRef.current = nextMessages;
         setIsLoading(true);
 
         try {
-            const systemMsg = await buildSystemMessage(result);
-            // 给发往远端的数据注入 system prompt，但是前端显示的永远只有 user / assistant
-            const messagesForAPI = [systemMsg, ...stripUiMessages(newMessages)];
+            const streamRequest = async (requestHistory: PersistedAIChatMessage[]) => {
+                let rawAssistantText = '';
+                const messagesForAPI = await buildRequestMessages(
+                    latestResultRef.current,
+                    requestHistory,
+                    latestBaziContextRef.current,
+                );
 
-            const streamRes = await analyzeWithAIChatStream(messagesForAPI, (chunkText) => {
-                if (!isMounted.current) return;
-                setMessages(prev => {
-                    const last = prev[prev.length - 1];
-                    if (last && last.role === 'assistant') {
-                        const updated = [...prev];
-                        updated[updated.length - 1] = { ...last, content: last.content + chunkText };
-                        return updated;
-                    } else {
-                        return [...prev, { role: 'assistant', content: chunkText, uiId: generateMessageId('assistant') }];
-                    }
-                });
-            });
+                return analyzeWithAIChatStream(
+                    messagesForAPI,
+                    (chunkText) => {
+                        if (!isMounted.current) {
+                            return;
+                        }
+                        rawAssistantText += chunkText;
+                        const assistantContent = baziMode
+                            ? sanitizeBaziStreamingContent(rawAssistantText)
+                            : rawAssistantText;
+                        setMessages((prev) => {
+                            const last = prev[prev.length - 1];
+                            const updated = last && last.role === 'assistant'
+                                ? [...prev.slice(0, -1), { ...last, content: assistantContent }]
+                                : [...prev, { role: 'assistant' as const, content: assistantContent, uiId: generateMessageId('assistant') }];
+                            latestMessagesRef.current = updated;
+                            return updated;
+                        });
+                    },
+                    undefined,
+                    requestOptions,
+                );
+            };
 
-            if (!isMounted.current) return;
+            const requestSourceMessages = rewrittenText
+                ? withRewrittenLastUserMessage(nextMessages, rewrittenText)
+                : nextMessages;
+            if (baziMode && options.expectedBaziCompletion === 'foundation') {
+                setHasFoundationAttempted(true);
+            }
+            let streamRes = await streamRequest(toPersistedMessages(requestSourceMessages));
+
+            if (!isMounted.current) {
+                return;
+            }
 
             if (!streamRes.success) {
-                CustomAlert.alert("请求失败", streamRes.error || "发生了未知错误");
-                // 移除刚才添加的 user 占位
-                setMessages(prev => prev.slice(0, prev.length - 1));
+                CustomAlert.alert('请求失败', streamRes.error || '发生了未知错误');
+                setMessages(baseMessages);
+                latestMessagesRef.current = baseMessages;
             } else {
-                // 流式结束，保存最新对话到 DB。如果存在问题，则单独起一个静默请求去获取 Quick Replies
-                setMessages(prev => {
-                    const finalMsgs = [...prev];
-                    saveAndSync(finalMsgs);
+                let finalMessages = latestMessagesRef.current;
+                const rawAssistantContent = streamRes.content || '';
+                let stageSuccess = true;
 
-                    if (result.question) {
-                        generateQuickReplies(result, stripUiMessages(finalMsgs)).then(replies => {
-                            if (!isMounted.current) return;
-                            if (replies && replies.length > 0) {
-                                setQuickReplies(replies);
-                                saveAndSync(finalMsgs, replies);
-                            }
-                        });
+                if (baziMode) {
+                    const cleanContent = stripBaziStageMarkers(rawAssistantContent);
+                    finalMessages = replaceLastAssistantContent(finalMessages, cleanContent);
+                    setMessages(finalMessages);
+                    latestMessagesRef.current = finalMessages;
+                }
+
+                if (baziMode && options.expectedBaziCompletion) {
+                    const validation = validateBaziWorkflowResponse(
+                        options.expectedBaziCompletion,
+                        rawAssistantContent,
+                        latestResultRef.current as BaziResult,
+                    );
+                    stageSuccess = validation.success;
+                    finalMessages = replaceLastAssistantContent(finalMessages, validation.cleanContent);
+                    setMessages(finalMessages);
+                    latestMessagesRef.current = finalMessages;
+
+                    if (!validation.success) {
+                        CustomAlert.alert(
+                            '阶段未完成',
+                            `本阶段未完整结束，请重试本阶段。${validation.issues.join('；')}`,
+                        );
                     }
-                    return finalMsgs;
-                });
+                }
+
+                const nextStage = baziMode
+                    ? (stageSuccess
+                        ? (options.nextBaziStage ?? currentBaziStage ?? 'foundation_pending')
+                        : (currentBaziStage ?? 'foundation_pending'))
+                    : undefined;
+                const verificationSummary = baziMode
+                    ? (stageSuccess && nextStage === 'verification_ready'
+                        ? (getLastAssistantContent(finalMessages) || '')
+                        : (isBaziResult(latestResultRef.current)
+                            ? latestResultRef.current.aiVerificationSummary
+                            : undefined))
+                    : undefined;
+                const digestOverride = baziMode && nextStage !== 'followup_ready'
+                    ? null
+                    : (baziMode && isBaziResult(latestResultRef.current)
+                        ? latestResultRef.current.aiConversationDigest
+                        : undefined);
+
+                if (stageSuccess && shouldGeneratePostResponseArtifacts(latestResultRef.current, nextStage ?? phase)) {
+                    await saveAndSync(finalMessages, {
+                        quickReplies: [],
+                        aiConversationDigest: digestOverride,
+                        aiConversationStage: nextStage,
+                        aiVerificationSummary: verificationSummary,
+                    });
+                    void refreshArtifacts(finalMessages);
+                } else {
+                    setQuickReplies([]);
+                    await saveAndSync(finalMessages, {
+                        quickReplies: [],
+                        aiConversationDigest: digestOverride,
+                        aiConversationStage: nextStage,
+                        aiVerificationSummary: verificationSummary,
+                    });
+                }
             }
         } catch (error) {
             console.error(error);
-            CustomAlert.alert("错误", "连接超时或故障");
+            CustomAlert.alert('错误', '连接超时或故障');
+            setMessages(baseMessages);
+            latestMessagesRef.current = baseMessages;
         } finally {
             if (isMounted.current) {
                 setIsLoading(false);
@@ -204,13 +560,73 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult }
             return;
         }
         setMessages(retryPlan.baseMessages);
+        latestMessagesRef.current = retryPlan.baseMessages;
         setQuickReplies([]);
-        await handleSend(retryPlan.retryText, false, retryPlan.baseMessages);
+        await handleSend(retryPlan.displayText, {
+            baseMessagesOverride: retryPlan.baseMessages,
+            requestTextOverride: retryPlan.retryText !== retryPlan.displayText ? retryPlan.retryText : undefined,
+        });
+    };
+
+    const restartBaziWorkflow = async () => {
+        if (!baziMode) {
+            return;
+        }
+
+        const emptyMessages: UIChatMessage[] = [];
+        setMessages(emptyMessages);
+        latestMessagesRef.current = emptyMessages;
+        setQuickReplies([]);
+        setBaziStage('foundation_pending');
+
+        await saveAndSync(emptyMessages, {
+            quickReplies: [],
+            aiConversationDigest: null,
+            aiConversationStage: 'foundation_pending',
+            aiVerificationSummary: null,
+        });
+
+        await handleSend(getBaziFoundationPrompt(), {
+            isAutoInitial: true,
+            baseMessagesOverride: emptyMessages,
+            hiddenUser: true,
+            expectedBaziCompletion: 'foundation',
+            nextBaziStage: 'foundation_ready',
+        });
+    };
+
+    const handleStartVerification = async () => {
+        if (!baziMode) {
+            return;
+        }
+
+        await handleSend(buildBaziVerificationPrompt(), {
+            baseMessagesOverride: trimWorkflowMessages(messages, 1),
+            hiddenUser: true,
+            requestTextOverride: buildBaziVerificationPrompt(),
+            expectedBaziCompletion: 'verification',
+            nextBaziStage: 'verification_ready',
+        });
+    };
+
+    const handleVerificationConfirmed = async () => {
+        if (!baziMode || !isBaziResult(latestResultRef.current)) {
+            return;
+        }
+
+        const prompt = buildBaziFiveYearPrompt(latestResultRef.current);
+        await handleSend(prompt, {
+            baseMessagesOverride: trimWorkflowMessages(messages, 2),
+            hiddenUser: true,
+            requestTextOverride: prompt,
+            expectedBaziCompletion: 'five_year',
+            nextBaziStage: 'followup_ready',
+        });
     };
 
     const handleExportChat = async () => {
         try {
-            await shareChatMarkdown(result, stripUiMessages(messages));
+            await shareChatMarkdown(result, toPersistedMessages(messages));
         } catch (error: any) {
             const message = typeof error?.message === 'string' ? error.message : '导出失败，请稍后重试';
             CustomAlert.alert('导出失败', message);
@@ -224,12 +640,28 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult }
 
     const menuItems: OverflowMenuItem[] = [
         { key: 'copy', label: '复制回复', onPress: handleCopyLatestAssistant, disabled: isLoading },
-        { key: 'retry', label: '重试上一问', onPress: handleRetryLastQuestion, disabled: isLoading },
+        { key: 'retry', label: '重试上一问', onPress: handleRetryLastQuestion, disabled: isLoading || (baziMode && baziStage !== 'followup_ready') },
         { key: 'export', label: '导出会话', onPress: handleExportChat, disabled: isLoading },
     ];
+    const showFoundationAction = baziMode
+        && baziStage === 'foundation_ready'
+        && !isLoading;
+    const showVerificationActions = baziMode
+        && baziStage === 'verification_ready'
+        && !isLoading
+        && Boolean(getLastAssistantContent(messages));
+    const showInitialResetAction = shouldShowBaziFoundationRetryAction(
+        baziStage,
+        isLoading,
+        messages.length,
+        hasFoundationAttempted,
+    );
+    const inputLocked = baziMode && baziStage !== 'followup_ready';
 
     const renderMessage = ({ item }: { item: UIChatMessage }) => {
-        if (item.role === 'system') return null;
+        if (item.role === 'system' || item.hidden) {
+            return null;
+        }
 
         const isUser = item.role === 'user';
         return (
@@ -238,9 +670,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult }
                     {isUser ? (
                         <Text style={styles.bubbleTextUser}>{item.content}</Text>
                     ) : (
-                        <Markdown style={markdownStyles}>
-                            {item.content}
-                        </Markdown>
+                        <Markdown style={markdownStyles}>{item.content}</Markdown>
                     )}
                 </View>
             </View>
@@ -248,26 +678,35 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult }
     };
 
     return (
-        <Modal
-            visible={visible}
-            animationType="slide"
-            onRequestClose={handleClose}
-        >
+        <Modal visible={visible} animationType="slide" onRequestClose={handleClose}>
             <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
                 <View style={styles.header}>
                     <TouchableOpacity onPress={handleClose} style={styles.headerBtn}>
                         <BackIcon size={24} color={Colors.text.primary} />
                     </TouchableOpacity>
                     <View style={styles.headerTitleWrap}>
-                        <Text style={styles.headerGuaName} numberOfLines={1}>
-                            {result.benGua.fullName}
-                        </Text>
-                        <GuaArrowIcon size={16} color={Colors.accent.gold} />
-                        <Text style={styles.headerGuaName} numberOfLines={1}>
-                            {result.bianGua?.fullName || '无变卦'}
-                        </Text>
+                        {baziMode ? (
+                            <>
+                                <Text style={styles.headerPrimaryTitle} numberOfLines={1}>
+                                    {headerMeta.title}
+                                </Text>
+                                <Text style={styles.headerSecondaryTitle} numberOfLines={1}>
+                                    {headerMeta.subtitle}
+                                </Text>
+                            </>
+                        ) : (
+                            <View style={styles.hexagramHeaderRow}>
+                                <Text style={styles.headerGuaName} numberOfLines={1}>
+                                    {headerMeta.title}
+                                </Text>
+                                <GuaArrowIcon size={16} color={Colors.accent.gold} />
+                                <Text style={styles.headerGuaName} numberOfLines={1}>
+                                    {headerMeta.subtitle}
+                                </Text>
+                            </View>
+                        )}
                     </View>
-                    <TouchableOpacity onPress={() => setMenuVisible(prev => !prev)} style={styles.headerBtn}>
+                    <TouchableOpacity onPress={() => setMenuVisible((prev) => !prev)} style={styles.headerBtn}>
                         <MoreVerticalIcon size={20} color={Colors.text.primary} />
                     </TouchableOpacity>
                 </View>
@@ -295,18 +734,84 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult }
                     />
 
                     <View style={styles.inputSection}>
-                        {quickReplies.length > 0 && !isLoading && (
+                        {baziMode && workflowNotice ? (
+                            <View
+                                style={[
+                                    styles.workflowCard,
+                                    workflowNotice.tone === 'accent'
+                                        ? styles.workflowCardAccent
+                                        : (workflowNotice.tone === 'ready' ? styles.workflowCardReady : null),
+                                ]}
+                            >
+                                <Text style={styles.workflowCardTitle}>{workflowNotice.title}</Text>
+                                <Text style={styles.workflowCardBody}>{workflowNotice.body}</Text>
+                                {showInitialResetAction ? (
+                                    <TouchableOpacity
+                                        style={styles.workflowCardActionBtn}
+                                        onPress={() => {
+                                            void restartBaziWorkflow();
+                                        }}
+                                    >
+                                        <Text style={styles.workflowCardActionText}>重试基础定局</Text>
+                                    </TouchableOpacity>
+                                ) : null}
+                            </View>
+                        ) : null}
+
+                        {showFoundationAction ? (
+                            <View style={styles.verificationActionsWrap}>
+                                <TouchableOpacity
+                                    style={[styles.verificationActionBtn, styles.verificationActionPrimary]}
+                                    onPress={() => {
+                                        void handleStartVerification();
+                                    }}
+                                >
+                                    <Text style={[styles.verificationActionText, styles.verificationActionPrimaryText]}>
+                                        {getLocalBaziFoundationActionLabel()}
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        ) : showVerificationActions ? (
+                            <View style={styles.verificationActionsWrap}>
+                                {getLocalBaziVerificationActions().map((label) => (
+                                    <TouchableOpacity
+                                        key={label}
+                                        style={[
+                                            styles.verificationActionBtn,
+                                            label.includes('继续') ? styles.verificationActionPrimary : styles.verificationActionSecondary,
+                                        ]}
+                                        onPress={() => {
+                                            if (label.includes('继续')) {
+                                                void handleVerificationConfirmed();
+                                                return;
+                                            }
+
+                                            void restartBaziWorkflow();
+                                        }}
+                                    >
+                                        <Text
+                                            style={[
+                                                styles.verificationActionText,
+                                                label.includes('继续') ? styles.verificationActionPrimaryText : styles.verificationActionSecondaryText,
+                                            ]}
+                                        >
+                                            {label}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        ) : quickReplies.length > 0 && !isLoading && (!baziMode || baziStage === 'followup_ready') && (
                             <FlatList
                                 data={quickReplies}
                                 horizontal
                                 showsHorizontalScrollIndicator={false}
-                                keyExtractor={(it, idx) => idx.toString()}
+                                keyExtractor={(item, index) => `${item}-${index}`}
                                 style={styles.quickRepliesList}
                                 contentContainerStyle={{ paddingHorizontal: Spacing.md }}
                                 renderItem={({ item }) => (
                                     <TouchableOpacity
                                         style={styles.quickReplyChip}
-                                        onPress={() => handleSend(item)}
+                                        onPress={() => handleSend(item, { isQuickReply: baziMode })}
                                     >
                                         <Text style={styles.quickReplyText}>{item}</Text>
                                     </TouchableOpacity>
@@ -317,20 +822,28 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult }
                         <View style={styles.inputRow}>
                             <TextInput
                                 style={styles.textInput}
-                                placeholder="向 AI 追问更多细节..."
+                                placeholder={baziMode
+                                    ? (baziStage === 'foundation_pending'
+                                        ? '基础定局完成前，暂不开放追问...'
+                                        : (baziStage === 'foundation_ready'
+                                            ? '点击“开始前事核验”后再继续...'
+                                            : (baziStage === 'verification_ready'
+                                                ? '先确认前事核验，再进入未来五年...'
+                                                : '继续细问未来五年里的财运、婚恋或事业...')))
+                                    : '向 AI 追问更多细节...'}
                                 placeholderTextColor={Colors.text.tertiary}
                                 value={inputText}
                                 onChangeText={setInputText}
                                 multiline
-                                maxLength={200}
+                                maxLength={240}
                                 returnKeyType="send"
                                 onSubmitEditing={() => handleSend()}
-                                editable={!isLoading}
+                                editable={!isLoading && !inputLocked}
                             />
                             <TouchableOpacity
-                                style={[styles.sendBtn, (!inputText.trim() && !isLoading) && { opacity: 0.5 }]}
+                                style={[styles.sendBtn, (!inputText.trim() || inputLocked) && !isLoading ? { opacity: 0.5 } : null]}
                                 onPress={() => handleSend()}
-                                disabled={isLoading || !inputText.trim()}
+                                disabled={isLoading || !inputText.trim() || inputLocked}
                             >
                                 {isLoading ? (
                                     <ActivityIndicator size="small" color={Colors.text.inverse} />
@@ -358,7 +871,7 @@ const makeMarkdownStyles = (Colors: any) => ({
     strong: { fontWeight: 'bold' as any, color: Colors.accent.gold },
     em: { fontStyle: 'italic' as any, color: Colors.text.secondary },
     blockquote: { backgroundColor: 'transparent', borderLeftColor: Colors.border.subtle, borderLeftWidth: 4, paddingLeft: Spacing.md, marginVertical: Spacing.sm },
-    paragraph: { marginTop: 0, marginBottom: Spacing.sm }
+    paragraph: { marginTop: 0, marginBottom: Spacing.sm },
 });
 
 const makeStyles = (Colors: any) => StyleSheet.create({
@@ -376,16 +889,33 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         borderBottomColor: Colors.border.subtle,
     },
     headerBtn: {
-        width: 40, height: 40,
-        justifyContent: 'center', alignItems: 'center'
+        width: 40,
+        height: 40,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     headerTitleWrap: {
         flex: 1,
+        justifyContent: 'center',
+        marginHorizontal: Spacing.sm,
+    },
+    hexagramHeaderRow: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
         gap: Spacing.xs,
-        marginHorizontal: Spacing.sm,
+    },
+    headerPrimaryTitle: {
+        fontSize: FontSize.md,
+        color: Colors.text.heading,
+        fontWeight: '600',
+        textAlign: 'center',
+    },
+    headerSecondaryTitle: {
+        fontSize: FontSize.sm,
+        color: Colors.text.secondary,
+        marginTop: 2,
+        textAlign: 'center',
     },
     headerGuaName: {
         maxWidth: '42%',
@@ -437,6 +967,51 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         backgroundColor: Colors.bg.primary,
         paddingBottom: Platform.OS === 'ios' ? 0 : Spacing.md,
     },
+    workflowCard: {
+        marginHorizontal: Spacing.md,
+        marginTop: Spacing.sm,
+        paddingHorizontal: Spacing.md,
+        paddingVertical: Spacing.sm,
+        borderRadius: BorderRadius.md,
+        backgroundColor: Colors.bg.card,
+        borderWidth: 1,
+        borderColor: Colors.border.subtle,
+        gap: Spacing.xs,
+    },
+    workflowCardAccent: {
+        borderColor: Colors.accent.gold,
+        backgroundColor: Colors.bg.elevated,
+    },
+    workflowCardReady: {
+        borderColor: Colors.accent.jade,
+        backgroundColor: Colors.bg.elevated,
+    },
+    workflowCardTitle: {
+        fontSize: FontSize.md,
+        fontWeight: '600',
+        color: Colors.text.heading,
+    },
+    workflowCardBody: {
+        fontSize: FontSize.sm,
+        lineHeight: 20,
+        color: Colors.text.secondary,
+    },
+    workflowCardActionBtn: {
+        minHeight: 44,
+        marginTop: Spacing.xs,
+        borderRadius: BorderRadius.md,
+        borderWidth: 1,
+        borderColor: Colors.accent.gold,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: Spacing.md,
+        paddingVertical: Spacing.sm,
+    },
+    workflowCardActionText: {
+        fontSize: FontSize.sm,
+        fontWeight: '600',
+        color: Colors.accent.gold,
+    },
     quickRepliesList: {
         paddingVertical: Spacing.sm,
     },
@@ -452,6 +1027,38 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     quickReplyText: {
         fontSize: FontSize.sm,
         color: Colors.accent.gold,
+    },
+    verificationActionsWrap: {
+        paddingHorizontal: Spacing.md,
+        paddingTop: Spacing.sm,
+        gap: Spacing.sm,
+    },
+    verificationActionBtn: {
+        minHeight: 44,
+        borderRadius: BorderRadius.md,
+        paddingHorizontal: Spacing.md,
+        paddingVertical: Spacing.sm,
+        justifyContent: 'center',
+        borderWidth: 1,
+    },
+    verificationActionPrimary: {
+        backgroundColor: Colors.accent.gold,
+        borderColor: Colors.accent.gold,
+    },
+    verificationActionSecondary: {
+        backgroundColor: Colors.bg.elevated,
+        borderColor: Colors.border.subtle,
+    },
+    verificationActionText: {
+        fontSize: FontSize.md,
+        textAlign: 'center',
+        fontWeight: '600',
+    },
+    verificationActionPrimaryText: {
+        color: Colors.text.inverse,
+    },
+    verificationActionSecondaryText: {
+        color: Colors.text.primary,
     },
     inputRow: {
         flexDirection: 'row',
@@ -482,5 +1089,5 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         marginBottom: 2,
-    }
+    },
 });

@@ -296,6 +296,54 @@ export const MoreVerticalIcon: React.FC<IconProps> = ({ size = 24, color }) => {
     );
 };
 
+export const EditIcon: React.FC<IconProps> = ({ size = 24, color }) => {
+    const { Colors } = useTheme();
+    const c = color || Colors.text.primary;
+    return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+            <Path d="M4 20h4l10-10-4-4L4 16v4z" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            <Path d="M13 7l4 4" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        </Svg>
+    );
+};
+
+export const EyeIcon: React.FC<IconProps> = ({ size = 24, color }) => {
+    const { Colors } = useTheme();
+    const c = color || Colors.text.primary;
+    return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+            <Path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            <Circle cx="12" cy="12" r="3" stroke={c} strokeWidth="1.6" />
+        </Svg>
+    );
+};
+
+export const EyeOffIcon: React.FC<IconProps> = ({ size = 24, color }) => {
+    const { Colors } = useTheme();
+    const c = color || Colors.text.primary;
+    return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+            <Path d="M3 3l18 18" stroke={c} strokeWidth="1.6" strokeLinecap="round" />
+            <Path d="M10.6 5.2A10.8 10.8 0 0112 5c6.5 0 10 7 10 7a18.4 18.4 0 01-3.1 3.8" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            <Path d="M6.4 6.4C3.8 8.1 2 12 2 12s3.5 7 10 7a9.7 9.7 0 004.1-.9" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            <Path d="M9.9 9.9a3 3 0 004.2 4.2" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        </Svg>
+    );
+};
+
+export const SwitchPanelIcon: React.FC<IconProps> = ({ size = 24, color }) => {
+    const { Colors } = useTheme();
+    const c = color || Colors.text.primary;
+    return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+            <Rect x="3" y="4" width="18" height="16" rx="2" stroke={c} strokeWidth="1.6" />
+            <Path d="M3 10h18" stroke={c} strokeWidth="1.3" />
+            <Path d="M12 10v10" stroke={c} strokeWidth="1.3" />
+            <Path d="M8 7h8" stroke={c} strokeWidth="1.6" strokeLinecap="round" />
+        </Svg>
+    );
+};
+
 export const GuaArrowIcon: React.FC<IconProps> = ({ size = 20, color }) => {
     const { Colors } = useTheme();
     const c = color || Colors.accent.gold;

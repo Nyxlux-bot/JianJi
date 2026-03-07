@@ -1,71 +1,95 @@
-import { filterHistoryRecords, HistoryFilterState, HistoryRecordItem } from '../history-filter';
+import {
+    filterHistoryRecords,
+    getBaziCategory,
+    getHistoryMetaLabel,
+    HistoryFilterState,
+    HistoryRecordItem,
+} from '../history-filter';
 
 const mockRecords: HistoryRecordItem[] = [
     {
         id: '1',
         createdAt: '2026-03-01T00:00:00.000Z',
+        engineType: 'liuyao',
         method: 'time',
         question: '什么时候换工作',
-        guaName: '乾为天',
-        bianGuaName: '天风姤',
+        title: '乾为天',
+        subtitle: '天风姤',
         isFavorite: true,
     },
     {
         id: '2',
         createdAt: '2026-03-02T00:00:00.000Z',
+        engineType: 'liuyao',
         method: 'coin',
         question: '感情走势如何',
-        guaName: '坤为地',
-        bianGuaName: '地雷复',
+        title: '坤为地',
+        subtitle: '地雷复',
         isFavorite: false,
     },
     {
         id: '3',
         createdAt: '2026-03-03T00:00:00.000Z',
-        method: 'number',
+        engineType: 'bazi',
         question: '',
-        guaName: '水雷屯',
-        bianGuaName: '',
+        title: '辛巳 辛卯 己巳 壬申',
+        subtitle: '男 · 汕头 · 乾造',
         isFavorite: true,
+    },
+    {
+        id: '4',
+        createdAt: '2026-03-04T00:00:00.000Z',
+        engineType: 'bazi',
+        question: '',
+        title: '乙酉 丁丑 癸卯 壬子',
+        subtitle: '女 · 上海 · 坤造',
+        isFavorite: false,
     },
 ];
 
 function buildFilter(overrides: Partial<HistoryFilterState> = {}): HistoryFilterState {
     return {
         keyword: '',
-        onlyFavorite: false,
-        methods: [],
+        activeEngine: 'liuyao',
+        liuyaoCategory: 'all',
+        baziCategory: 'all',
         ...overrides,
     };
 }
 
-describe('filterHistoryRecords', () => {
-    it('filters by favorite switch', () => {
-        const result = filterHistoryRecords(mockRecords, buildFilter({ onlyFavorite: true }));
-        expect(result.map(r => r.id)).toEqual(['1', '3']);
+describe('history filter', () => {
+    it('filters liuyao records by current engine', () => {
+        const result = filterHistoryRecords(mockRecords, buildFilter());
+        expect(result.map((record) => record.id)).toEqual(['1', '2']);
     });
 
-    it('filters by selected methods', () => {
-        const result = filterHistoryRecords(mockRecords, buildFilter({ methods: ['coin', 'manual'] }));
-        expect(result.map(r => r.id)).toEqual(['2']);
+    it('filters liuyao by method and favorite category', () => {
+        expect(filterHistoryRecords(mockRecords, buildFilter({ liuyaoCategory: 'time' })).map((record) => record.id)).toEqual(['1']);
+        expect(filterHistoryRecords(mockRecords, buildFilter({ liuyaoCategory: 'favorite' })).map((record) => record.id)).toEqual(['1']);
     });
 
-    it('matches keyword against question and gua names', () => {
-        expect(filterHistoryRecords(mockRecords, buildFilter({ keyword: '感情' })).map(r => r.id)).toEqual(['2']);
-        expect(filterHistoryRecords(mockRecords, buildFilter({ keyword: '乾为天' })).map(r => r.id)).toEqual(['1']);
-        expect(filterHistoryRecords(mockRecords, buildFilter({ keyword: '地雷复' })).map(r => r.id)).toEqual(['2']);
+    it('filters bazi by profile category and favorite category', () => {
+        expect(
+            filterHistoryRecords(mockRecords, buildFilter({ activeEngine: 'bazi', baziCategory: 'qianzao' })).map((record) => record.id),
+        ).toEqual(['3']);
+        expect(
+            filterHistoryRecords(mockRecords, buildFilter({ activeEngine: 'bazi', baziCategory: 'kunzao' })).map((record) => record.id),
+        ).toEqual(['4']);
+        expect(
+            filterHistoryRecords(mockRecords, buildFilter({ activeEngine: 'bazi', baziCategory: 'favorite' })).map((record) => record.id),
+        ).toEqual(['3']);
     });
 
-    it('supports combined filters', () => {
-        const result = filterHistoryRecords(
-            mockRecords,
-            buildFilter({
-                onlyFavorite: true,
-                methods: ['time', 'coin'],
-                keyword: '工作',
-            })
-        );
+    it('matches keyword only inside the active engine shelf', () => {
+        expect(filterHistoryRecords(mockRecords, buildFilter({ keyword: '感情' })).map((record) => record.id)).toEqual(['2']);
+        expect(filterHistoryRecords(mockRecords, buildFilter({ activeEngine: 'bazi', keyword: '汕头' })).map((record) => record.id)).toEqual(['3']);
+        expect(filterHistoryRecords(mockRecords, buildFilter({ activeEngine: 'bazi', keyword: '换工作' }))).toEqual([]);
+    });
 
-        expect(result.map(r => r.id)).toEqual(['1']);
+    it('derives bazi categories and meta labels from subtitle text', () => {
+        expect(getBaziCategory(mockRecords[2])).toBe('qianzao');
+        expect(getBaziCategory(mockRecords[3])).toBe('kunzao');
+        expect(getHistoryMetaLabel(mockRecords[0])).toBe('time');
+        expect(getHistoryMetaLabel(mockRecords[3])).toBe('kunzao');
     });
 });

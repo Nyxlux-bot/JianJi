@@ -41,7 +41,10 @@ export default function TimeDivination() {
             }
 
             const result = divinateByTime(selectedDate, question, city?.longitude, city?.name);
-            await saveRecord(result);
+            await saveRecord({
+                engineType: 'liuyao',
+                result,
+            });
             router.push(`/result/${result.id}`);
         } catch (e: any) {
             CustomAlert.alert('错误', e.message || '排卦失败');

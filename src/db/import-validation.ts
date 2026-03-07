@@ -1,6 +1,12 @@
+import { BaziResult } from '../core/bazi-types';
 import { PanResult } from '../core/liuyao-calc';
-
-const VALID_METHODS = new Set(['time', 'coin', 'number', 'manual']);
+import {
+    DivinationEngine,
+    DivinationRecordEnvelope,
+    isBaziResult,
+    isDivinationMethod,
+    isPanResult,
+} from './record-types';
 
 function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -10,48 +16,101 @@ function isNonEmptyString(value: unknown): value is string {
     return typeof value === 'string' && value.trim().length > 0;
 }
 
-function assertRecordShape(record: unknown, index: number): asserts record is Record<string, unknown> {
+function assertCreatedAt(value: unknown, index: number): void {
+    if (!isNonEmptyString(value) || Number.isNaN(Date.parse(value))) {
+        throw new Error(`第${index + 1}条记录格式无效：缺少有效 createdAt`);
+    }
+}
+
+function validateLiuyaoRecord(result: unknown, index: number): void {
+    if (!isPanResult(result)) {
+        throw new Error(`第${index + 1}条记录格式无效：缺少有效 benGua`);
+    }
+    if (!isDivinationMethod(result.method)) {
+        throw new Error(`第${index + 1}条记录格式无效：缺少有效 method`);
+    }
+    assertCreatedAt(result.createdAt, index);
+}
+
+function validateBaziRecord(result: unknown, index: number): void {
+    if (!isBaziResult(result)) {
+        throw new Error(`第${index + 1}条记录格式无效：八字结果结构非法`);
+    }
+    assertCreatedAt(result.createdAt, index);
+}
+
+function normalizeSummary(summary: unknown): DivinationRecordEnvelope['summary'] {
+    if (!isObject(summary)) {
+        return undefined;
+    }
+    return {
+        method: typeof summary.method === 'string' ? summary.method : undefined,
+        question: typeof summary.question === 'string' ? summary.question : undefined,
+        title: typeof summary.title === 'string' ? summary.title : undefined,
+        subtitle: typeof summary.subtitle === 'string' ? summary.subtitle : undefined,
+    };
+}
+
+function assertEngineType(value: unknown, index: number): asserts value is DivinationEngine {
+    if (value !== 'liuyao' && value !== 'bazi') {
+        throw new Error(`第${index + 1}条记录格式无效：缺少有效 engineType`);
+    }
+}
+
+function normalizeRecord(record: unknown, index: number): DivinationRecordEnvelope {
     if (!isObject(record)) {
         throw new Error(`第${index + 1}条记录格式无效：必须是对象`);
     }
 
-    if (!isNonEmptyString(record.id)) {
-        throw new Error(`第${index + 1}条记录格式无效：缺少有效 id`);
-    }
-
-    if (!isNonEmptyString(record.createdAt) || Number.isNaN(Date.parse(record.createdAt))) {
-        throw new Error(`第${index + 1}条记录格式无效：缺少有效 createdAt`);
-    }
-
-    if (!isNonEmptyString(record.method) || !VALID_METHODS.has(record.method)) {
-        throw new Error(`第${index + 1}条记录格式无效：缺少有效 method`);
-    }
-
-    if (!isObject(record.benGua) || !isNonEmptyString(record.benGua.fullName)) {
-        throw new Error(`第${index + 1}条记录格式无效：缺少有效 benGua`);
-    }
-
-    if (record.bianGua !== undefined) {
-        if (!isObject(record.bianGua) || !isNonEmptyString(record.bianGua.fullName)) {
-            throw new Error(`第${index + 1}条记录格式无效：bianGua 结构非法`);
+    // v2: { engineType, result, summary? }
+    if (Object.prototype.hasOwnProperty.call(record, 'engineType')) {
+        assertEngineType(record.engineType, index);
+        if (!isObject(record.result)) {
+            throw new Error(`第${index + 1}条记录格式无效：缺少有效 result`);
         }
+        if (record.engineType === 'liuyao') {
+            validateLiuyaoRecord(record.result, index);
+            const result = record.result as unknown as PanResult;
+            return {
+                engineType: 'liuyao',
+                result,
+                summary: normalizeSummary(record.summary),
+            };
+        }
+
+        validateBaziRecord(record.result, index);
+        const result = record.result as unknown as BaziResult;
+        return {
+            engineType: 'bazi',
+            result,
+            summary: normalizeSummary(record.summary),
+        };
     }
-}
 
-function normalizeRecord(record: Record<string, unknown>): PanResult {
+    // v1: 直接导出的六爻 PanResult
+    validateLiuyaoRecord(record, index);
     return {
-        ...record,
-        question: typeof record.question === 'string' ? record.question : '',
-    } as PanResult;
+        engineType: 'liuyao',
+        result: record as unknown as PanResult,
+    };
 }
 
-export function validateImportRecords(records: unknown[]): PanResult[] {
+export function validateImportRecords(records: unknown[]): DivinationRecordEnvelope[] {
     if (!Array.isArray(records)) {
         throw new Error('导入数据格式无效：records 必须是数组');
     }
 
     return records.map((record, index) => {
-        assertRecordShape(record, index);
-        return normalizeRecord(record);
+        if (!isObject(record)) {
+            throw new Error(`第${index + 1}条记录格式无效：必须是对象`);
+        }
+        if (Object.prototype.hasOwnProperty.call(record, 'engineType')) {
+            if (!isObject(record.result) || !isNonEmptyString(record.result.id)) {
+                throw new Error(`第${index + 1}条记录格式无效：缺少有效 id`);
+            }
+        } else if (!isNonEmptyString(record.id)) {
+            throw new Error(`第${index + 1}条记录格式无效：缺少有效 id`);
+        }
+        return normalizeRecord(record, index);
     });
 }

@@ -7,19 +7,19 @@ import {
     TouchableOpacity,
     FlatList,
 } from 'react-native';
-import { PanResult } from '../core/liuyao-calc';
 import { BorderRadius, FontSize, Spacing } from '../theme/colors';
 import { useTheme } from '../theme/ThemeContext';
-import { ImportConflictPolicy } from '../db/database';
+import { DivinationRecordEnvelope, ImportConflictPolicy } from '../db/database';
+import { buildSummaryFields } from '../db/record-types';
 
 interface ImportPreviewModalProps {
     visible: boolean;
-    records: PanResult[];
+    records: DivinationRecordEnvelope[];
     duplicateCount: number;
     loading?: boolean;
     allowEmptySelection?: boolean;
     onCancel: () => void;
-    onConfirm: (payload: { selectedRecords: PanResult[]; conflictPolicy: ImportConflictPolicy }) => void;
+    onConfirm: (payload: { selectedRecords: DivinationRecordEnvelope[]; conflictPolicy: ImportConflictPolicy }) => void;
 }
 
 function formatTime(iso: string): string {
@@ -53,12 +53,12 @@ export default function ImportPreviewModal({
         if (!visible) {
             return;
         }
-        setSelectedIds(new Set(records.map(record => record.id)));
+        setSelectedIds(new Set(records.map(record => record.result.id)));
         setConflictPolicy('skip');
     }, [visible, records]);
 
     const selectedRecords = useMemo(
-        () => records.filter(record => selectedIds.has(record.id)),
+        () => records.filter(record => selectedIds.has(record.result.id)),
         [records, selectedIds]
     );
     const canConfirm = !loading && (allowEmptySelection || selectedRecords.length > 0);
@@ -75,17 +75,21 @@ export default function ImportPreviewModal({
         });
     };
 
-    const renderItem = ({ item }: { item: PanResult }) => {
-        const checked = selectedIds.has(item.id);
+    const renderItem = ({ item }: { item: DivinationRecordEnvelope }) => {
+        const checked = selectedIds.has(item.result.id);
+        const summary = buildSummaryFields(item);
+        const engineLabel = item.engineType === 'bazi' ? '八字' : '六爻';
         return (
-            <TouchableOpacity style={styles.recordRow} onPress={() => toggleRecord(item.id)}>
+            <TouchableOpacity style={styles.recordRow} onPress={() => toggleRecord(item.result.id)}>
                 <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
                     <Text style={[styles.checkboxText, checked && styles.checkboxTextChecked]}>{checked ? '[x]' : '[ ]'}</Text>
                 </View>
                 <View style={styles.recordInfo}>
-                    <Text style={styles.recordTitle} numberOfLines={1}>{item.benGua.fullName}</Text>
-                    <Text style={styles.recordMeta} numberOfLines={1}>{formatTime(item.createdAt)}</Text>
-                    {item.question ? <Text style={styles.recordQuestion} numberOfLines={1}>{item.question}</Text> : null}
+                    <Text style={styles.recordTitle} numberOfLines={1}>{summary.title}</Text>
+                    <Text style={styles.recordMeta} numberOfLines={1}>
+                        {engineLabel} · {formatTime(item.result.createdAt)}
+                    </Text>
+                    {summary.subtitle ? <Text style={styles.recordQuestion} numberOfLines={1}>{summary.subtitle}</Text> : null}
                 </View>
             </TouchableOpacity>
         );
@@ -129,7 +133,7 @@ export default function ImportPreviewModal({
 
                     <FlatList
                         data={records}
-                        keyExtractor={(item, index) => `${item.id}-${index}`}
+                        keyExtractor={(item, index) => `${item.result.id}-${index}`}
                         renderItem={renderItem}
                         style={styles.list}
                         showsVerticalScrollIndicator={false}
