@@ -13,7 +13,7 @@
 
 它不是单纯的算法仓库，而是完整产品链路：
 
-`输入 -> 纯计算 -> 结果展示 -> 本地记录 -> 收藏/删除 -> 备份恢复 -> AI 辅助（六爻）`
+`输入 -> 纯计算 -> 结果展示 -> 本地记录 -> 收藏/删除 -> 备份恢复 -> AI 辅助（六爻 + 八字）`
 
 技术基线：
 
@@ -76,7 +76,7 @@
 | `app/(tabs)/index.tsx` | `/` | 首页，六爻与八字入口 |
 | `app/(tabs)/learn.tsx` | `/learn` | 学习页入口 |
 | `app/(tabs)/history.tsx` | `/history` | 多引擎历史页 |
-| `app/(tabs)/settings.tsx` | `/settings` | 主题、备份、恢复 |
+| `app/(tabs)/settings.tsx` | `/settings` | 主题、AI 配置、备份、恢复 |
 | `app/learn/hexagrams.tsx` | `/learn/hexagrams` | 六十四卦总览 |
 
 ### 4.2 六爻链路
@@ -108,6 +108,7 @@
 - `流年大运 / 胎命身` 切换
 - 小运 / 大运 / 流年 / 流月联动
 - 结果页直接进入“修改八字”
+- 记录缺失时显示终态空页，不会停留在 loading
 
 ---
 
@@ -148,8 +149,25 @@
 - 页面扩展：`subject`、`baseInfo`、`jieQiContext`、`pillarMatrix`
 - 神煞：`shenSha`、`shenShaV2`
 - 主题切换与结果页高级展示所需字段：`yuanMing`、`schoolOptionsResolved`
+- AI 会话运行态：`aiChatHistory`、`quickReplies`、`aiConversationStage`、`aiVerificationSummary`、`aiConversationDigest`
 
-### 5.3 统一记录 envelope
+### 5.3 AI 会话消息：`PersistedAIChatMessage`
+
+定义位置：`src/core/ai-meta.ts`
+
+当前字段：
+
+- `role`
+- `content`
+- `hidden?`
+- `requestContent?`
+
+其中 `requestContent` 用来保存真正发给模型的请求文本。它主要解决两类场景：
+
+- 八字快捷追问会把用户短句扩写成内部 follow-up prompt
+- “重试上一问”需要重放原始请求，而不是只重发界面上的可见文案
+
+### 5.4 统一记录 envelope
 
 定义位置：`src/db/record-types.ts`
 
@@ -221,6 +239,42 @@
   - 保存成功后再回到数据库态
 
 这让“计算后还要等数据库写完才能看到页面”的体感等待明显下降。
+
+另外，结果页当前还有显式页面状态：
+
+- `loading`
+- `ready`
+- `missing`
+
+查不到记录且没有 pending 缓存时会进入 `missing`，而不是继续把 `null` 当成加载中。
+
+### 6.5 AI 对话流
+
+六爻与八字共用 `AIChatModal`，但八字有额外工作流约束。
+
+#### 六爻
+
+1. 构造六爻 system prompt
+2. 直接流式请求
+3. 完成后生成快捷追问
+4. 会话持久化到 `PanResult`
+
+#### 八字
+
+1. 初次打开自动触发 `基础定局`
+2. 校验 `[[BAZI_STAGE:*]]` 完成标记
+3. 用户确认后再进入 `前事核验`
+4. 核验通过后进入 `未来五年`
+5. 之后才开放普通专题追问
+6. 会后异步生成：
+   - `quickReplies`
+   - `aiConversationDigest`
+
+八字 AI 当前还额外处理：
+
+- 流式输出阶段标记清洗
+- 首轮基础定局失败后的页内重试入口
+- `requestContent` 精确重试
 
 ---
 
@@ -400,6 +454,9 @@
 
 仍然是共用层，但近期和八字强相关的组件变化有：
 
+- `AIChatModal.tsx`
+  - 现在是六爻与八字共用的会话容器
+  - 八字模式下额外承载阶段工作流、快捷追问、digest 与精确重试
 - `LocationBar.tsx`
   - 增加 fallback 出生地展示
 - `OverflowMenu.tsx`
@@ -432,8 +489,24 @@
 
 其中：
 
-- AI 仍然只服务六爻，不服务八字
-- 设置页负责主题和备份，不负责 AI 参数编辑
+- `settings.ts`
+  - 只持久化 `apiUrl / apiKey / model`
+  - 读取时自动清理旧 Prompt 存储键
+- `default-prompts.ts`
+  - 内建六爻与八字两套默认 system prompt
+- `ai.ts`
+  - 同时负责六爻与八字
+  - 八字工作流包含 `foundation -> verification -> five_year -> followup`
+- `share.ts`
+  - 六爻结果 Markdown 导出
+  - 六爻 / 八字 AI 会话 Markdown 导出
+
+设置页当前负责：
+
+- 主题切换
+- AI 参数配置
+- 在线模型列表探测
+- 备份与恢复
 
 ### 12.2 `src/utils/history-filter.ts`
 
@@ -443,6 +516,8 @@
 - 收藏
 - 关键词
 - 六爻 method
+- 八字 `乾造 / 坤造`
+- 最近一次筛选状态通过 `AsyncStorage` 持久化
 
 ---
 
@@ -459,6 +534,9 @@
 - 八字编辑回填：`src/features/bazi/__tests__/edit-helpers.test.ts`
 - pending cache：`src/features/bazi/__tests__/pending-result-cache.test.ts`
 - 主题语义色：`src/theme/__tests__/bazi-theme.test.ts`
+- AI 服务：`src/services/__tests__/ai.test.ts`
+- AI 重试与基础定局恢复判定：`src/components/__tests__/ai-chat-actions.test.ts`
+- 八字 AI 元数据 roundtrip：`src/db/__tests__/bazi-ai-roundtrip.test.ts`
 - 历史过滤、导入校验、设置、六爻变换等原有测试
 
 说明：
@@ -481,7 +559,8 @@
 3. 八字结果页新增 pending cache，支持先显示后持久化
 4. 八字结果页新增隐私模式和 `流年大运 / 胎命身` 面板切换
 5. 主题系统新增 `Colors.bazi.*` 语义色和生成器
-6. `tyme4ts` 升级到 `1.4.4`
+6. 八字 AI 增加分阶段工作流、digest、快捷追问与精确重试
+7. `tyme4ts` 升级到 `1.4.4`
 
 ---
 
@@ -506,8 +585,10 @@
 
 - 八字结果页交互结构
 - `BaziResult` 字段
+- `PersistedAIChatMessage`
 - `pending-result-cache`
 - `replaceRecord`
+- 八字 AI 阶段工作流
 - 主题 token 结构
 
 否则文档最容易再次过时的就是这几块。
