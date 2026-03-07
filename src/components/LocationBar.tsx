@@ -13,11 +13,22 @@ import { useTheme } from "../theme/ThemeContext";
 interface LocationBarProps {
     city: CityInfo | null;
     onPress: () => void;
+    detailText?: string;
+    placeholderDetailText?: string;
+    fallbackLabel?: string;
+    fallbackDetailText?: string;
 }
 
-export default function LocationBar({ city, onPress }: LocationBarProps) {
+export default function LocationBar({
+    city,
+    onPress,
+    detailText = '真太阳时校准',
+    placeholderDetailText = '使用真太阳时校准时辰',
+    fallbackLabel = '',
+    fallbackDetailText = '',
+}: LocationBarProps) {
     const { Colors } = useTheme();
-        const styles = makeStyles(Colors);
+    const styles = makeStyles(Colors);
     return (
         <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.7}>
             <View style={styles.iconContainer}>
@@ -27,13 +38,18 @@ export default function LocationBar({ city, onPress }: LocationBarProps) {
                 <View style={styles.info}>
                     <Text style={styles.cityName}>{city.name}</Text>
                     <Text style={styles.detail}>
-                        E{city.longitude.toFixed(2)}° · 真太阳时校准
+                        E{city.longitude.toFixed(2)}° · {detailText}
                     </Text>
+                </View>
+            ) : fallbackLabel ? (
+                <View style={styles.info}>
+                    <Text style={styles.cityName}>{fallbackLabel}</Text>
+                    <Text style={styles.detail}>{fallbackDetailText || placeholderDetailText}</Text>
                 </View>
             ) : (
                 <View style={styles.info}>
                     <Text style={styles.placeholder}>选择所在地（可选）</Text>
-                    <Text style={styles.detail}>使用真太阳时校准时辰</Text>
+                    <Text style={styles.detail}>{placeholderDetailText}</Text>
                 </View>
             )}
             <ChevronRightIcon size={20} color={Colors.text.tertiary} />
@@ -42,38 +58,38 @@ export default function LocationBar({ city, onPress }: LocationBarProps) {
 }
 
 const makeStyles = (Colors: any) => StyleSheet.create({
-        container: {
-            flexDirection: 'row',
-            alignItems: 'center',
-            backgroundColor: Colors.bg.card,
-            borderRadius: BorderRadius.md,
-            paddingHorizontal: Spacing.lg,
-            paddingVertical: Spacing.md,
-            marginBottom: Spacing.lg,
-            borderWidth: 0.5,
-            borderColor: Colors.border.subtle,
-        },
-        iconContainer: {
-            marginRight: Spacing.sm,
-        },
-        info: { flex: 1 },
-        cityName: {
-            fontSize: FontSize.sm,
-            color: Colors.accent.gold,
-            fontWeight: '400',
-        },
-        placeholder: {
-            fontSize: FontSize.sm,
-            color: Colors.text.secondary,
-        },
-        detail: {
-            fontSize: FontSize.xs,
-            color: Colors.text.tertiary,
-            marginTop: 2,
-        },
-        arrow: {
-            fontSize: FontSize.lg,
-            color: Colors.text.tertiary,
-            marginLeft: Spacing.sm,
-        },
-    });
+    container: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: Colors.bg.card,
+        borderRadius: BorderRadius.md,
+        paddingHorizontal: Spacing.lg,
+        paddingVertical: Spacing.md,
+        marginBottom: Spacing.lg,
+        borderWidth: 0.5,
+        borderColor: Colors.border.subtle,
+    },
+    iconContainer: {
+        marginRight: Spacing.sm,
+    },
+    info: { flex: 1 },
+    cityName: {
+        fontSize: FontSize.sm,
+        color: Colors.accent.gold,
+        fontWeight: '400',
+    },
+    placeholder: {
+        fontSize: FontSize.sm,
+        color: Colors.text.secondary,
+    },
+    detail: {
+        fontSize: FontSize.xs,
+        color: Colors.text.tertiary,
+        marginTop: 2,
+    },
+    arrow: {
+        fontSize: FontSize.lg,
+        color: Colors.text.tertiary,
+        marginLeft: Spacing.sm,
+    },
+});

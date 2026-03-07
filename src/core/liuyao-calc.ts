@@ -14,6 +14,7 @@ import { calculateTrueSolarTime, formatTrueSolarTime } from './true-solar-time';
 import { getXunKong } from './xun-kong';
 import { getShenSha, ShenShaResult } from './shen-sha';
 import { getMonthGeneralByJieqi, getMoonPhase, MonthGeneral, MoonPhase } from './time-signs';
+import { PersistedAIChatMessage } from './ai-meta';
 
 // ==================== 排盘结果类型 ====================
 
@@ -53,7 +54,7 @@ export interface PanResult {
     method: DivinationMethod;
     question: string;
     aiAnalysis?: string; // 缓存保存的 AI 测算历史结果 (向后兼容)
-    aiChatHistory?: { role: 'system' | 'user' | 'assistant'; content: string }[]; // 增设用于持久保存上下文的多轮对话记录
+    aiChatHistory?: PersistedAIChatMessage[]; // 增设用于持久保存上下文的多轮对话记录
     quickReplies?: string[]; // 针对本次测算的专属快捷短句
     // 时间信息
     solarDate: string;
