@@ -1,374 +1,392 @@
 # 见机 (Jianji) 项目架构文档
 
-本文档以当前仓库源码为准，描述实际运行入口、目录职责、核心数据模型、主要业务流和近期八字功能带来的架构级变化。若本文件与旧截图、旧 README 或早期讨论不一致，以当前源码实现为准。
+本文档以当前仓库源码为准，描述真实运行入口、目录职责、关键数据模型、跨模块链路、兼容策略与当前开发边界。若与旧 README、历史截图或早期讨论不一致，以当前代码实现为准。
 
----
+## 1. 项目定位
 
-## 1. 项目定位与技术基线
+「见机」当前是一个双引擎易学排盘应用：
 
-「见机」当前是一个 **双引擎易学排盘应用**：
+- 六爻排盘
+- 八字排盘
 
-- **六爻排盘**
-- **八字排盘**
+它不是单纯算法仓库，而是一个完整客户端产品：
 
-它不是单纯的算法仓库，而是完整产品链路：
+`输入 -> 纯计算 -> 展示 -> 本地记录 -> 收藏/删除 -> 备份恢复 -> AI 辅助`
 
-`输入 -> 纯计算 -> 结果展示 -> 本地记录 -> 收藏/删除 -> 备份恢复 -> AI 辅助（六爻 + 八字）`
+应用层面已经形成三条主线：
 
-技术基线：
+- 排盘与结果查看
+- 历史、备份、恢复
+- AI 对话与结果复用
+
+## 2. 技术基线与运行配置
+
+### 2.1 技术栈
 
 - Expo SDK 54
 - React Native 0.81
 - React 19
 - TypeScript 5.9
 - Expo Router
-- expo-sqlite
-- AsyncStorage
-- tyme4ts 1.4.4
+- `expo-sqlite`
+- `@react-native-async-storage/async-storage`
+- `react-native-sse`
+- `react-native-svg`
+- `tyme4ts@1.4.4`
 
----
+### 2.2 App 配置
 
-## 2. 实际运行入口
+关键配置分布在：
 
-当前唯一运行入口是：
-
-1. `package.json`
-   - `"main": "expo-router/entry"`
-2. `app/_layout.tsx`
-   - 挂载 `ThemeProvider`、`SafeAreaProvider`、`CustomAlertProvider`
-   - 管理启动 Splash 与根级 `Stack`
-3. `app/(tabs)/_layout.tsx`
-   - 主标签页容器，定义首页、学习、历史、设置
+- `package.json`
+  - 运行入口：`expo-router/entry`
+- `app.json`
+  - 应用名：`见机`
+  - `slug`: `jianji`
+  - `newArchEnabled: true`
+  - iOS / Android 包名：`com.jianji.app`
+  - EAS Update 已接入
+- `metro.config.js`
+  - 为 Web 端 SQLite 增补 `wasm` 资源扩展
+- `eas.json`
+  - 定义 `development / preview / production` profile
 
 说明：
 
-- 仓库已删除传统 Expo 模板残留的 `App.tsx` 和 `index.ts`
-- 当前不再存在第二条入口链路
+- `app.json.userInterfaceStyle` 虽然仍是 `dark`，但应用内部实际视觉主题由 `ThemeContext` 控制
+- 仓库内部仍保留历史命名：
+  - npm 包名 `liuyao-app`
+  - SQLite 文件名 `liuyao.db`
 
----
+## 3. 启动链路
 
-## 3. 目录分层
+实际启动链路如下：
 
-项目可以按 7 层理解：
+1. `package.json` 指向 `expo-router/entry`
+2. `app/_layout.tsx`
+   - `SplashScreen.preventAutoHideAsync()`
+   - 挂载 `ThemeProvider`
+   - 挂载 `SafeAreaProvider`
+   - 挂载 `CustomAlertProvider`
+   - 初始化根 `Stack`
+3. `app/(tabs)/_layout.tsx`
+   - 定义首页、学习、历史、设置四个主 Tab
 
-1. **路由与页面层**：`app/`
-2. **通用组件层**：`src/components/`
-3. **纯计算核心层**：`src/core/`
-4. **业务特定 view-model / 运行态层**：`src/features/`
-5. **持久化与导入导出层**：`src/db/`
-6. **服务层**：`src/services/`
-7. **主题 / Hook / 工具 / 静态数据层**：`src/theme/`、`src/hooks/`、`src/utils/`、`src/data/`
+根布局会等待主题加载完成后再渲染应用，因此首屏颜色不会先闪默认主题再切换。
 
-当前的关键架构变化基本都围绕这三块展开：
+## 4. 路由结构
 
-- `src/core/`：新增完整八字计算引擎
-- `src/features/bazi/`：新增八字结果页 view-model、编辑辅助、pending cache
-- `src/db/`：记录模型从“六爻专用”升级为“多引擎统一 envelope”
+### 4.1 总览
 
----
-
-## 4. 路由与页面结构
-
-### 4.1 顶层路由
-
-| 路由文件 | 实际路径 | 职责 |
+| 路由文件 | 路径 | 职责 |
 | --- | --- | --- |
-| `app/(tabs)/index.tsx` | `/` | 首页，六爻与八字入口 |
+| `app/(tabs)/index.tsx` | `/` | 首页，六爻与八字双入口 |
 | `app/(tabs)/learn.tsx` | `/learn` | 学习页入口 |
 | `app/(tabs)/history.tsx` | `/history` | 多引擎历史页 |
-| `app/(tabs)/settings.tsx` | `/settings` | 主题、AI 配置、备份、恢复 |
-| `app/learn/hexagrams.tsx` | `/learn/hexagrams` | 六十四卦总览 |
+| `app/(tabs)/settings.tsx` | `/settings` | 主题、AI 配置、备份恢复 |
+| `app/learn/hexagrams.tsx` | `/learn/hexagrams` | 六十四卦资料库 |
 
 ### 4.2 六爻链路
 
-| 路由文件 | 实际路径 | 职责 |
+| 路由文件 | 路径 | 职责 |
 | --- | --- | --- |
 | `app/divination/time.tsx` | `/divination/time` | 时间起卦 |
-| `app/divination/coin.tsx` | `/divination/coin` | 铜钱起卦 |
+| `app/divination/coin.tsx` | `/divination/coin` | 硬币起卦 |
 | `app/divination/number.tsx` | `/divination/number` | 数字起卦 |
 | `app/divination/manual.tsx` | `/divination/manual` | 手动起卦 |
 | `app/result/[id].tsx` | `/result/[id]` | 六爻结果页 |
 
+六爻结果页支持：
+
+- 基础排盘查看
+- 动爻详情
+- 卦象抽屉（互卦 / 错卦 / 综卦）
+- 收藏 / 删除
+- Markdown 导出
+- AI 对话
+
 ### 4.3 八字链路
 
-| 路由文件 | 实际路径 | 职责 |
+| 路由文件 | 路径 | 职责 |
 | --- | --- | --- |
-| `app/bazi/input.tsx` | `/bazi/input` | 八字输入页，同时承担“新建”和“修改” |
+| `app/bazi/input.tsx` | `/bazi/input` | 八字输入页，同时承担新建与修改 |
 | `app/bazi/result/[id].tsx` | `/bazi/result/[id]` | 八字结果页 |
 
-八字结果页当前分成三段：
+八字结果页分为三段：
 
-- `基本信息`
-- `基本排盘`
-- `专业细盘`
+- 基本信息
+- 基本排盘
+- 专业细盘
 
-专业细盘当前具备这些交互：
+专业细盘又分两种面板：
 
-- 隐私遮罩
-- `流年大运 / 胎命身` 切换
-- 小运 / 大运 / 流年 / 流月联动
-- 结果页直接进入“修改八字”
-- 记录缺失时显示终态空页，不会停留在 loading
+- `fortune`
+  - 大运 / 流年 / 流月 / 小运联动
+- `taiming`
+  - 胎元 / 命宫 / 身宫延展视图
 
----
+### 4.4 路由兜底行为
 
-## 5. 核心数据模型
+- 六爻结果页读到八字记录时，会跳转到 `/bazi/result/[id]`
+- 八字结果页读到六爻记录时，会跳转到 `/result/[id]`
 
-### 5.1 六爻：`PanResult`
+这让历史页可以只按记录 `id` 跳详情，而不必担心旧链接或错误入口。
+
+## 5. 分层设计
+
+项目可以按 8 层理解：
+
+1. 页面层：`app/`
+2. 组件层：`src/components/`
+3. 纯计算核心层：`src/core/`
+4. 八字业务运行态层：`src/features/bazi/`
+5. 持久化层：`src/db/`
+6. 服务层：`src/services/`
+7. 主题 / Hook / 工具层：`src/theme/`、`src/hooks/`、`src/utils/`
+8. 静态数据层：`src/data/`
+
+对应关系：
+
+```mermaid
+flowchart LR
+  A["app 页面层"] --> B["src/core 纯计算"]
+  A --> C["src/features/bazi 运行态"]
+  A --> D["src/components 通用交互"]
+  A --> E["src/services AI / 设置 / 分享"]
+  A --> F["src/db 记录与导入导出"]
+  A --> G["src/theme / hooks / utils"]
+  D --> E
+  C --> F
+  B --> F
+```
+
+## 6. 核心数据模型
+
+### 6.1 六爻结果：`PanResult`
 
 定义位置：`src/core/liuyao-calc.ts`
 
-职责：
+主要字段：
 
-- 六爻排盘的完整输出对象
-- 同时被结果页、AI 对话、分享、历史、备份恢复使用
-
-主要字段组：
-
-- 标识与来源：`id`、`createdAt`、`method`、`question`
-- 时间与地点：`solarDate`、`solarTime`、`trueSolarTime`、`location`、`longitude`
-- 四柱与纳音：`yearGanZhi` 等四柱字段、纳音字段
-- 卦体：`benGua`、`bianGua`、`movingYaoPositions`
+- 标识：`id`、`createdAt`
+- 来源：`method`、`question`
+- 时间：`solarDate`、`solarTime`、`trueSolarTime`
+- 地点：`location`、`longitude`
+- 历法：`lunarInfo`、`jieqi`
+- 四柱：`yearGanZhi` 到 `hourGanZhi`
+- 排盘主体：
+  - `benGua`
+  - `benGuaYao`
+  - `bianGua`
+  - `bianGuaYao`
+  - `movingYaoPositions`
+  - `rawYaoValues`
 - AI：`aiAnalysis`、`aiChatHistory`、`quickReplies`
 
-### 5.2 八字：`BaziResult`
+补充点：
+
+- 每个爻位 `YaoDetail` 已经带好六亲、六神、世应、动静、变爻信息
+- 缺失六亲时还会挂载 `fuShen`
+
+### 6.2 八字结果：`BaziResult`
 
 定义位置：`src/core/bazi-types.ts`
 
-职责：
+主要字段：
 
-- 八字排盘的标准结果对象
-- 被输入页、结果页、历史页、备份恢复、编辑回填共同依赖
+- 标识：`id`、`createdAt`、`calculatedAt`
+- 时间：`solarDate`、`solarTime`、`trueSolarTime`、`timeMeta`
+- 输入语义：`gender`、`longitude`、`schoolOptionsResolved`
+- 本命结构：
+  - `fourPillars`
+  - `shiShen`
+  - `cangGan`
+  - `pillarMatrix`
+  - `baseInfo`
+  - `jieQiContext`
+  - `yuanMing`
+- 运势结构：
+  - `childLimit`
+  - `daYun`
+  - `liuNian`
+  - `xiaoYun`
+  - `currentDaYunIndex`
+- 神煞：
+  - `shenSha`
+  - `shenShaV2`
+- AI 运行态：
+  - `aiAnalysis`
+  - `aiChatHistory`
+  - `quickReplies`
+  - `aiConversationStage`
+  - `aiVerificationSummary`
+  - `aiConversationDigest`
+  - `aiContextSnapshot`
 
-主要字段组：
-
-- 标识与时间：`id`、`createdAt`、`calculatedAt`、`timeMeta`
-- 输入语义：`gender`、`longitude`
-- 本命盘：`fourPillars`、`shiShen`、`cangGan`
-- 运势链：`childLimit`、`daYun`、`liuNian`、`xiaoYun`
-- 页面扩展：`subject`、`baseInfo`、`jieQiContext`、`pillarMatrix`
-- 神煞：`shenSha`、`shenShaV2`
-- 主题切换与结果页高级展示所需字段：`yuanMing`、`schoolOptionsResolved`
-- AI 会话运行态：`aiChatHistory`、`quickReplies`、`aiConversationStage`、`aiVerificationSummary`、`aiConversationDigest`
-
-### 5.3 AI 会话消息：`PersistedAIChatMessage`
+### 6.3 AI 消息：`PersistedAIChatMessage`
 
 定义位置：`src/core/ai-meta.ts`
 
-当前字段：
+字段：
 
 - `role`
 - `content`
 - `hidden?`
 - `requestContent?`
 
-其中 `requestContent` 用来保存真正发给模型的请求文本。它主要解决两类场景：
+`requestContent` 的作用是保存真正发给模型的文本，避免界面展示文案与模型输入文案不一致时，重试会丢失上下文。
 
-- 八字快捷追问会把用户短句扩写成内部 follow-up prompt
-- “重试上一问”需要重放原始请求，而不是只重发界面上的可见文案
+典型场景：
 
-### 5.4 统一记录 envelope
+- 八字快捷追问会把短句重写成内部 follow-up prompt
+- “重试上一问”必须重放重写后的请求
+
+### 6.4 统一记录 envelope
 
 定义位置：`src/db/record-types.ts`
-
-当前记录模型统一为：
 
 ```ts
 {
   engineType: 'liuyao' | 'bazi',
   result: PanResult | BaziResult,
   summary?: {
+    method?: string;
+    question?: string;
     title?: string;
     subtitle?: string;
-    question?: string;
-    method?: string;
   }
 }
 ```
 
-这次升级后，历史页、备份恢复、导入校验都按这个 envelope 工作，而不是各页面各存一套私有结构。
+它是当前历史页、导入导出、备份恢复、保存接口的统一边界。
 
----
+### 6.5 备份文件结构
 
-## 6. 端到端业务流
+设置页导出的备份载荷实际是：
 
-### 6.1 六爻
+```ts
+{
+  version: 2,
+  timestamp: string,
+  settings: {
+    apiUrl: string,
+    apiKey: '',
+    model: string,
+  },
+  meta: {
+    apiKeyIncluded: false,
+  },
+  records: DivinationRecordEnvelope[],
+}
+```
 
-1. 页面采集输入
-2. 调用 `divinateByTime / divinateByCoin / divinateByNumber / divinateManual`
-3. 统一进入 `calculatePan()`
-4. 生成 `PanResult`
-5. `saveRecord({ engineType: 'liuyao', result })`
-6. 跳转 `/result/[id]`
+注意：
 
-### 6.2 八字
+- 导出时会主动清空 `apiKey`
+- 恢复设置时使用“非空字段覆盖”策略，不会因为备份不含 Key 而抹掉本机已有 Key
 
-1. 进入 `/bazi/input`
-2. 采集出生时间、性别、地点、排盘口径、子时口径、参考时点
-3. 调用 `calculateBazi()`
-4. 结果先进入 `pending-result-cache`
-5. 立即跳转 `/bazi/result/[id]`
-6. 持久化异步进行：
-   - 新建：`saveRecord`
-   - 修改：`replaceRecord`
+## 7. 纯计算核心层：`src/core/`
 
-### 6.3 八字修改流
+### 7.1 六爻
 
-这是近期最大的产品级改动之一。
+入口函数：
 
-1. 用户在 `/bazi/result/[id]` 点击三点菜单里的“修改”
-2. 跳转到 `/bazi/input?editId=...`
-3. 输入页通过 `getRecord(editId)` 读取旧记录
-4. 用 `buildBaziEditFormState()` 回填：
-   - 姓名
-   - 出生时间
-   - 性别
-   - 城市 / fallback 地点
-   - 时间口径 / 子时口径 / 夏令时
-5. 重新排盘后：
-   - 若只是改名等不影响 id，覆盖同记录
-   - 若输入变化导致新 id，使用 `replaceRecord(oldId, envelope)` 替换旧记录并继承收藏状态
+- `divinateByTime()`
+- `divinateByCoin()`
+- `divinateByNumber()`
+- `divinateManual()`
 
-### 6.4 八字结果页运行态
+它们最终统一进入 `calculatePan()`。
 
-结果页不仅消费数据库，还消费内存态：
+`calculatePan()` 负责：
 
-- `pending-result-cache`
-  - 先渲染刚计算出的结果
-  - 保存失败时显示可重试提示
-  - 保存成功后再回到数据库态
+1. 根据地点决定是否使用真太阳时修正
+2. 计算农历、节气、四柱、纳音
+3. 组装本卦、变卦、动爻
+4. 计算六神、六亲、世应、伏神
+5. 生成 `PanResult`
 
-这让“计算后还要等数据库写完才能看到页面”的体感等待明显下降。
+### 7.2 八字
 
-另外，结果页当前还有显式页面状态：
+入口函数：`calculateBazi()`
 
-- `loading`
-- `ready`
-- `missing`
-
-查不到记录且没有 pending 缓存时会进入 `missing`，而不是继续把 `null` 当成加载中。
-
-### 6.5 AI 对话流
-
-六爻与八字共用 `AIChatModal`，但八字有额外工作流约束。
-
-#### 六爻
-
-1. 构造六爻 system prompt
-2. 直接流式请求
-3. 完成后生成快捷追问
-4. 会话持久化到 `PanResult`
-
-#### 八字
-
-1. 初次打开自动触发 `基础定局`
-2. 校验 `[[BAZI_STAGE:*]]` 完成标记
-3. 用户确认后再进入 `前事核验`
-4. 核验通过后进入 `未来五年`
-5. 之后才开放普通专题追问
-6. 会后异步生成：
-   - `quickReplies`
-   - `aiConversationDigest`
-
-八字 AI 当前还额外处理：
-
-- 流式输出阶段标记清洗
-- 首轮基础定局失败后的页内重试入口
-- `requestContent` 精确重试
-
----
-
-## 7. 八字核心计算层：`src/core/`
-
-### 7.1 `calculateBazi()` 的职责
-
-定义位置：`src/core/bazi-calc.ts`
-
-当前步骤大致为：
+核心步骤：
 
 1. 归一化输入参数
-2. 根据时间口径得到实际排盘时间
-3. 调用 `tyme4ts` 取八字对象
+2. 按本地钟表时 / 平太阳时 / 真太阳时换算实际排盘时间
+3. 选择子时口径对应的 `EightCharProvider`
 4. 提取四柱、十神、藏干
 5. 计算起运、大运、流年、流月、小运
-6. 计算 `shenShaV2`
-7. 从 `shenShaV2.siZhu` 派生旧版 `shenSha`
-8. 构建 `pillarMatrix`、`baseInfo`、`jieQiContext`
-9. 组装 `BaziResult`
+6. 计算元命、胎元、命宫、身宫、人元司令等扩展信息
+7. 构建 `shenShaV2`
+8. 回填兼容版 `shenSha`
+9. 组装 `pillarMatrix`、`baseInfo`、`jieQiContext`
+10. 构建 `BaziResult`
 
-### 7.2 神煞链路的近期大改动
+### 7.3 八字 ID 设计
 
-定义位置：`src/core/bazi-shensha.ts`
+`calculateBazi()` 会基于以下信息构造稳定 ID：
 
-近期核心变化：
+- 输入出生时间
+- 计算后的排盘时间
+- 参考时点
+- 性别
+- 经度
+- 子时口径
+- 时间口径
 
-- 不再由页面临时重复算动态神煞
-- 在计算阶段构建 `ganZhiBuckets`
-- `view-model` 直接消费预计算 bucket
+因此：
 
-这解决了两个问题：
+- 只改姓名这类展示字段时，ID 可能不变
+- 改出生时间、地点或口径时，ID 往往会变化
+- 结果页编辑保存时需要 `replaceRecord(oldId, newEnvelope)` 来覆盖旧记录并继承收藏状态
 
-- 结果页切换面板 / 流年 / 流月时不再重复跑同一批神煞规则
-- `身宫 / 命宫 / 胎元` 这种额外列也能直接吃预计算神煞
-
-### 7.3 人元司令与交运
-
-当前独立模块：
-
-- `renyuan-duty.ts`
-  - 人元司令
-  - 旺相休囚死五行带
-- `jiaoyun-rule.ts`
-  - 交运规则文案
-
-最近这两块都已经从“页面拼字符串”转成了独立纯算法模块，结果页只负责展示，不再自算。
-
----
-
-## 8. 八字结果页 view-model：`src/features/bazi/`
-
-这是近期新增最多的业务层。
+## 8. 八字业务运行态：`src/features/bazi/`
 
 ### 8.1 `view-model.ts`
 
-当前职责：
+职责：
 
-- 把 `BaziResult` 映射成结果页可直接渲染的数据
-- 维护专业细盘两套面板：
-  - `fortuneColumns / fortuneRows`
-  - `taimingColumns / taimingRows`
-- 输出头区、信息带、轨道、神煞分层所需结构
+- 把 `BaziResult` 映射成结果页可直接消费的视图模型
+- 负责专业细盘两套面板：
+  - `fortune`
+  - `taiming`
+- 将四柱、大运、流年、流月、特殊列统一为 `ProChartColumnView / ProChartRowView`
 
 ### 8.2 `edit-helpers.ts`
 
 职责：
 
-- 从现有 `BaziResult` 反推输入页表单态
-- 尝试按地点名或经度匹配 `CityInfo`
-- 匹配失败时保留 fallback 文案
+- 从 `BaziResult` 反推输入页表单状态
+- 尝试按出生地名称或经度回匹配 `CityInfo`
+- 匹配失败时保留 `locationFallbackLabel`
 
 ### 8.3 `pending-result-cache.ts`
 
-职责：
+这是八字链路非常重要的一层。
 
-- 暂存刚算出的 `BaziResult`
-- 管理异步保存状态：`saving / saved / error`
-- 结果页通过订阅这个缓存获得即时展示和失败重试能力
+行为：
 
-这是近期八字链路里最“产品化”的新增模块之一。
+1. 输入页排盘完成后，不先等落库
+2. 先把结果放进内存 `Map`
+3. 结果页优先消费 pending 结果
+4. 后台异步落库
+5. 落库成功后标记 `saved`
+6. 落库失败后展示 `error` 并提供重试
 
----
+特点：
+
+- 提升“计算后立即可见”的体感
+- 只存在于内存，不是长期存储
 
 ## 9. 持久化层：`src/db/`
 
-### 9.1 `database.ts`
-
-平台实现：
+### 9.1 存储后端
 
 - Native：`expo-sqlite`
 - Web：`localStorage`
 
-对外 API：
+统一导出接口：
 
 - `saveRecord`
 - `replaceRecord`
@@ -379,216 +397,322 @@
 - `exportAllRecords`
 - `importRecords`
 
-### 9.2 近期大改动
+### 9.2 Native SQLite
 
-#### 多引擎统一 records
+表：`records`
 
-记录不再按六爻单独存一套，当前统一保存：
+关键字段：
 
+- `id`
+- `created_at`
 - `engine_type`
+- `method`
+- `question`
 - `title`
 - `subtitle`
+- `gua_name`
+- `bian_gua_name`
 - `full_result`
+- `is_favorite`
 
-#### `replaceRecord()`
+说明：
 
-这是为八字“修改并覆盖旧记录”新增的能力：
+- `gua_name / bian_gua_name` 仍被保留，用于兼容旧结构
+- `ensureNativeSchema()` 会补齐新增字段并修复旧数据
 
-- Native：事务内插入新记录、继承收藏、删除旧记录
-- Web：重组 localStorage 数组并保留收藏状态
+### 9.3 Web localStorage
 
-#### 备份恢复
+当前键：
 
-设置页导出的备份已经是 `version: 2` 多引擎结构，并支持：
+- `divination_records_v2`
 
-- 六爻旧备份兼容导入
-- 混合记录导入
-- 预览
-- 冲突策略
+历史键：
 
----
+- `liuyao_records`
 
-## 10. 主题系统：`src/theme/`
+Web 端会在首次读取时自动把旧六爻结构迁移到 v2。
 
-### 10.1 全局主题状态
+### 9.4 导入策略
+
+导入层分成两部分：
+
+- `import-validation.ts`
+  - 校验 v2 envelope
+  - 兼容 v1 直接导出的六爻 `PanResult`
+- `import-strategy.ts`
+  - 决定 `insert / update / skip`
+
+UI 侧目前使用：
+
+- `mode = merge`
+- 冲突策略由用户在预览弹窗里选择：
+  - `skip`
+  - `replace`
+
+虽然底层也支持 `mode = replace`，但当前设置页 UI 没有直接暴露整库覆盖导入。
+
+## 10. 页面级业务流
+
+### 10.1 六爻起卦流
+
+1. 页面采集输入
+2. 可选读取 `useLocation()` 中持久化的城市
+3. 调用六爻计算函数
+4. `saveRecord({ engineType: 'liuyao', result })`
+5. 跳转 `/result/[id]`
+
+### 10.2 八字新建流
+
+1. 进入 `/bazi/input`
+2. 录入出生信息、地点与口径
+3. 调用 `calculateBazi()`
+4. 先 `primePendingBaziRecord()`
+5. 立即跳转 `/bazi/result/[id]`
+6. 后台异步落库 `saveRecord()`
+
+### 10.3 八字编辑流
+
+1. 结果页点击三点菜单中的“修改内容”
+2. 跳到 `/bazi/input?editId=...`
+3. 输入页通过 `getRecord()` 或 pending cache 回填旧结果
+4. `buildBaziEditFormState()` 反推表单状态
+5. 重算后：
+   - 同 ID：直接 `saveRecord`
+   - 新 ID：`replaceRecord(oldId, envelope)`，保留收藏状态
+
+### 10.4 历史页
+
+历史页当前只保存以下筛选状态到 `AsyncStorage`：
+
+- `activeEngine`
+- `liuyaoCategory`
+- `baziCategory`
+
+说明：
+
+- 关键词不会持久化
+- 引擎切换与分类切换会在下次打开时恢复
+
+### 10.5 学习页
+
+学习页完全依赖本地 JSON 数据：
+
+- `iching.json`
+- `ichuan/tuan.json`
+- `ichuan/xiang.json`
+- `ichuan/wen.json`
+
+因此：
+
+- 不依赖网络
+- 当前只覆盖六十四卦资料，不涉及八字知识库
+
+## 11. AI 架构
+
+### 11.1 配置来源
+
+`src/services/settings.ts` 负责持久化：
+
+- `apiUrl`
+- `apiKey`
+- `model`
+
+默认值：
+
+- `https://api.openai.com/v1/chat/completions`
+- `gpt-4o`
+
+设置读写时会清理历史 Prompt 键，说明当前 Prompt 已完全内建，不再暴露给用户编辑。
+
+### 11.2 请求形态
+
+AI 层分成两类调用：
+
+- 流式主会话：`analyzeWithAIChatStream()`
+  - 基于 `react-native-sse`
+  - 用于用户真正看到的对话输出
+- 非流式辅助调用：`requestChatCompletion()`
+  - 用于生成快捷追问和八字 digest
+
+### 11.3 六爻 AI
+
+六爻使用 `buildSystemMessage()` 构造完整盘面上下文，系统消息内已经包含：
+
+- 时间与真太阳时
+- 节气、月将、月相
+- 四柱
+- 本卦 / 变卦 / 互错综
+- 六爻明细
+- 动爻
+- 占问事项
+
+会话结束后可异步生成：
+
+- `quickReplies`
+
+### 11.4 八字 AI
+
+八字模式共用 `AIChatModal`，但额外叠加了严格阶段机：
+
+- `foundation_pending`
+- `foundation_ready`
+- `verification_ready`
+- `followup_ready`
+
+工作流顺序：
+
+1. 基础定局
+2. 前事核验
+3. 未来五年
+4. 后续专题追问
+
+阶段结束依赖模型返回标记：
+
+- `[[BAZI_STAGE:FOUNDATION_DONE]]`
+- `[[BAZI_STAGE:VERIFICATION_DONE]]`
+- `[[BAZI_STAGE:FIVE_YEAR_DONE]]`
+
+如果缺少标记或结构不达标：
+
+- 该阶段不会被视为完成
+- 会提示重试当前阶段
+
+### 11.5 八字 AI 的额外运行态
+
+八字还多了三个关键机制：
+
+1. `aiContextSnapshot`
+   - 锁定当时专业细盘上下文
+   - 避免用户切换面板后，后续 AI 解盘基线漂移
+2. `aiConversationDigest`
+   - 把已经确认的格局、用忌、前事核验和未来五年主线压缩成结构化 JSON
+   - 后续追问时作为 system context 复用
+3. `requestContent`
+   - 记录真正发给模型的重写请求文本，支持“精准重试”
+
+### 11.6 AI 产物刷新时机
+
+并不是每次回复都刷新 digest / 快捷追问。
+
+规则：
+
+- 六爻：回复后可生成快捷追问
+- 八字：只有进入 `followup_ready` 之后，才开始生成 digest 与快捷追问
+
+这样做是为了避免基础定局和前事核验阶段尚未稳定时，过早固化摘要。
+
+## 12. 主题、地点与公共状态
+
+### 12.1 主题系统
 
 `ThemeContext.tsx` 负责：
 
-- 从 `AsyncStorage` 读取 `app-theme`
-- 对外暴露：
-  - `theme`
-  - `setTheme`
-  - `Colors`
+- 从 `AsyncStorage(app-theme)` 读取主题
+- 提供 `theme / setTheme / Colors`
+- 在主题完成加载前阻塞根渲染
 
-### 10.2 四套主题
-
-当前主题：
+当前四套主题：
 
 - `dark`
 - `green`
 - `white`
 - `purple`
 
-### 10.3 近期主题架构升级
+### 12.2 八字语义色
 
-为了修复八字结果页“只有原矿绿明显变化，其它主题看起来像没变”的问题，主题系统近期做了两层升级：
+`bazi-theme.ts` 基于基础主题派生 `Colors.bazi.*` 语义 token，包括：
 
-1. 新增 `bazi-theme.ts`
-   - 通过 `buildBaziThemeTokens()` 从基础主题派生八字语义色
-2. 四套主题统一提供 `Colors.bazi.*`
-   - `chrome*`
-   - `hero*`
-   - `action*`
-   - `infoBand*`
-   - `trackActive*`
-   - `warning*`
+- chrome
+- hero
+- action
+- infoBand
+- trackActive
+- warning
 
-这意味着：
+作用：
 
-- 八字结果页不再直接依赖一堆硬编码黑金色
-- 主题切换后的差异由 token 层保证，而不是靠页面自己写死颜色
+- 八字结果页不再硬编码颜色
+- 主题切换能稳定影响头区、信息带、选中轨道、警示态等区域
 
----
+### 12.3 地点选择
 
-## 11. 组件层：`src/components/`
+地点相关能力分成两种：
 
-仍然是共用层，但近期和八字强相关的组件变化有：
+- 六爻页面
+  - 复用 `useLocation() + LocationBar + CityPicker`
+  - 通过 `AsyncStorage(settings_location)` 持久化最近一次选城
+- 八字输入页
+  - 复用 `LocationBar + CityPicker`
+  - 城市状态直接挂在表单里，不复用六爻那条持久化状态
 
-- `AIChatModal.tsx`
-  - 现在是六爻与八字共用的会话容器
-  - 八字模式下额外承载阶段工作流、快捷追问、digest 与精确重试
-- `LocationBar.tsx`
-  - 增加 fallback 出生地展示
-- `OverflowMenu.tsx`
-  - 八字结果页现在把“修改”入口收进三点菜单
-- `Icons.tsx`
-  - 补充了八字结果页头区动作所需图标
+注意：
 
-其余主要职责保持不变：
+- 六爻地点是“可选校时”
+- 八字在平太阳时 / 真太阳时模式下，地点是必填计算条件
 
-- `AIChatModal`
-- `ImportPreviewModal`
-- `ConfirmModal`
-- `CityPicker`
-- `DateTimePicker`
-- `HexagramDisplay`
-- `GuaXiangBottomSheet`
+## 13. 兼容与迁移
 
----
+### 13.1 八字旧记录兼容
 
-## 12. 服务与工具层
+`normalizeBaziResultV2()` 会对历史八字记录做补全，包括：
 
-### 12.1 `src/services/`
+- 神煞别名统一
+- `shenShaV2` 补全
+- `ganZhiBuckets` 重建
+- 人元司令明细回填
+- 交运规则明细回填
+- `schoolOptionsResolved` 默认值修正
+- 老阶段名向新阶段名映射
+- AI formatter context 结构规范化
 
-当前主要负责：
+因此页面层优先消费 normalize 后的结果，而不是直接假定所有字段都齐全。
 
-- AI 设置
-- AI 对话
-- 分享导出
-- 地点持久化
+### 13.2 设置兼容
 
-其中：
+读取 AI 设置时会移除：
 
-- `settings.ts`
-  - 只持久化 `apiUrl / apiKey / model`
-  - 读取时自动清理旧 Prompt 存储键
-- `default-prompts.ts`
-  - 内建六爻与八字两套默认 system prompt
-- `ai.ts`
-  - 同时负责六爻与八字
-  - 八字工作流包含 `foundation -> verification -> five_year -> followup`
-- `share.ts`
-  - 六爻结果 Markdown 导出
-  - 六爻 / 八字 AI 会话 Markdown 导出
+- 旧六爻 Prompt 键
+- 旧八字 Prompt 键
+- 更早期统一 Prompt 键
 
-设置页当前负责：
+这代表当前产品不再维护“用户自定义系统提示词”这条旧配置链路。
 
-- 主题切换
-- AI 参数配置
-- 在线模型列表探测
-- 备份与恢复
+## 14. 当前开发现状与风险
 
-### 12.2 `src/utils/history-filter.ts`
+### 14.1 已建立的质量约束
 
-近期也已经升级为多引擎过滤：
+- TypeScript `strict`
+- 记录导入校验
+- 八字结果 normalize
+- AI 阶段完成标记校验
+- 存储层对旧结构的显式迁移
 
-- `engineType`
-- 收藏
-- 关键词
-- 六爻 method
-- 八字 `乾造 / 坤造`
-- 最近一次筛选状态通过 `AsyncStorage` 持久化
+### 14.2 目前仍然缺少的基线
 
----
+- 仓库已配置 Jest，但当前没有自动化测试文件
+- 类型检查、导出检查没有包装成 npm script
+- AI 质量依赖外部模型，客户端只能做结构和流程约束，不能保证模型内容绝对稳定
 
-## 13. 测试覆盖现状
+### 14.3 需要开发者额外注意的点
 
-当前已经不是“只有几条六爻单测”的状态，最近增加了整套八字相关测试。
+- 八字 pending cache 是内存态，不能把它当作长期状态源
+- 结果页与 AI 层都可能读 pending 结果和数据库结果两套来源
+- 文档里提到的“支持”需要区分：
+  - UI 是否暴露
+  - 底层 API 是否已实现
 
-当前重点覆盖：
+例如导入层已经支持 `replace` 模式，但当前设置页 UI 只开放 `merge + skip/replace conflict policy`。
 
-- 八字计算：`src/core/__tests__/bazi-calc.test.ts`
-- 人元司令：`src/core/__tests__/renyuan-duty.test.ts`
-- 交运规则：`src/core/__tests__/jiaoyun-rule.test.ts`
-- 八字 view-model：`src/features/bazi/__tests__/view-model.test.ts`
-- 八字编辑回填：`src/features/bazi/__tests__/edit-helpers.test.ts`
-- pending cache：`src/features/bazi/__tests__/pending-result-cache.test.ts`
-- 主题语义色：`src/theme/__tests__/bazi-theme.test.ts`
-- AI 服务：`src/services/__tests__/ai.test.ts`
-- AI 重试与基础定局恢复判定：`src/components/__tests__/ai-chat-actions.test.ts`
-- 八字 AI 元数据 roundtrip：`src/db/__tests__/bazi-ai-roundtrip.test.ts`
-- 历史过滤、导入校验、设置、六爻变换等原有测试
+## 15. 文档结论
 
-说明：
+当前项目最值得把握的架构事实有三条：
 
-- 当前自动化测试仍以纯逻辑和服务层为主
-- 页面视觉和 Expo Router 导航仍主要靠手工验收
+1. 它已经是六爻与八字共存的多引擎客户端，而不是六爻工具加一个八字实验页
+2. 八字链路的核心价值不只在算法本身，还在 `pending cache + view-model + AI workflow + normalize compatibility`
+3. 存储、备份、历史、AI 都已经围绕统一 envelope 建立起了产品级闭环
 
----
+如果后续继续演进，最优先补的不是再堆页面，而是：
 
-## 14. 当前相对旧版本的关键变化清单
-
-如果只看“最近几轮做了什么”，最重要的是下面这些：
-
-1. 新增完整八字产品链路
-   - 输入页
-   - 结果页
-   - 历史回看
-   - 编辑覆盖
-2. 存储模型升级为多引擎统一 envelope
-3. 八字结果页新增 pending cache，支持先显示后持久化
-4. 八字结果页新增隐私模式和 `流年大运 / 胎命身` 面板切换
-5. 主题系统新增 `Colors.bazi.*` 语义色和生成器
-6. 八字 AI 增加分阶段工作流、digest、快捷追问与精确重试
-7. `tyme4ts` 升级到 `1.4.4`
-
----
-
-## 15. 建议阅读顺序
-
-如果要继续维护当前仓库，建议按这个顺序建立心智模型：
-
-1. `package.json` 和 `app/_layout.tsx`
-2. `app/(tabs)/index.tsx`、`app/divination/*.tsx`
-3. `src/core/liuyao-calc.ts`
-4. `src/core/bazi-calc.ts`
-5. `src/features/bazi/view-model.ts`
-6. `src/db/database.ts`
-7. `app/result/[id].tsx` 与 `app/bazi/result/[id].tsx`
-8. `src/theme/ThemeContext.tsx`、`src/theme/bazi-theme.ts`、四套主题色板
-
----
-
-## 16. 文档维护说明
-
-后续如果继续改这几个区域，记得同步更新本文档：
-
-- 八字结果页交互结构
-- `BaziResult` 字段
-- `PersistedAIChatMessage`
-- `pending-result-cache`
-- `replaceRecord`
-- 八字 AI 阶段工作流
-- 主题 token 结构
-
-否则文档最容易再次过时的就是这几块。
+- 自动化测试基线
+- 开发命令脚本化
+- 更明确的导入/恢复与 AI 失败观测能力
