@@ -624,6 +624,11 @@ export default function BaziResultPage() {
                                 styles={styles}
                             />
                         ))}
+
+                        <View style={styles.sectionTitleBar}>
+                            <Text style={styles.subTitle}>干支分层</Text>
+                        </View>
+                        <GanZhiLayerBlock layer={proChartView.ganZhiLayer} styles={styles} />
                     </View>
                 )}
 
@@ -922,6 +927,34 @@ const LayerStarBlock: React.FC<{ title: string; rows: string[]; styles: ReturnTy
         ))}
     </View>
 );
+
+const GanZhiLayerBlock: React.FC<{
+    layer: ReturnType<typeof buildBaziProChartViewModel>['ganZhiLayer'];
+    styles: ReturnType<typeof makeStyles>;
+}> = ({ layer, styles }) => {
+    const rows: Array<{ label: string; value: string }> = [
+        { label: '岁运天干：', value: layer.suiYunTianGan },
+        { label: '岁运地支：', value: layer.suiYunDiZhi },
+        { label: '岁运整柱：', value: layer.suiYunZhengZhu },
+        { label: '原局天干：', value: layer.yuanJuTianGan },
+        { label: '原局地支：', value: layer.yuanJuDiZhi },
+        { label: '原局整柱：', value: layer.yuanJuZhengZhu },
+    ];
+
+    return (
+        <View style={styles.layerBlock}>
+            {rows.map((row, index) => (
+                <React.Fragment key={row.label}>
+                    {index === 3 ? <View style={styles.ganZhiLayerDivider} /> : null}
+                    <View style={styles.ganZhiLayerRow}>
+                        <Text style={styles.ganZhiLayerLabel}>{row.label}</Text>
+                        <Text style={styles.ganZhiLayerValue}>{row.value}</Text>
+                    </View>
+                </React.Fragment>
+            ))}
+        </View>
+    );
+};
 
 const makeStyles = (Colors: any) => StyleSheet.create({
     container: { flex: 1, backgroundColor: Colors.bg.primary },
@@ -1402,5 +1435,26 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     },
     layerTitle: { fontSize: FontSize.sm, color: Colors.bazi.chromeTextActive, fontWeight: '600' },
     layerRow: { fontSize: FontSize.xs, color: Colors.text.secondary, lineHeight: 16 },
+    ganZhiLayerRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: Spacing.xs,
+    },
+    ganZhiLayerLabel: {
+        fontSize: FontSize.xs,
+        color: Colors.text.tertiary,
+        lineHeight: 18,
+    },
+    ganZhiLayerValue: {
+        flex: 1,
+        fontSize: FontSize.xs,
+        color: Colors.text.secondary,
+        lineHeight: 18,
+    },
+    ganZhiLayerDivider: {
+        height: 1,
+        backgroundColor: Colors.border.subtle,
+        marginVertical: 6,
+    },
     emptyHint: { fontSize: FontSize.xs, color: Colors.text.tertiary },
 });

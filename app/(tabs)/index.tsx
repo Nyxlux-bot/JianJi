@@ -15,9 +15,7 @@ import {
     ClockIcon,
     CoinIcon,
     HandIcon,
-    HistoryIcon,
     NumberIcon,
-    ReadIcon,
 } from '../../src/components/Icons';
 
 type HomeSystemTab = 'liuyao' | 'bazi';
@@ -35,22 +33,6 @@ const MethodTile: React.FC<MethodTileProps> = ({ title, description, icon, onPre
         <View style={styles.methodTileIcon}>{icon}</View>
         <Text style={styles.methodTileTitle}>{title}</Text>
         <Text style={styles.methodTileDesc}>{description}</Text>
-    </TouchableOpacity>
-);
-
-const QuickCard: React.FC<{
-    title: string;
-    description: string;
-    icon: React.ReactNode;
-    onPress: () => void;
-    styles: ReturnType<typeof makeStyles>;
-}> = ({ title, description, icon, onPress, styles }) => (
-    <TouchableOpacity style={styles.quickCard} activeOpacity={0.82} onPress={onPress}>
-        <View style={styles.quickCardTop}>
-            <View style={styles.quickCardIcon}>{icon}</View>
-            <Text style={styles.quickCardTitle}>{title}</Text>
-        </View>
-        <Text style={styles.quickCardDesc}>{description}</Text>
     </TouchableOpacity>
 );
 
@@ -149,50 +131,18 @@ export default function HomePage() {
                             activeOpacity={0.82}
                             onPress={() => router.push('/bazi/input')}
                         >
-                            <View style={styles.baziFeatureHead}>
+                            <View style={styles.baziFeatureTitleRow}>
                                 <View style={styles.baziFeatureIcon}>
-                                    <ReadIcon size={28} />
+                                    <BaGuaIcon size={37} color={Colors.accent.gold} />
                                 </View>
-                                <View style={styles.baziFeatureBadge}>
-                                    <Text style={styles.baziFeatureBadgeText}>专业细盘</Text>
-                                </View>
+                                <Text style={styles.baziFeatureTitle}>八字排盘</Text>
                             </View>
-                            <Text style={styles.baziFeatureTitle}>八字排盘</Text>
                             <Text style={styles.baziFeatureDesc}>
                                 支持四柱、十神、藏干、大运、流年、流月，以及专业细盘查看。
                             </Text>
-                            <View style={styles.baziPillRow}>
-                                <View style={styles.baziPill}><Text style={styles.baziPillText}>本地钟表时</Text></View>
-                                <View style={styles.baziPill}><Text style={styles.baziPillText}>平太阳时</Text></View>
-                                <View style={styles.baziPill}><Text style={styles.baziPillText}>真太阳时</Text></View>
-                            </View>
                         </TouchableOpacity>
                     </View>
                 )}
-
-                <View style={styles.quickSection}>
-                    <View style={styles.sectionHeader}>
-                        <Text style={styles.sectionTitle}>卷宗与学习</Text>
-                        <Text style={styles.sectionHint}>常用快捷入口</Text>
-                    </View>
-
-                    <View style={styles.quickGrid}>
-                        <QuickCard
-                            title="历史卷宗"
-                            description="查看六爻与八字记录，支持收藏与筛选。"
-                            icon={<HistoryIcon size={22} />}
-                            onPress={() => router.push('/history')}
-                            styles={styles}
-                        />
-                        <QuickCard
-                            title="易学资料"
-                            description="进入六十四卦总览与后续学习内容。"
-                            icon={<ReadIcon size={22} />}
-                            onPress={() => router.push('/learn')}
-                            styles={styles}
-                        />
-                    </View>
-                </View>
 
                 <View style={styles.footer}>
                     <Text style={styles.footerText}>心诚则灵</Text>
@@ -340,10 +290,10 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         borderColor: Colors.border.subtle,
         padding: Spacing.xl,
     },
-    baziFeatureHead: {
+    baziFeatureTitleRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
+        justifyContent: 'flex-start',
         marginBottom: Spacing.lg,
     },
     baziFeatureIcon: {
@@ -353,87 +303,17 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         backgroundColor: Colors.bg.elevated,
         alignItems: 'center',
         justifyContent: 'center',
-    },
-    baziFeatureBadge: {
-        paddingHorizontal: Spacing.md,
-        paddingVertical: 6,
-        borderRadius: BorderRadius.round,
-        backgroundColor: Colors.accent.gold + '20',
-        borderWidth: 1,
-        borderColor: Colors.accent.gold + '33',
-    },
-    baziFeatureBadgeText: {
-        color: Colors.accent.gold,
-        fontSize: FontSize.xs,
-        fontWeight: '600',
+        marginRight: Spacing.md,
     },
     baziFeatureTitle: {
-        fontSize: FontSize.xl,
+        fontSize: FontSize.lg,
         color: Colors.text.heading,
         fontWeight: '700',
     },
     baziFeatureDesc: {
-        marginTop: Spacing.sm,
         fontSize: FontSize.sm,
         color: Colors.text.secondary,
         lineHeight: 22,
-    },
-    baziPillRow: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: Spacing.sm,
-        marginTop: Spacing.lg,
-    },
-    baziPill: {
-        paddingHorizontal: Spacing.md,
-        paddingVertical: 7,
-        borderRadius: BorderRadius.round,
-        backgroundColor: Colors.bg.elevated,
-        borderWidth: 1,
-        borderColor: Colors.border.subtle,
-    },
-    baziPillText: {
-        color: Colors.text.secondary,
-        fontSize: FontSize.xs,
-    },
-    quickSection: {
-        paddingHorizontal: Spacing.xl,
-        marginBottom: Spacing.xl,
-    },
-    quickGrid: {
-        flexDirection: 'row',
-        gap: Spacing.md,
-    },
-    quickCard: {
-        flex: 1,
-        minHeight: 122,
-        borderRadius: BorderRadius.lg,
-        backgroundColor: Colors.bg.card,
-        borderWidth: 1,
-        borderColor: Colors.border.subtle,
-        padding: Spacing.lg,
-        justifyContent: 'space-between',
-    },
-    quickCardTop: {
-        gap: Spacing.md,
-    },
-    quickCardIcon: {
-        width: 40,
-        height: 40,
-        borderRadius: BorderRadius.md,
-        backgroundColor: Colors.bg.elevated,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    quickCardTitle: {
-        fontSize: FontSize.md,
-        color: Colors.text.heading,
-        fontWeight: '600',
-    },
-    quickCardDesc: {
-        fontSize: FontSize.xs,
-        color: Colors.text.tertiary,
-        lineHeight: 18,
     },
     footer: {
         alignItems: 'center',

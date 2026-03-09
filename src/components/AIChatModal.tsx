@@ -15,6 +15,7 @@ import {
 import * as Clipboard from 'expo-clipboard';
 import Markdown from 'react-native-markdown-display';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BaziFormatterContext, cloneBaziFormatterContext } from '../core/bazi-ai-context';
 import { BaziAIConversationStage, PersistedAIChatMessage } from '../core/ai-meta';
 import { BaziResult } from '../core/bazi-types';
 import { PanResult } from '../core/liuyao-calc';
@@ -27,6 +28,7 @@ import {
     buildBaziFollowUpPrompt,
     buildBaziVerificationPrompt,
     buildRequestMessages,
+    BaziVerificationAction,
     getBaziFoundationPrompt,
     getBaziConversationStage,
     getChatRequestOptions,
@@ -39,15 +41,16 @@ import {
     stripBaziStageMarkers,
     validateBaziWorkflowResponse,
 } from '../services/ai';
-import { BaziFormatterContext } from '../services/bazi-formatter';
 import { shareChatMarkdown } from '../services/share';
 import { BorderRadius, FontSize, Spacing } from '../theme/colors';
 import { useTheme } from '../theme/ThemeContext';
 import { CustomAlert } from './CustomAlertProvider';
 import {
+    buildBaziVerificationRetryPlan,
     buildRetryPlan,
     getLastAssistantContent,
     shouldShowBaziFoundationRetryAction,
+    trimWorkflowMessages,
 } from './ai-chat-actions';
 import { BackIcon, GuaArrowIcon, MoreVerticalIcon, SendIcon } from './Icons';
 import OverflowMenu, { OverflowMenuItem } from './OverflowMenu';
@@ -100,38 +103,6 @@ function replaceLastAssistantContent(messages: UIChatMessage[], content: string)
         }
     }
     return cloned;
-}
-
-function trimTrailingHiddenUsers(messages: UIChatMessage[]): UIChatMessage[] {
-    const trimmed = [...messages];
-    while (trimmed.length > 0) {
-        const last = trimmed[trimmed.length - 1];
-        if (last.role === 'user' && last.hidden) {
-            trimmed.pop();
-            continue;
-        }
-        break;
-    }
-    return trimmed;
-}
-
-function trimWorkflowMessages(messages: UIChatMessage[], expectedAssistantCount: number): UIChatMessage[] {
-    let visibleAssistantCount = messages.filter((message) => message.role === 'assistant' && !message.hidden).length;
-    if (visibleAssistantCount <= expectedAssistantCount) {
-        return messages;
-    }
-
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-        const message = messages[index];
-        if (message.role === 'assistant' && !message.hidden) {
-            visibleAssistantCount -= 1;
-            if (visibleAssistantCount === expectedAssistantCount) {
-                return trimTrailingHiddenUsers(messages.slice(0, index));
-            }
-        }
-    }
-
-    return messages;
 }
 
 function withRewrittenLastUserMessage(messages: UIChatMessage[], rewrittenContent: string): UIChatMessage[] {
@@ -187,7 +158,7 @@ function buildWorkflowNotice(
     if (stage === 'verification_ready') {
         return {
             title: '前事核验已完成',
-            body: '请核对上方过去经历是否准确。若较准，继续进入未来五年解盘；若偏差，重新校验会从基础定局整轮重开。',
+            body: '请核对上方过去经历是否准确。若较准，继续进入未来五年解盘；若偏差，重新校验会保留基础定局并重新生成前事核验。',
             tone: 'accent',
         };
     }
@@ -300,6 +271,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             aiConversationDigest?: BaziResult['aiConversationDigest'] | null;
             aiConversationStage?: BaziAIConversationStage | null;
             aiVerificationSummary?: string | null;
+            aiContextSnapshot?: BaziResult['aiContextSnapshot'] | null;
         } = {},
     ): Promise<PanResult | BaziResult> => {
         const persistedMessages = toPersistedMessages(nextMessages);
@@ -308,6 +280,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         const hasDigestOverride = Object.prototype.hasOwnProperty.call(overrides, 'aiConversationDigest');
         const hasStageOverride = Object.prototype.hasOwnProperty.call(overrides, 'aiConversationStage');
         const hasVerificationOverride = Object.prototype.hasOwnProperty.call(overrides, 'aiVerificationSummary');
+        const hasContextSnapshotOverride = Object.prototype.hasOwnProperty.call(overrides, 'aiContextSnapshot');
 
         const updatedResult: PanResult | BaziResult = isBaziResult(baseResult)
             ? {
@@ -318,6 +291,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                 aiConversationDigest: hasDigestOverride ? (overrides.aiConversationDigest ?? undefined) : baseResult.aiConversationDigest,
                 aiConversationStage: hasStageOverride ? (overrides.aiConversationStage ?? undefined) : baseResult.aiConversationStage,
                 aiVerificationSummary: hasVerificationOverride ? (overrides.aiVerificationSummary ?? undefined) : baseResult.aiVerificationSummary,
+                aiContextSnapshot: hasContextSnapshotOverride ? (overrides.aiContextSnapshot ?? undefined) : baseResult.aiContextSnapshot,
             }
             : {
                 ...baseResult,
@@ -338,6 +312,39 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         }
         onUpdateResult(updatedResult);
         return updatedResult;
+    };
+
+    const ensureBaziContextSnapshot = async (): Promise<BaziFormatterContext | undefined> => {
+        if (!baziMode || !isBaziResult(latestResultRef.current)) {
+            return undefined;
+        }
+
+        const currentResult = latestResultRef.current;
+        if (currentResult.aiContextSnapshot) {
+            return currentResult.aiContextSnapshot;
+        }
+
+        const snapshot = cloneBaziFormatterContext(latestBaziContextRef.current);
+        if (!snapshot) {
+            return undefined;
+        }
+
+        const updatedResult: BaziResult = {
+            ...currentResult,
+            aiContextSnapshot: snapshot,
+        };
+
+        await saveRecord({
+            engineType: 'bazi',
+            result: updatedResult,
+        });
+
+        latestResultRef.current = updatedResult;
+        if (isMounted.current) {
+            setBaziStage(getBaziConversationStage(updatedResult));
+        }
+        onUpdateResult(updatedResult);
+        return snapshot;
     };
 
     const refreshArtifacts = async (finalMessages: UIChatMessage[]) => {
@@ -416,12 +423,13 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         setIsLoading(true);
 
         try {
+            const lockedBaziContext = baziMode ? await ensureBaziContextSnapshot() : undefined;
             const streamRequest = async (requestHistory: PersistedAIChatMessage[]) => {
                 let rawAssistantText = '';
                 const messagesForAPI = await buildRequestMessages(
                     latestResultRef.current,
                     requestHistory,
-                    latestBaziContextRef.current,
+                    lockedBaziContext ?? latestBaziContextRef.current,
                 );
 
                 return analyzeWithAIChatStream(
@@ -595,18 +603,44 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         });
     };
 
-    const handleStartVerification = async () => {
+    const handleStartVerification = async (baseMessagesOverride: UIChatMessage[] = trimWorkflowMessages(messages, 1)) => {
         if (!baziMode) {
             return;
         }
 
         await handleSend(buildBaziVerificationPrompt(), {
-            baseMessagesOverride: trimWorkflowMessages(messages, 1),
+            baseMessagesOverride,
             hiddenUser: true,
             requestTextOverride: buildBaziVerificationPrompt(),
             expectedBaziCompletion: 'verification',
             nextBaziStage: 'verification_ready',
         });
+    };
+
+    const handleRestartVerification = async () => {
+        if (!baziMode) {
+            return;
+        }
+
+        const retryPlan = buildBaziVerificationRetryPlan(messages, buildBaziVerificationPrompt());
+        if (!retryPlan) {
+            CustomAlert.alert('无法重新校验', '当前没有可替换的前事核验内容。');
+            return;
+        }
+
+        setMessages(retryPlan.baseMessages);
+        latestMessagesRef.current = retryPlan.baseMessages;
+        setQuickReplies([]);
+        setBaziStage('foundation_ready');
+
+        await saveAndSync(retryPlan.baseMessages, {
+            quickReplies: [],
+            aiConversationDigest: null,
+            aiConversationStage: 'foundation_ready',
+            aiVerificationSummary: null,
+        });
+
+        await handleStartVerification(retryPlan.baseMessages);
     };
 
     const handleVerificationConfirmed = async () => {
@@ -622,6 +656,15 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             expectedBaziCompletion: 'five_year',
             nextBaziStage: 'followup_ready',
         });
+    };
+
+    const handleVerificationActionPress = (action: BaziVerificationAction) => {
+        if (action.id === 'continue') {
+            void handleVerificationConfirmed();
+            return;
+        }
+
+        void handleRestartVerification();
     };
 
     const handleExportChat = async () => {
@@ -773,29 +816,22 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                             </View>
                         ) : showVerificationActions ? (
                             <View style={styles.verificationActionsWrap}>
-                                {getLocalBaziVerificationActions().map((label) => (
+                                {getLocalBaziVerificationActions().map((action) => (
                                     <TouchableOpacity
-                                        key={label}
+                                        key={action.id}
                                         style={[
                                             styles.verificationActionBtn,
-                                            label.includes('继续') ? styles.verificationActionPrimary : styles.verificationActionSecondary,
+                                            action.id === 'continue' ? styles.verificationActionPrimary : styles.verificationActionSecondary,
                                         ]}
-                                        onPress={() => {
-                                            if (label.includes('继续')) {
-                                                void handleVerificationConfirmed();
-                                                return;
-                                            }
-
-                                            void restartBaziWorkflow();
-                                        }}
+                                        onPress={() => handleVerificationActionPress(action)}
                                     >
                                         <Text
                                             style={[
                                                 styles.verificationActionText,
-                                                label.includes('继续') ? styles.verificationActionPrimaryText : styles.verificationActionSecondaryText,
+                                                action.id === 'continue' ? styles.verificationActionPrimaryText : styles.verificationActionSecondaryText,
                                             ]}
                                         >
-                                            {label}
+                                            {action.label}
                                         </Text>
                                     </TouchableOpacity>
                                 ))}

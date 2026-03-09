@@ -1,5 +1,6 @@
 import { BaziGender, BaziResult, BaziTimeMode, BaziZiHourMode } from '../../core/bazi-types';
 import { CityInfo } from '../../core/city-data';
+import { BaziGanZhiLayerSummary } from '../../core/bazi-ganzhi-layer';
 
 export type BaziSectionKey = 'basicInfo' | 'basicChart' | 'proChart';
 
@@ -131,5 +132,6 @@ export interface BaziProChartViewModel {
     daYunTrack: DenseTrackCellView[];
     liuNianTrack: DenseTrackCellView[];
     liuYueTrack: DenseTrackCellView[];
+    ganZhiLayer: BaziGanZhiLayerSummary;
     shenShaSections: ProShenShaSectionView[];
 }

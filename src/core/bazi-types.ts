@@ -1,4 +1,5 @@
 import { BaziAIConversationDigest, BaziAIConversationStage, PersistedAIChatMessage } from './ai-meta';
+import { BaziFormatterContext } from './bazi-ai-context';
 
 export type BaziGender = 0 | 1;
 
@@ -286,6 +287,7 @@ export interface BaziResult {
     aiConversationDigest?: BaziAIConversationDigest;
     aiConversationStage?: BaziAIConversationStage;
     aiVerificationSummary?: string;
+    aiContextSnapshot?: BaziFormatterContext;
     longitude: number | null;
     solarDate: string;
     solarTime: string;

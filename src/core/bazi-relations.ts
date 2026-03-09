@@ -1,47 +1,29 @@
 import { DI_ZHI, TIAN_GAN, TIANGAN_WUXING, WuXing } from './liuyao-data';
+import {
+    CONTROLS,
+    GAN_CHONG,
+    GAN_HE,
+    GENERATES,
+    getDictPairEntry,
+    getGanKeMeta,
+    getPairKey,
+    getPillarStatus,
+    getZhiXingPairMeta,
+    isFanyinPair,
+    ZHI_AN_HE,
+    ZHI_CHONG,
+    ZHI_HAI,
+    ZHI_LIU_HE,
+    ZHI_PO,
+    ZHI_SAN_HE,
+    ZHI_SAN_HUI,
+    ZHI_XING_PAIR_RULES,
+    ZHI_XING_SELF,
+} from './bazi-relation-rules';
 
 const PILLAR_NAMES = ['年', '月', '日', '时'] as const;
 const VALID_STEMS = new Set<string>(TIAN_GAN);
 const VALID_BRANCHES = new Set<string>(DI_ZHI);
-
-const GAN_HE: Record<string, WuXing> = {
-    甲己: '土',
-    乙庚: '金',
-    丙辛: '水',
-    丁壬: '木',
-    戊癸: '火',
-};
-const GAN_CHONG = ['甲庚', '乙辛', '丙壬', '丁癸'] as const;
-
-const ZHI_SAN_HUI: Record<string, WuXing> = {
-    亥子丑: '水',
-    寅卯辰: '木',
-    巳午未: '火',
-    申酉戌: '金',
-};
-const ZHI_SAN_HE: Record<string, WuXing> = {
-    申子辰: '水',
-    亥卯未: '木',
-    寅午戌: '火',
-    巳酉丑: '金',
-};
-const ZHI_LIU_HE: Record<string, WuXing> = {
-    子丑: '土',
-    寅亥: '木',
-    卯戌: '火',
-    辰酉: '金',
-    巳申: '水',
-    午未: '土',
-};
-const ZHI_CHONG = ['子午', '丑未', '寅申', '卯酉', '辰戌', '巳亥'] as const;
-const ZHI_HAI = ['子未', '丑午', '寅巳', '卯辰', '申亥', '酉戌'] as const;
-
-const ZHI_XING_PAIR_RULES = [
-    { members: ['子', '卯'] as const, name: '无礼之刑' },
-    { members: ['寅', '巳', '申'] as const, name: '无恩之刑' },
-    { members: ['丑', '未', '戌'] as const, name: '恃势之刑' },
-] as const;
-const ZHI_XING_SELF = ['辰', '午', '酉', '亥'] as const;
 
 const MONTH_BRANCH_SEASON_ELEMENT: Record<string, WuXing> = {
     寅: '木',
@@ -59,19 +41,26 @@ const MONTH_BRANCH_SEASON_ELEMENT: Record<string, WuXing> = {
 };
 
 type PillarIndex = 0 | 1 | 2 | 3;
-type BaziRelationDomain = 'gan' | 'zhi';
+type BaziRelationDomain = 'gan' | 'zhi' | 'pillar';
 
 export type BaziRelationType =
     | 'gan_he'
     | 'gan_chong'
+    | 'gan_ke'
     | 'zhi_san_hui'
     | 'zhi_san_he'
     | 'zhi_liu_he'
+    | 'zhi_an_he'
     | 'zhi_chong'
+    | 'zhi_po'
     | 'zhi_hai'
     | 'zhi_xing_pair'
     | 'zhi_xing_summary'
-    | 'zhi_self_xing';
+    | 'zhi_self_xing'
+    | 'pillar_gaitou'
+    | 'pillar_jiejiao'
+    | 'pillar_fuyin'
+    | 'pillar_fanyin';
 
 export type BaziRelationState = 'objective' | 'supported' | 'constrained' | 'coexists';
 
@@ -119,6 +108,7 @@ const POSITIVE_RELATION_TYPES = new Set<BaziRelationType>([
     'zhi_san_hui',
     'zhi_san_he',
     'zhi_liu_he',
+    'zhi_an_he',
 ]);
 
 function assertValidPillars(tg: string[], dz: string[]): void {
@@ -191,24 +181,6 @@ function normalizeEvaluationContext(
     };
 }
 
-function getPairKey(pairA: string, pairB: string, rules: readonly string[]): string | null {
-    for (const rule of rules) {
-        if (rule === pairA + pairB || rule === pairB + pairA) {
-            return rule;
-        }
-    }
-    return null;
-}
-
-function getDictPairEntry<T>(pairA: string, pairB: string, dict: Record<string, T>): [string, T] | null {
-    for (const [key, value] of Object.entries(dict)) {
-        if (key === pairA + pairB || key === pairB + pairA) {
-            return [key, value];
-        }
-    }
-    return null;
-}
-
 function findPresentIndexes(dz: string[], members: string[]): PillarIndex[] | null {
     const indexes: number[] = members.map((member) => dz.findIndex((branch) => branch === member));
     if (indexes.some((index) => index < 0)) {
@@ -248,19 +220,23 @@ function createTrioFact(
 }
 
 function createPairFact(params: {
-    relationType: 'gan_he' | 'gan_chong' | 'zhi_liu_he' | 'zhi_chong' | 'zhi_hai' | 'zhi_xing_pair';
+    relationType: 'gan_he' | 'gan_chong' | 'gan_ke' | 'zhi_liu_he' | 'zhi_an_he' | 'zhi_chong' | 'zhi_po' | 'zhi_hai' | 'zhi_xing_pair' | 'pillar_fuyin' | 'pillar_fanyin';
     i: PillarIndex;
     j: PillarIndex;
     key: string;
     supportElement?: WuXing;
     suffix: string;
 }): BaziRelationFact {
-    const domainLabel = params.relationType.startsWith('gan_') ? '天干' : '地支';
+    const domainLabel = params.relationType.startsWith('gan_')
+        ? '天干'
+        : (params.relationType.startsWith('pillar_') ? '整柱' : '地支');
     return {
         id: buildFactId(params.relationType, [params.i, params.j], params.key.split('')),
         fact: `${formatPairPillars(params.i, params.j)}${domainLabel}${params.key}${params.suffix}`,
         relationType: params.relationType,
-        domain: params.relationType.startsWith('gan_') ? 'gan' : 'zhi',
+        domain: params.relationType.startsWith('gan_')
+            ? 'gan'
+            : (params.relationType.startsWith('pillar_') ? 'pillar' : 'zhi'),
         members: params.key.split(''),
         pillarIndexes: [params.i, params.j],
         supportElement: params.supportElement,
@@ -294,22 +270,31 @@ function createSelfXingFact(branch: string, pillarIndexes: PillarIndex[]): BaziR
     };
 }
 
-function getXingPairMeta(a: string, b: string): { key: string; name: string } | null {
-    for (const rule of ZHI_XING_PAIR_RULES) {
-        if (rule.members.includes(a as never) && rule.members.includes(b as never)) {
-            return {
-                key: rule.members.filter((member) => member === a || member === b).join(''),
-                name: rule.name,
-            };
-        }
-    }
-    return null;
+function createSinglePillarFact(
+    relationType: 'pillar_gaitou' | 'pillar_jiejiao',
+    index: PillarIndex,
+    key: string,
+    suffix: string,
+): BaziRelationFact {
+    return {
+        id: buildFactId(relationType, [index], key.split('')),
+        fact: `${PILLAR_NAMES[index]}柱整柱${key}${suffix}`,
+        relationType,
+        domain: 'pillar',
+        members: key.split(''),
+        pillarIndexes: [index],
+    };
 }
 
-function collectBaziRelationFacts(tg: string[], dz: string[]): BaziRelationFact[] {
+function collectBaziRelationFacts(
+    tg: string[],
+    dz: string[],
+    options: { includeExtended?: boolean } = {},
+): BaziRelationFact[] {
     assertValidPillars(tg, dz);
 
     const facts: BaziRelationFact[] = [];
+    const includeExtended = options.includeExtended === true;
 
     for (const [key, element] of Object.entries(ZHI_SAN_HUI)) {
         const indexes = findPresentIndexes(dz, key.split(''));
@@ -351,6 +336,17 @@ function collectBaziRelationFacts(tg: string[], dz: string[]): BaziRelationFact[
                     suffix: '相冲',
                 }));
             }
+
+            const ganKeMeta = getGanKeMeta(stemA, stemB);
+            if (includeExtended && ganKeMeta) {
+                facts.push(createPairFact({
+                    relationType: 'gan_ke',
+                    i: i as PillarIndex,
+                    j: j as PillarIndex,
+                    key: ganKeMeta.key,
+                    suffix: '相克',
+                }));
+            }
         }
     }
 
@@ -367,6 +363,17 @@ function collectBaziRelationFacts(tg: string[], dz: string[]): BaziRelationFact[
                     key: liuHeEntry[0],
                     supportElement: liuHeEntry[1],
                     suffix: '六合',
+                }));
+            }
+
+            const anHeKey = getPairKey(branchA, branchB, ZHI_AN_HE);
+            if (includeExtended && anHeKey) {
+                facts.push(createPairFact({
+                    relationType: 'zhi_an_he',
+                    i: i as PillarIndex,
+                    j: j as PillarIndex,
+                    key: anHeKey,
+                    suffix: '暗合',
                 }));
             }
 
@@ -392,7 +399,18 @@ function collectBaziRelationFacts(tg: string[], dz: string[]): BaziRelationFact[
                 }));
             }
 
-            const xingPairMeta = getXingPairMeta(branchA, branchB);
+            const zhiPoKey = getPairKey(branchA, branchB, ZHI_PO);
+            if (includeExtended && zhiPoKey) {
+                facts.push(createPairFact({
+                    relationType: 'zhi_po',
+                    i: i as PillarIndex,
+                    j: j as PillarIndex,
+                    key: zhiPoKey,
+                    suffix: '相破',
+                }));
+            }
+
+            const xingPairMeta = getZhiXingPairMeta(branchA, branchB);
             if (xingPairMeta) {
                 facts.push(createPairFact({
                     relationType: 'zhi_xing_pair',
@@ -400,6 +418,26 @@ function collectBaziRelationFacts(tg: string[], dz: string[]): BaziRelationFact[
                     j: j as PillarIndex,
                     key: xingPairMeta.key,
                     suffix: `相刑（${xingPairMeta.name}）`,
+                }));
+            }
+
+            if (includeExtended && tg[i] === tg[j] && dz[i] === dz[j]) {
+                facts.push(createPairFact({
+                    relationType: 'pillar_fuyin',
+                    i: i as PillarIndex,
+                    j: j as PillarIndex,
+                    key: `${tg[i]}${dz[i]}`,
+                    suffix: '伏吟',
+                }));
+            }
+
+            if (includeExtended && isFanyinPair(tg[i], branchA, tg[j], branchB)) {
+                facts.push(createPairFact({
+                    relationType: 'pillar_fanyin',
+                    i: i as PillarIndex,
+                    j: j as PillarIndex,
+                    key: `${tg[i]}${dz[i]}↔${tg[j]}${dz[j]}`,
+                    suffix: '反吟',
                 }));
             }
         }
@@ -425,6 +463,18 @@ function collectBaziRelationFacts(tg: string[], dz: string[]): BaziRelationFact[
             facts.push(createSelfXingFact(branch, indexes));
         }
     });
+
+    if (includeExtended) {
+        for (let index = 0; index < 4; index += 1) {
+            const status = getPillarStatus(tg[index], dz[index]);
+            if (status === '盖头') {
+                facts.push(createSinglePillarFact('pillar_gaitou', index as PillarIndex, `${tg[index]}${dz[index]}`, '盖头'));
+            }
+            if (status === '截脚') {
+                facts.push(createSinglePillarFact('pillar_jiejiao', index as PillarIndex, `${tg[index]}${dz[index]}`, '截脚'));
+            }
+        }
+    }
 
     return facts;
 }
@@ -475,6 +525,15 @@ function buildPositivePreliminaryEvaluation(
     context: NormalizedEvaluationContext,
 ): PreliminaryRelationEvaluation {
     const reasons: string[] = ['结构上存在该合会关系'];
+    if (fact.relationType === 'zhi_an_he') {
+        reasons.push('暗合按结构关系保留，不参与化气判定');
+        return {
+            fact,
+            state: 'objective',
+            reasons,
+            interactionPriority: getInteractionPriority(fact, 'objective'),
+        };
+    }
     let supportCount = 0;
 
     if ((fact.relationType === 'gan_he' || fact.relationType === 'zhi_liu_he') && isAdjacentPair(fact.pillarIndexes)) {
@@ -518,6 +577,21 @@ function buildNegativePreliminaryEvaluation(fact: BaziRelationFact): Preliminary
     if (fact.relationType === 'zhi_self_xing') {
         reasons.push('同支重复至少两次，自刑条件成立');
     }
+    if (fact.relationType === 'gan_ke') {
+        reasons.push('天干五行形成直接克制关系');
+    }
+    if (fact.relationType === 'zhi_po') {
+        reasons.push('地支成对进入相破规则');
+    }
+    if (fact.relationType === 'pillar_gaitou' || fact.relationType === 'pillar_jiejiao') {
+        reasons.push('整柱天干与地支五行形成整柱阻塞');
+    }
+    if (fact.relationType === 'pillar_fuyin') {
+        reasons.push('两柱干支完全相同，形成伏吟');
+    }
+    if (fact.relationType === 'pillar_fanyin') {
+        reasons.push('两柱形成天克地冲，按反吟处理');
+    }
 
     return {
         fact,
@@ -539,15 +613,27 @@ function getInteractionPriority(
         case 'gan_he':
         case 'zhi_liu_he':
             return state === 'supported' ? 40 : 15;
+        case 'zhi_an_he':
+            return 12;
         case 'gan_chong':
         case 'zhi_chong':
             return 30;
+        case 'gan_ke':
+            return 26;
+        case 'pillar_fanyin':
+            return 24;
         case 'zhi_hai':
             return 20;
+        case 'zhi_po':
+            return 18;
         case 'zhi_xing_pair':
         case 'zhi_xing_summary':
         case 'zhi_self_xing':
             return 10;
+        case 'pillar_gaitou':
+        case 'pillar_jiejiao':
+        case 'pillar_fuyin':
+            return 8;
         default:
             return 0;
     }
@@ -605,6 +691,10 @@ function applyInteractionState(
  */
 export function extractBaziRelations(tg: string[], dz: string[]): string[] {
     return collectBaziRelationFacts(tg, dz).map((fact) => fact.fact);
+}
+
+export function extractBaziExtendedRelations(tg: string[], dz: string[]): string[] {
+    return collectBaziRelationFacts(tg, dz, { includeExtended: true }).map((fact) => fact.fact);
 }
 
 /**

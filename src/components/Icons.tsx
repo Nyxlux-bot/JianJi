@@ -174,11 +174,11 @@ export const BaGuaIcon: React.FC<IconProps> = ({ size = 48, color }) => {
         <Svg width={size} height={size} viewBox="0 0 48 48" fill="none">
             <Circle cx="24" cy="24" r="22" stroke={c} strokeWidth="1.5" />
             <Path
-                d="M24 2 A22 22 0 0 1 24 46 A11 11 0 0 1 24 24 A11 11 0 0 0 24 2"
+                d="M24 2 A22 22 0 0 1 24 46 A11 11 0 0 0 24 24 A11 11 0 0 1 24 2"
                 fill={c} fillOpacity="0.15"
             />
             <Path
-                d="M24 2 A22 22 0 0 1 24 46 A11 11 0 0 1 24 24 A11 11 0 0 0 24 2"
+                d="M24 2 A22 22 0 0 1 24 46 A11 11 0 0 0 24 24 A11 11 0 0 1 24 2"
                 stroke={c} strokeWidth="1"
             />
             <Circle cx="24" cy="13" r="3" fill={c} />

@@ -4,6 +4,7 @@
  */
 
 import EventSource from 'react-native-sse';
+import { BaziFormatterContext } from '../core/bazi-ai-context';
 import { BaziAIConversationDigest, BaziAIConversationStage, PersistedAIChatMessage } from '../core/ai-meta';
 import { extractBaziRelations } from '../core/bazi-relations';
 import { BaziResult } from '../core/bazi-types';
@@ -12,7 +13,7 @@ import { PanResult } from '../core/liuyao-calc';
 import { BA_GUA, DIZHI_WUXING } from '../core/liuyao-data';
 import { getMonthGeneralByJieqi, getMoonPhase } from '../core/time-signs';
 import ichingData from '../data/iching.json';
-import { BaziFormatterContext, formatBaziToText } from './bazi-formatter';
+import { formatBaziToText } from './bazi-formatter';
 import { DEFAULT_BAZI_SYSTEM_PROMPT, DEFAULT_LIUYAO_SYSTEM_PROMPT } from './default-prompts';
 import { getSettings } from './settings';
 
@@ -25,7 +26,9 @@ const BAZI_DIGEST_VERSION = 1;
 const BAZI_FOUNDATION_PROMPT = [
     '当前只执行八字工作流的第一阶段：基础定局。',
     '本阶段只允许输出基础定局，不允许输出前事核验，不允许输出未来趋势，不允许向用户提问。',
-    '请围绕以下四个核心维度完成判断：日主旺衰、格局、用神忌神、性格基调。',
+    '请先逐项拆解年柱、月柱、日柱、时柱的干支与日主，再结合透干、藏干、月令主气、人元司令与五行旺相休囚死判断依据，最后再归纳日主旺衰、格局、用神忌神、性格基调。',
+    '你必须把“判断依据”单独写清，明确说明哪些结论来自四柱干支、哪些来自透藏结构、哪些来自月令与五行衰旺，不得跳步下结论。',
+    '涉及合冲刑害时，只允许引用系统已经提供的客观关系事实，不得自行补算、猜测或编造新的冲合刑害。',
     '输出时请使用清晰小标题，并至少展开 3 个结构化小点，每个小点都要给出命理依据。',
     '本阶段全部内容写完后，必须在最后单独一行输出：[[BAZI_STAGE:FOUNDATION_DONE]]',
 ].join('\n');
@@ -49,6 +52,11 @@ const BAZI_STAGE_MARKERS = {
 } as const;
 
 export type BaziWorkflowResponseKind = keyof typeof BAZI_STAGE_MARKERS;
+
+export interface BaziVerificationAction {
+    id: 'continue' | 'retry_verification';
+    label: string;
+}
 
 export interface AIAnalysisResult {
     success: boolean;
@@ -556,8 +564,11 @@ export function getLocalBaziQuickReplies(): string[] {
     return [...BAZI_FALLBACK_QUICK_REPLIES];
 }
 
-export function getLocalBaziVerificationActions(): string[] {
-    return ['前事较准，继续深解', '前事偏差，重新校验'];
+export function getLocalBaziVerificationActions(): BaziVerificationAction[] {
+    return [
+        { id: 'continue', label: '前事较准，继续深解' },
+        { id: 'retry_verification', label: '前事偏差，重新校验' },
+    ];
 }
 
 export function buildBaziVerificationPrompt(): string {
@@ -657,7 +668,7 @@ export async function buildBaziSystemMessage(
     relations: string[],
     formatterContext?: BaziFormatterContext,
 ): Promise<AIChatMessage> {
-    const baziText = formatBaziToText(result, relations, formatterContext);
+    const baziText = formatBaziToText(result, relations, result.aiContextSnapshot ?? formatterContext);
 
     return {
         role: 'system',
@@ -699,7 +710,7 @@ export async function buildRequestMessages(
     }
 
     const relations = getBaziRelations(result);
-    const systemMessage = await buildBaziSystemMessage(result, relations, formatterContext);
+    const systemMessage = await buildBaziSystemMessage(result, relations, result.aiContextSnapshot ?? formatterContext);
     const digest = result.aiConversationDigest;
 
     if (digest) {
@@ -832,7 +843,7 @@ export async function generateBaziConversationDigest(
     const previousDigest = result.aiConversationDigest;
     const baseContext = previousDigest
         ? `【已有摘要】\n${buildBaziDigestText(previousDigest)}`
-        : `【命盘底稿】\n${formatBaziToText(result, relations)}`;
+        : `【命盘底稿】\n${formatBaziToText(result, relations, result.aiContextSnapshot)}`;
     const conversationSummary = summarizeMessages(chatHistory);
     const content = await requestChatCompletion([
         {

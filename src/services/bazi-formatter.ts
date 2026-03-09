@@ -1,18 +1,11 @@
+import { BaziFormatterContext } from '../core/bazi-ai-context';
+import { buildBaziGanZhiLayer } from '../core/bazi-ganzhi-layer';
+import { buildWuXingBandFromMonthBranch } from '../core/renyuan-duty';
 import { getBaziChartTimeLabel, getBaziTimeModeLabel } from '../core/bazi-time';
 import { BaziDaYunItem, BaziLiuNianItem, BaziLiuYueItem, BaziResult } from '../core/bazi-types';
 
 const PILLAR_LABELS = ['年柱', '月柱', '日柱', '时柱'] as const;
-
-export interface BaziFormatterContext {
-    panelMode?: 'fortune' | 'taiming';
-    fortuneSelection?: {
-        mode: 'dayun' | 'xiaoyun';
-        selectedDaYunIndex: number;
-        selectedXiaoYunIndex: number;
-        selectedLiuNianIndex: number;
-        selectedLiuYueIndex: number;
-    };
-}
+export type { BaziFormatterContext } from '../core/bazi-ai-context';
 
 function formatCangGan(result: BaziResult, index: number): string {
     const items = result.cangGan[index]?.items ?? [];
@@ -96,6 +89,8 @@ function resolveFocusLines(result: BaziResult, context?: BaziFormatterContext): 
 export function formatBaziToText(result: BaziResult, relations: string[], context?: BaziFormatterContext): string {
     const lines: string[] = [];
     const relationLines = relations.length > 0 ? relations : ['未检测到客观合冲刑害关系'];
+    const wuXingBand = buildWuXingBandFromMonthBranch(result.baseInfo.renYuanDutyDetail.monthBranch);
+    const ganZhiLayer = buildBaziGanZhiLayer(result, context?.fortuneSelection);
     const currentDaYun = formatCurrentDaYun(result);
     const currentLiuNian = formatCurrentLiuNian(result, currentDaYun);
     const currentLiuYue = formatCurrentLiuYue(currentLiuNian);
@@ -116,10 +111,21 @@ export function formatBaziToText(result: BaziResult, relations: string[], contex
     lines.push(`- 空亡：${result.baseInfo.kongWang || '未记录'}`);
     lines.push(`- 命卦：${result.baseInfo.mingGua || '未记录'}`);
     lines.push(`- 人元司令：${result.baseInfo.renYuanDutyDetail.display || result.baseInfo.renYuanDuty || '未记录'}`);
+    lines.push('【月令五行带】');
+    lines.push(`- 月令：${result.baseInfo.renYuanDutyDetail.monthBranch || '未记录'}`);
+    lines.push(`- 旺相休囚死：${wuXingBand.map((item) => `${item.element}${item.status}`).join('、')}`);
     lines.push('【系统测算的客观关系事实】');
     relationLines.forEach((line) => {
         lines.push(`- ${line}`);
     });
+    lines.push('【干支分层】');
+    lines.push(`- 岁运天干：${ganZhiLayer.suiYunTianGan}`);
+    lines.push(`- 岁运地支：${ganZhiLayer.suiYunDiZhi}`);
+    lines.push(`- 岁运整柱：${ganZhiLayer.suiYunZhengZhu}`);
+    lines.push('- 分割线');
+    lines.push(`- 原局天干：${ganZhiLayer.yuanJuTianGan}`);
+    lines.push(`- 原局地支：${ganZhiLayer.yuanJuDiZhi}`);
+    lines.push(`- 原局整柱：${ganZhiLayer.yuanJuZhengZhu}`);
     lines.push('【大运总表】');
     if (result.daYun.length === 0) {
         lines.push('- 暂无大运数据');

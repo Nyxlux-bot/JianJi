@@ -12,6 +12,7 @@ import {
 } from './bazi-types';
 import { BAZI_SHENSHA_ALIAS_TO_FULLNAME, BAZI_SHENSHA_CATALOG } from './bazi-shensha-catalog';
 import { buildBaziShenShaBucketMap } from './bazi-shensha';
+import { normalizeBaziFormatterContext } from './bazi-ai-context';
 import { buildJiaoYunRuleDetail, createEmptyJiaoYunRuleDetail } from './jiaoyun-rule';
 import { calculateRenYuanDuty, createEmptyRenYuanDutyDetail } from './renyuan-duty';
 
@@ -292,6 +293,7 @@ export function normalizeBaziResultV2(result: BaziResult): BaziResult {
                         ? 'foundation_ready'
                         : undefined)))),
         aiVerificationSummary: normalized.aiVerificationSummary,
+        aiContextSnapshot: normalizeBaziFormatterContext(normalized.aiContextSnapshot),
         subject,
         baseInfo: normalizedBaseInfo,
         jieQiContext,

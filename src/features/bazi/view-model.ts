@@ -6,6 +6,7 @@ import {
     ShiShenName,
 } from '../../core/bazi-types';
 import { getXunKong } from '../../core/xun-kong';
+import { buildBaziGanZhiLayer } from '../../core/bazi-ganzhi-layer';
 import {
     BaziChartHeaderView,
     BaziProChartViewModel,
@@ -588,6 +589,11 @@ export function buildBaziProChartViewModel(
         },
     ];
 
+    const ganZhiLayer = buildBaziGanZhiLayer(result, {
+        selectedDaYunIndex: selection.selectedDaYunIndex,
+        selectedLiuNianIndex: selection.selectedLiuNianIndex,
+    });
+
     return {
         header: buildHeader(result),
         fortuneColumns,
@@ -598,6 +604,7 @@ export function buildBaziProChartViewModel(
         daYunTrack,
         liuNianTrack,
         liuYueTrack,
+        ganZhiLayer,
         shenShaSections,
     };
 }

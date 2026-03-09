@@ -34,6 +34,54 @@ export function getLastAssistantContent<T extends BasicChatMessage>(messages: T[
     return null;
 }
 
+function trimTrailingHiddenUsers<T extends BasicChatMessage>(messages: T[]): T[] {
+    const trimmed = [...messages];
+    while (trimmed.length > 0) {
+        const last = trimmed[trimmed.length - 1];
+        if (last.role === 'user' && last.hidden) {
+            trimmed.pop();
+            continue;
+        }
+        break;
+    }
+    return trimmed;
+}
+
+export function trimWorkflowMessages<T extends BasicChatMessage>(messages: T[], expectedAssistantCount: number): T[] {
+    let visibleAssistantCount = messages.filter((message) => message.role === 'assistant' && !message.hidden).length;
+    if (visibleAssistantCount <= expectedAssistantCount) {
+        return messages;
+    }
+
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (message.role === 'assistant' && !message.hidden) {
+            visibleAssistantCount -= 1;
+            if (visibleAssistantCount === expectedAssistantCount) {
+                return trimTrailingHiddenUsers(messages.slice(0, index));
+            }
+        }
+    }
+
+    return messages;
+}
+
+export function buildBaziVerificationRetryPlan<T extends BasicChatMessage>(
+    messages: T[],
+    verificationPrompt: string,
+): RetryPlan<T> | null {
+    const baseMessages = trimWorkflowMessages(messages, 1);
+    if (baseMessages.length === messages.length) {
+        return null;
+    }
+
+    return {
+        baseMessages,
+        displayText: verificationPrompt,
+        retryText: verificationPrompt,
+    };
+}
+
 export function buildRetryPlan<T extends BasicChatMessage>(messages: T[]): RetryPlan<T> | null {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
         const message = messages[i];
