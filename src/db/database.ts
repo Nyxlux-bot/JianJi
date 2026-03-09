@@ -95,8 +95,7 @@ function toMethodForStorage(engineType: DivinationEngine, method: string | undef
 
 function toRecordSummary(row: RecordRow): RecordSummary {
     const engineType = normalizeEngineType(row.engine_type, row.method, null);
-    const rawMethod = row.method || '';
-    const method = engineType === 'liuyao' ? rawMethod : undefined;
+    const method = row.method || '';
 
     return {
         id: row.id,
@@ -132,7 +131,7 @@ function toEnvelope(row: ExportRow): DivinationRecordEnvelope | null {
         engineType: detail.engineType,
         result: detail.result,
         summary: {
-            method: detail.engineType === 'liuyao' ? (row.method || undefined) : undefined,
+            method: row.method || undefined,
             question: row.question || '',
             title: row.title || '',
             subtitle: row.subtitle || '',
@@ -310,7 +309,7 @@ const webDb = {
                 id: record.id,
                 createdAt: record.createdAt,
                 engineType: record.engineType,
-                method: record.engineType === 'liuyao' ? record.method : undefined,
+                method: record.method || undefined,
                 question: record.question,
                 title: record.title,
                 subtitle: record.subtitle,
@@ -358,7 +357,7 @@ const webDb = {
             engineType: record.engineType,
             result: record.fullResult,
             summary: {
-                method: record.engineType === 'liuyao' ? record.method : undefined,
+                method: record.method || undefined,
                 question: record.question,
                 title: record.title,
                 subtitle: record.subtitle,

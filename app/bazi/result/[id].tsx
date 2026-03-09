@@ -14,6 +14,7 @@ import {
     EyeIcon,
     EyeOffIcon,
     MoreVerticalIcon,
+    SparklesIcon,
 } from '../../../src/components/Icons';
 import AIChatModal from '../../../src/components/AIChatModal';
 import ConfirmModal from '../../../src/components/ConfirmModal';
@@ -464,11 +465,20 @@ export default function BaziResultPage() {
                         activeOpacity={0.82}
                         disabled={!aiConfigured}
                     >
-                        <AIIcon size={18} color={Colors.text.inverse} />
-                        <Text style={styles.aiHeaderBtnText}>AI 解盘</Text>
+                        <SparklesIcon size={18} color={Colors.text.inverse} />
+                        <Text style={styles.aiHeaderBtnText}>AI 分析</Text>
                     </TouchableOpacity>
                 </View>
-                <View style={styles.headerActions}>
+                <View style={[styles.headerActions, { flexDirection: 'row', alignItems: 'center' }]}>
+                    {result ? (
+                        <TouchableOpacity
+                            onPress={() => setPrivacyEnabled((prev) => !prev)}
+                            style={styles.headerBtn}
+                            activeOpacity={0.82}
+                        >
+                            {privacyEnabled ? <EyeOffIcon size={20} /> : <EyeIcon size={20} />}
+                        </TouchableOpacity>
+                    ) : null}
                     <TouchableOpacity
                         onPress={() => setMenuVisible((prev) => !prev)}
                         style={[styles.headerBtn, !hasEnabledMenuItems && styles.headerBtnDisabled]}
@@ -505,8 +515,6 @@ export default function BaziResultPage() {
                 {activeSection === 'basicInfo' ? (
                     <View style={styles.heroCard}>
                         <Text style={styles.heroName}>{displayName}</Text>
-                        <Text style={styles.heroDate}>{displayHeroLunar}</Text>
-                        <Text style={styles.heroDate}>{displayHeroSolar}</Text>
                     </View>
                 ) : proChartView ? (
                     <ChartHeaderStrip
@@ -517,7 +525,6 @@ export default function BaziResultPage() {
                         privacyEnabled={privacyEnabled}
                         panelMode={panelMode}
                         showPanelSwitch={activeSection === 'proChart'}
-                        onTogglePrivacy={() => setPrivacyEnabled((prev) => !prev)}
                         onTogglePanelMode={() => setPanelMode((prev) => (prev === 'fortune' ? 'taiming' : 'fortune'))}
                         styles={styles}
                     />
@@ -525,16 +532,13 @@ export default function BaziResultPage() {
 
                 {activeSection === 'basicInfo' && (
                     <View style={styles.block}>
-                        <InfoGridRow label="姓名" value={displayName} styles={styles} />
                         <InfoGridRow label="性别" value={result.subject.genderLabel} styles={styles} />
                         <InfoGridRow label="命造" value={`${result.subject.yinYangLabel}${result.subject.mingZaoLabel}`} styles={styles} />
                         <InfoGridRow label="生肖" value={result.baseInfo.zodiac} styles={styles} />
-                        <InfoGridRow label="农历" value={privacyEnabled ? maskVisibleText(result.baseInfo.lunarDisplay) : result.baseInfo.lunarDisplay} styles={styles} />
-                        <InfoGridRow label="阳历" value={privacyEnabled ? maskVisibleText(result.baseInfo.solarDisplay) : result.baseInfo.solarDisplay} styles={styles} />
                         <InfoGridRow label={chartTimeLabel(result.schoolOptionsResolved.timeMode)} value={privacyEnabled ? maskVisibleText(result.baseInfo.trueSolarDisplay) : result.baseInfo.trueSolarDisplay} styles={styles} />
                         <InfoGridRow label="出生地区" value={result.baseInfo.birthPlaceDisplay} styles={styles} />
                         <InfoGridRow label="人元司令" value={result.baseInfo.renYuanDutyDetail.display || result.baseInfo.renYuanDuty} styles={styles} />
-                        <InfoGridRow label="出生节气" value={`出生于${result.jieQiContext.currentTerm.name}后${result.jieQiContext.afterPrev}，${result.jieQiContext.nextTerm.name}前${result.jieQiContext.beforeNext}`} styles={styles} />
+                        <InfoGridRow label="出生节气" value={`出生于${result.jieQiContext.currentTerm.name}后${result.jieQiContext.afterPrev}\n${result.jieQiContext.nextTerm.name}前${result.jieQiContext.beforeNext}`} styles={styles} />
                         <InfoGridRow label={result.jieQiContext.prevTerm.name} value={result.jieQiContext.prevTerm.dateTime} styles={styles} />
                         <InfoGridRow label={result.jieQiContext.currentTerm.name} value={result.jieQiContext.currentTerm.dateTime} styles={styles} />
                         <InfoGridRow label={result.jieQiContext.nextTerm.name} value={result.jieQiContext.nextTerm.dateTime} styles={styles} />
@@ -682,7 +686,6 @@ const ChartHeaderStrip: React.FC<{
     privacyEnabled: boolean;
     panelMode: BaziPanelMode;
     showPanelSwitch: boolean;
-    onTogglePrivacy: () => void;
     onTogglePanelMode: () => void;
     styles: ReturnType<typeof makeStyles>;
 }> = ({
@@ -693,7 +696,6 @@ const ChartHeaderStrip: React.FC<{
     privacyEnabled,
     panelMode,
     showPanelSwitch,
-    onTogglePrivacy,
     onTogglePanelMode,
     styles,
 }) => (
@@ -705,9 +707,6 @@ const ChartHeaderStrip: React.FC<{
             </View>
             <View style={styles.chartHeaderSide}>
                 <View style={styles.chartHeaderActions}>
-                    <HeaderActionButton onPress={onTogglePrivacy} active={privacyEnabled} styles={styles}>
-                        {privacyEnabled ? <EyeOffIcon size={18} /> : <EyeIcon size={18} />}
-                    </HeaderActionButton>
                     {showPanelSwitch ? <PanelModeSwitch panelMode={panelMode} onToggle={onTogglePanelMode} styles={styles} /> : null}
                 </View>
                 <Text style={styles.chartHeaderMingZao}>{mingZaoText}</Text>

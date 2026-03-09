@@ -47,6 +47,7 @@ export default function ResultPage() {
     const [deleteModalVisible, setDeleteModalVisible] = useState(false);
     const [sheetVisible, setSheetVisible] = useState(false);
     const [menuVisible, setMenuVisible] = useState(false);
+    const [screenState, setScreenState] = useState<'loading' | 'ready' | 'missing'>('loading');
 
     useEffect(() => {
         let cancelled = false;
@@ -58,9 +59,10 @@ export default function ResultPage() {
                 ]);
                 if (!cancelled) {
                     if (!detail) {
-                        setResult(null);
+                        setScreenState('missing');
                     } else if (detail.engineType === 'liuyao') {
                         setResult(detail.result);
+                        setScreenState('ready');
                     } else {
                         router.replace(`/bazi/result/${id}`);
                         return;
@@ -125,12 +127,34 @@ export default function ResultPage() {
         { key: 'delete', label: '删除记录', onPress: handleDelete, destructive: true },
     ];
 
-    if (!result) {
+    if (screenState === 'loading') {
         return (
             <View style={styles.container}>
                 <StatusBarDecor />
                 <View style={styles.loading}>
                     <Text style={styles.loadingText}>加载中...</Text>
+                </View>
+            </View>
+        );
+    }
+
+    if (screenState === 'missing' || !result) {
+        return (
+            <View style={styles.container}>
+                <StatusBarDecor />
+                <View style={styles.loading}>
+                    <View style={styles.missingCard}>
+                        <Text style={styles.missingTitle}>记录不存在或已被删除</Text>
+                        <Text style={styles.missingBody}>当前记录已无法读取，可以返回上一页或前往历史记录查看其他卷宗。</Text>
+                        <View style={styles.missingActions}>
+                            <TouchableOpacity style={[styles.missingBtn, styles.missingBtnSecondary]} onPress={() => router.back()}>
+                                <Text style={[styles.missingBtnText, styles.missingBtnSecondaryText]}>返回上一页</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.missingBtn, styles.missingBtnPrimary]} onPress={() => router.replace('/history')}>
+                                <Text style={[styles.missingBtnText, styles.missingBtnPrimaryText]}>去历史记录</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
                 </View>
             </View>
         );
@@ -245,12 +269,10 @@ export default function ResultPage() {
                     </View>
                 )}
 
-                {/* 增加底部留白，防止被悬浮按钮遮挡 */}
-                <View style={{ height: 120 }} />
             </ScrollView>
 
-            {/* 底部悬浮双胶囊按钮区绝对定位 */}
-            <View style={styles.floatingCapsulesContainer}>
+            {/* 底部悬浮双胶囊按钮区 */}
+            <View style={[styles.bottomActionBar, { paddingBottom: insets.bottom || Spacing.md }]}>
                 <TouchableOpacity
                     style={styles.floatingCapsuleBtn}
                     activeOpacity={0.8}
@@ -439,14 +461,14 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     aiResultContent: {
         fontSize: FontSize.sm, color: Colors.text.primary, lineHeight: 24,
     },
-    floatingCapsulesContainer: {
-        position: 'absolute',
-        bottom: 50,
-        left: 0,
-        right: 0,
+    bottomActionBar: {
         flexDirection: 'row',
         justifyContent: 'space-evenly',
         paddingHorizontal: Spacing.lg,
+        paddingTop: Spacing.md,
+        backgroundColor: Colors.bg.primary,
+        borderTopWidth: 0.5,
+        borderTopColor: Colors.border.subtle,
     },
     floatingCapsuleBtn: {
         flexDirection: 'row',
@@ -467,5 +489,59 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         fontSize: FontSize.md,
         fontWeight: 'bold',
         marginLeft: 8,
-    }
+    },
+    missingCard: {
+        backgroundColor: Colors.bg.card,
+        borderRadius: BorderRadius.lg,
+        padding: Spacing.lg,
+        marginHorizontal: Spacing.xl,
+        borderWidth: 1,
+        borderColor: Colors.border.subtle,
+    },
+    missingTitle: {
+        fontSize: FontSize.lg,
+        color: Colors.text.heading,
+        fontWeight: '500',
+        marginBottom: Spacing.sm,
+        textAlign: 'center',
+    },
+    missingBody: {
+        fontSize: FontSize.sm,
+        color: Colors.text.secondary,
+        textAlign: 'center',
+        lineHeight: 22,
+        marginBottom: Spacing.lg,
+    },
+    missingActions: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        gap: Spacing.md,
+    },
+    missingBtn: {
+        paddingHorizontal: Spacing.lg,
+        paddingVertical: Spacing.sm,
+        borderRadius: BorderRadius.md,
+        borderWidth: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        minWidth: 100,
+    },
+    missingBtnSecondary: {
+        borderColor: Colors.border.subtle,
+        backgroundColor: Colors.bg.elevated,
+    },
+    missingBtnPrimary: {
+        borderColor: Colors.accent.gold,
+        backgroundColor: Colors.bg.card,
+    },
+    missingBtnText: {
+        fontSize: FontSize.sm,
+        fontWeight: '500',
+    },
+    missingBtnSecondaryText: {
+        color: Colors.text.secondary,
+    },
+    missingBtnPrimaryText: {
+        color: Colors.accent.gold,
+    },
 });

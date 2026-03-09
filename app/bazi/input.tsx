@@ -42,7 +42,8 @@ function formatBirthPlace(province?: string, cityName?: string): string {
 function buildBaziSummary(result: BaziResult) {
     return {
         title: result.subject.name || result.fourPillars.join(' '),
-        subtitle: `${result.subject.genderLabel} · ${result.baseInfo.birthPlaceDisplay} · ${result.subject.mingZaoLabel}`,
+        method: result.subject.mingZaoLabel,
+        subtitle: result.baseInfo.birthPlaceDisplay || '未设置出生地',
     };
 }
 
@@ -217,186 +218,186 @@ export default function BaziInputPage() {
                     <Text style={styles.hint}>正在加载命盘...</Text>
                 </View>
             ) : (
-            <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-                <Text style={styles.hint}>
-                    输入出生信息，八字会按当前设备时区的本地钟表时换算；平太阳时和真太阳时只在此基础上做经度与时差修正。
-                </Text>
+                <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+                    <Text style={styles.hint}>
+                        输入出生信息，八字会按当前设备时区的本地钟表时换算；平太阳时和真太阳时只在此基础上做经度与时差修正。
+                    </Text>
 
-                <LocationBar
-                    city={form.city}
-                    onPress={() => setCityPickerVisible(true)}
-                    detailText={form.timeMode === 'clock_time' ? '仅作出生地记录' : '本地时区下的校时经度'}
-                    placeholderDetailText={form.timeMode === 'clock_time'
-                        ? '本地钟表时模式下可不选出生地'
-                        : '平太阳时或真太阳时需要出生地经度'}
-                    fallbackLabel={form.locationFallbackLabel}
-                    fallbackDetailText={form.locationFallbackLabel ? '原记录出生地未能自动匹配，请重新确认城市' : ''}
-                />
-
-                <View style={styles.section}>
-                    <Text style={styles.sectionLabel}>姓名（可选）</Text>
-                    <TextInput
-                        style={styles.textInput}
-                        value={form.name}
-                        onChangeText={(text) => setForm((prev) => ({ ...prev, name: text }))}
-                        placeholder="请输入命主姓名"
-                        placeholderTextColor={Colors.text.tertiary}
-                        maxLength={24}
+                    <LocationBar
+                        city={form.city}
+                        onPress={() => setCityPickerVisible(true)}
+                        detailText={form.timeMode === 'clock_time' ? '仅作出生地记录' : '本地时区下的校时经度'}
+                        placeholderDetailText={form.timeMode === 'clock_time'
+                            ? '本地钟表时模式下可不选出生地'
+                            : '平太阳时或真太阳时需要出生地经度'}
+                        fallbackLabel={form.locationFallbackLabel}
+                        fallbackDetailText={form.locationFallbackLabel ? '原记录出生地未能自动匹配，请重新确认城市' : ''}
                     />
-                </View>
 
-                <View style={styles.section}>
-                    <Text style={styles.sectionLabel}>出生时间</Text>
-                    <TouchableOpacity
-                        style={styles.selector}
-                        activeOpacity={0.75}
-                        onPress={() => setBirthPickerVisible(true)}
-                    >
-                        <Text style={styles.selectorText}>{formatDateTime(form.birthDate)}</Text>
-                        <ChevronRightIcon size={20} color={Colors.text.tertiary} />
-                    </TouchableOpacity>
-                </View>
-
-                <View style={styles.section}>
-                    <Text style={styles.sectionLabel}>性别</Text>
-                    <View style={styles.genderRow}>
-                        <TouchableOpacity
-                            style={[styles.genderBtn, form.gender === 1 && styles.genderBtnActive]}
-                            onPress={() => handleGenderChange(1)}
-                        >
-                            <Text style={[styles.genderText, form.gender === 1 && styles.genderTextActive]}>男</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.genderBtn, form.gender === 0 && styles.genderBtnActive]}
-                            onPress={() => handleGenderChange(0)}
-                        >
-                            <Text style={[styles.genderText, form.gender === 0 && styles.genderTextActive]}>女</Text>
-                        </TouchableOpacity>
+                    <View style={styles.section}>
+                        <Text style={styles.sectionLabel}>姓名（可选）</Text>
+                        <TextInput
+                            style={styles.textInput}
+                            value={form.name}
+                            onChangeText={(text) => setForm((prev) => ({ ...prev, name: text }))}
+                            placeholder="请输入命主姓名"
+                            placeholderTextColor={Colors.text.tertiary}
+                            maxLength={24}
+                        />
                     </View>
-                </View>
 
-                <View style={styles.section}>
-                    <Text style={styles.sectionLabel}>排盘口径</Text>
-                    <View style={styles.timeModeGrid}>
-                        <TouchableOpacity
-                            style={[styles.timeModeBtn, form.timeMode === 'clock_time' && styles.modeBtnActive]}
-                            onPress={() => handleTimeModeChange('clock_time')}
-                        >
-                            <Text style={[styles.timeModeTitle, form.timeMode === 'clock_time' && styles.modeTextActive]}>本地钟表时</Text>
-                            <Text style={styles.timeModeHint}>按输入的本地钟表时间排盘，不做经度校时。</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.timeModeBtn, form.timeMode === 'mean_solar_time' && styles.modeBtnActive]}
-                            onPress={() => handleTimeModeChange('mean_solar_time')}
-                        >
-                            <Text style={[styles.timeModeTitle, form.timeMode === 'mean_solar_time' && styles.modeTextActive]}>平太阳时</Text>
-                            <Text style={styles.timeModeHint}>按当前时区标准经线与出生地经度换算，不含时差方程。</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.timeModeBtn, form.timeMode === 'true_solar_time' && styles.modeBtnActive]}
-                            onPress={() => handleTimeModeChange('true_solar_time')}
-                        >
-                            <Text style={[styles.timeModeTitle, form.timeMode === 'true_solar_time' && styles.modeTextActive]}>真太阳时</Text>
-                            <Text style={styles.timeModeHint}>在平太阳时基础上叠加时差方程修正，需要出生地经度。</Text>
-                        </TouchableOpacity>
-                    </View>
-                    <Text style={styles.advancedHint}>
-                        默认使用本地钟表时。切到平太阳时或真太阳时后，会按当前设备时区的标准经线换算；原始出生时间显示保持不变。
-                    </Text>
-                </View>
-
-                <View style={styles.section}>
-                    <Text style={styles.sectionLabel}>夏令时（可选）</Text>
-                    <View style={[styles.modeRow, !usesSolarCorrection && styles.disabledRow]}>
-                        <TouchableOpacity
-                            style={[styles.modeBtn, !form.daylightSaving && styles.modeBtnActive]}
-                            onPress={() => handleDaylightSavingChange(false)}
-                            disabled={!usesSolarCorrection}
-                        >
-                            <Text style={[styles.modeText, !form.daylightSaving && styles.modeTextActive]}>
-                                关闭
-                            </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.modeBtn, form.daylightSaving && styles.modeBtnActive]}
-                            onPress={() => handleDaylightSavingChange(true)}
-                            disabled={!usesSolarCorrection}
-                        >
-                            <Text style={[styles.modeText, form.daylightSaving && styles.modeTextActive]}>
-                                开启
-                            </Text>
-                        </TouchableOpacity>
-                    </View>
-                    <Text style={styles.advancedHint}>
-                        默认关闭。仅在平太阳时和真太阳时下生效；开启后会先按当前时区回退 60 分钟，再做经度与时差修正。
-                    </Text>
-                </View>
-
-                <View style={styles.section}>
-                    <Text style={styles.sectionLabel}>流派口径（子时归属）</Text>
-                    <View style={styles.modeRow}>
-                        <TouchableOpacity
-                            style={[styles.modeBtn, form.ziHourMode === 'late_zi_next_day' && styles.modeBtnActive]}
-                            onPress={() => handleZiHourModeChange('late_zi_next_day')}
-                        >
-                            <Text style={[styles.modeText, form.ziHourMode === 'late_zi_next_day' && styles.modeTextActive]}>
-                                晚子时次日
-                            </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.modeBtn, form.ziHourMode === 'early_zi_same_day' && styles.modeBtnActive]}
-                            onPress={() => handleZiHourModeChange('early_zi_same_day')}
-                        >
-                            <Text style={[styles.modeText, form.ziHourMode === 'early_zi_same_day' && styles.modeTextActive]}>
-                                早子时当日
-                            </Text>
-                        </TouchableOpacity>
-                    </View>
-                    <Text style={styles.advancedHint}>
-                        默认使用晚子时归次日口径；切换后仅影响排盘规则，不改原始出生时间显示。
-                    </Text>
-                </View>
-
-                <View style={styles.section}>
-                    <TouchableOpacity
-                        style={styles.advancedHeader}
-                        onPress={() => setForm((prev) => ({ ...prev, useCustomReferenceDate: !prev.useCustomReferenceDate }))}
-                    >
-                        <Text style={styles.sectionLabel}>参考时点（用于当前运势判定）</Text>
-                        <Text style={styles.advancedToggle}>
-                            {form.useCustomReferenceDate ? '已自定义' : '默认当前时间'}
-                        </Text>
-                    </TouchableOpacity>
-                    <Text style={styles.advancedHint}>
-                        默认按当前本地时间判定当前大运/流年/流月；若排盘口径选择平太阳时或真太阳时，参考时点也会应用同一套经度与夏令时换算。
-                    </Text>
-                    {form.useCustomReferenceDate ? (
+                    <View style={styles.section}>
+                        <Text style={styles.sectionLabel}>出生时间</Text>
                         <TouchableOpacity
                             style={styles.selector}
                             activeOpacity={0.75}
-                            onPress={() => setReferencePickerVisible(true)}
+                            onPress={() => setBirthPickerVisible(true)}
                         >
-                            <Text style={styles.selectorText}>{formatDateTime(form.referenceDate)}</Text>
+                            <Text style={styles.selectorText}>{formatDateTime(form.birthDate)}</Text>
                             <ChevronRightIcon size={20} color={Colors.text.tertiary} />
                         </TouchableOpacity>
-                    ) : (
-                        <View style={styles.selector}>
-                            <Text style={styles.selectorText}>{formatDateTime(effectiveReferenceDate)}</Text>
-                        </View>
-                    )}
-                </View>
+                    </View>
 
-                <TouchableOpacity
-                    style={[styles.calcBtn, loading && styles.calcBtnDisabled]}
-                    onPress={handleCalculate}
-                    disabled={loading}
-                    activeOpacity={0.8}
-                >
-                    <Text style={styles.calcBtnText}>
-                        {loading ? '排盘中...' : (form.editingRecordId ? '保存修改并排盘' : '开始排盘')}
-                    </Text>
-                </TouchableOpacity>
-            </ScrollView>
+                    <View style={styles.section}>
+                        <Text style={styles.sectionLabel}>性别</Text>
+                        <View style={styles.genderRow}>
+                            <TouchableOpacity
+                                style={[styles.genderBtn, form.gender === 1 && styles.genderBtnActive]}
+                                onPress={() => handleGenderChange(1)}
+                            >
+                                <Text style={[styles.genderText, form.gender === 1 && styles.genderTextActive]}>男</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.genderBtn, form.gender === 0 && styles.genderBtnActive]}
+                                onPress={() => handleGenderChange(0)}
+                            >
+                                <Text style={[styles.genderText, form.gender === 0 && styles.genderTextActive]}>女</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+
+                    <View style={styles.section}>
+                        <Text style={styles.sectionLabel}>排盘口径</Text>
+                        <View style={styles.timeModeGrid}>
+                            <TouchableOpacity
+                                style={[styles.timeModeBtn, form.timeMode === 'clock_time' && styles.modeBtnActive]}
+                                onPress={() => handleTimeModeChange('clock_time')}
+                            >
+                                <Text style={[styles.timeModeTitle, form.timeMode === 'clock_time' && styles.modeTextActive]}>本地钟表时</Text>
+                                <Text style={styles.timeModeHint}>按输入的本地钟表时间排盘，不做经度校时。</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.timeModeBtn, form.timeMode === 'mean_solar_time' && styles.modeBtnActive]}
+                                onPress={() => handleTimeModeChange('mean_solar_time')}
+                            >
+                                <Text style={[styles.timeModeTitle, form.timeMode === 'mean_solar_time' && styles.modeTextActive]}>平太阳时</Text>
+                                <Text style={styles.timeModeHint}>按当前时区标准经线与出生地经度换算，不含时差方程。</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.timeModeBtn, form.timeMode === 'true_solar_time' && styles.modeBtnActive]}
+                                onPress={() => handleTimeModeChange('true_solar_time')}
+                            >
+                                <Text style={[styles.timeModeTitle, form.timeMode === 'true_solar_time' && styles.modeTextActive]}>真太阳时</Text>
+                                <Text style={styles.timeModeHint}>在平太阳时基础上叠加时差方程修正，需要出生地经度。</Text>
+                            </TouchableOpacity>
+                        </View>
+                        <Text style={styles.advancedHint}>
+                            默认使用本地钟表时。切到平太阳时或真太阳时后，会按当前设备时区的标准经线换算；原始出生时间显示保持不变。
+                        </Text>
+                    </View>
+
+                    <View style={styles.section}>
+                        <Text style={styles.sectionLabel}>夏令时（可选）</Text>
+                        <View style={[styles.modeRow, !usesSolarCorrection && styles.disabledRow]}>
+                            <TouchableOpacity
+                                style={[styles.modeBtn, !form.daylightSaving && styles.modeBtnActive]}
+                                onPress={() => handleDaylightSavingChange(false)}
+                                disabled={!usesSolarCorrection}
+                            >
+                                <Text style={[styles.modeText, !form.daylightSaving && styles.modeTextActive]}>
+                                    关闭
+                                </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.modeBtn, form.daylightSaving && styles.modeBtnActive]}
+                                onPress={() => handleDaylightSavingChange(true)}
+                                disabled={!usesSolarCorrection}
+                            >
+                                <Text style={[styles.modeText, form.daylightSaving && styles.modeTextActive]}>
+                                    开启
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                        <Text style={styles.advancedHint}>
+                            默认关闭。仅在平太阳时和真太阳时下生效；开启后会先按当前时区回退 60 分钟，再做经度与时差修正。
+                        </Text>
+                    </View>
+
+                    <View style={styles.section}>
+                        <Text style={styles.sectionLabel}>流派口径（子时归属）</Text>
+                        <View style={styles.modeRow}>
+                            <TouchableOpacity
+                                style={[styles.modeBtn, form.ziHourMode === 'late_zi_next_day' && styles.modeBtnActive]}
+                                onPress={() => handleZiHourModeChange('late_zi_next_day')}
+                            >
+                                <Text style={[styles.modeText, form.ziHourMode === 'late_zi_next_day' && styles.modeTextActive]}>
+                                    晚子时次日
+                                </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.modeBtn, form.ziHourMode === 'early_zi_same_day' && styles.modeBtnActive]}
+                                onPress={() => handleZiHourModeChange('early_zi_same_day')}
+                            >
+                                <Text style={[styles.modeText, form.ziHourMode === 'early_zi_same_day' && styles.modeTextActive]}>
+                                    早子时当日
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                        <Text style={styles.advancedHint}>
+                            默认使用晚子时归次日口径；切换后仅影响排盘规则，不改原始出生时间显示。
+                        </Text>
+                    </View>
+
+                    <View style={styles.section}>
+                        <TouchableOpacity
+                            style={styles.advancedHeader}
+                            onPress={() => setForm((prev) => ({ ...prev, useCustomReferenceDate: !prev.useCustomReferenceDate }))}
+                        >
+                            <Text style={styles.sectionLabel}>参考时点（用于当前运势判定）</Text>
+                            <Text style={styles.advancedToggle}>
+                                {form.useCustomReferenceDate ? '已自定义' : '默认当前时间'}
+                            </Text>
+                        </TouchableOpacity>
+                        <Text style={styles.advancedHint}>
+                            默认按当前本地时间判定当前大运/流年/流月；若排盘口径选择平太阳时或真太阳时，参考时点也会应用同一套经度与夏令时换算。
+                        </Text>
+                        {form.useCustomReferenceDate ? (
+                            <TouchableOpacity
+                                style={styles.selector}
+                                activeOpacity={0.75}
+                                onPress={() => setReferencePickerVisible(true)}
+                            >
+                                <Text style={styles.selectorText}>{formatDateTime(form.referenceDate)}</Text>
+                                <ChevronRightIcon size={20} color={Colors.text.tertiary} />
+                            </TouchableOpacity>
+                        ) : (
+                            <View style={styles.selector}>
+                                <Text style={styles.selectorText}>{formatDateTime(effectiveReferenceDate)}</Text>
+                            </View>
+                        )}
+                    </View>
+
+                    <TouchableOpacity
+                        style={[styles.calcBtn, loading && styles.calcBtnDisabled]}
+                        onPress={handleCalculate}
+                        disabled={loading}
+                        activeOpacity={0.8}
+                    >
+                        <Text style={styles.calcBtnText}>
+                            {loading ? '排盘中...' : (form.editingRecordId ? '保存修改并排盘' : '开始排盘')}
+                        </Text>
+                    </TouchableOpacity>
+                </ScrollView>
             )}
 
             <CityPicker

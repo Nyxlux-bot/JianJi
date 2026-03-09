@@ -34,18 +34,19 @@ export function getActiveHistoryCategory(filter: HistoryFilterState): LiuyaoHist
     return filter.activeEngine === 'liuyao' ? filter.liuyaoCategory : filter.baziCategory;
 }
 
-export function getBaziCategory(record: Pick<HistoryRecordItem, 'engineType' | 'subtitle'>): Exclude<BaziHistoryCategory, 'all' | 'favorite'> | null {
+export function getBaziCategory(record: Pick<HistoryRecordItem, 'engineType' | 'subtitle' | 'method'>): Exclude<BaziHistoryCategory, 'all' | 'favorite'> | null {
     if (record.engineType !== 'bazi') {
         return null;
     }
 
+    const methodStr = record.method || '';
+    if (methodStr === 'qianzao' || methodStr.includes('乾造') || methodStr.includes('男')) return 'qianzao';
+    if (methodStr === 'kunzao' || methodStr.includes('坤造') || methodStr.includes('女')) return 'kunzao';
+
     const subtitle = record.subtitle || '';
-    if (subtitle.includes('乾造') || subtitle.includes('男')) {
-        return 'qianzao';
-    }
-    if (subtitle.includes('坤造') || subtitle.includes('女')) {
-        return 'kunzao';
-    }
+    if (subtitle.includes('乾造') || subtitle.includes('男')) return 'qianzao';
+    if (subtitle.includes('坤造') || subtitle.includes('女')) return 'kunzao';
+
     return null;
 }
 

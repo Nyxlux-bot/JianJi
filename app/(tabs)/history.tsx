@@ -211,25 +211,19 @@ export default function HistoryPage() {
                 activeOpacity={0.76}
                 onPress={() => router.push(item.engineType === 'bazi' ? `/bazi/result/${item.id}` : `/result/${item.id}`)}
             >
-                <View style={styles.recordContent}>
-                    <View style={styles.recordMain}>
-                        <Text style={styles.recordTitle} numberOfLines={1}>{item.title}</Text>
-                        {item.subtitle ? (
-                            <Text style={styles.recordSubtitle} numberOfLines={1}>{item.subtitle}</Text>
-                        ) : null}
-                        <View style={styles.recordMetaRow}>
-                            <View style={[styles.recordMetaBadge, item.engineType === 'bazi' ? styles.recordMetaBadgeBazi : styles.recordMetaBadgeLiuyao]}>
-                                <Text style={styles.recordMetaBadgeText}>{metaLabel}</Text>
-                            </View>
-                            <Text style={styles.recordMeta}>{formatDate(item.createdAt)}</Text>
+                <View style={styles.recordMain}>
+                    <Text style={styles.recordTitle} numberOfLines={1}>{item.title}</Text>
+                    <View style={styles.recordMetaRow}>
+                        <View style={[styles.recordMetaBadge, item.engineType === 'bazi' ? styles.recordMetaBadgeBazi : styles.recordMetaBadgeLiuyao]}>
+                            <Text style={styles.recordMetaBadgeText}>{metaLabel}</Text>
                         </View>
-                        {item.question ? (
-                            <Text style={styles.recordQuestion} numberOfLines={1}>
-                                {item.question}
-                            </Text>
-                        ) : null}
+                        <Text style={styles.recordMeta}>{formatDate(item.createdAt)}</Text>
                     </View>
-                    <ChevronRightIcon size={14} color={Colors.text.tertiary} />
+                    {item.question ? (
+                        <Text style={styles.recordQuestion} numberOfLines={1}>
+                            {item.question}
+                        </Text>
+                    ) : null}
                 </View>
                 <View style={styles.recordActions}>
                     <TouchableOpacity
@@ -284,9 +278,6 @@ export default function HistoryPage() {
                                 <Text style={[styles.engineSegmentTitle, active && styles.engineSegmentTitleActive]}>
                                     {option.label}
                                 </Text>
-                                <Text style={[styles.engineSegmentDesc, active && styles.engineSegmentDescActive]}>
-                                    {option.description}
-                                </Text>
                             </TouchableOpacity>
                         );
                     })}
@@ -294,7 +285,6 @@ export default function HistoryPage() {
 
                 <View style={styles.categoryHeader}>
                     <Text style={styles.categoryTitle}>{currentEngineOption.label}筛选</Text>
-                    <Text style={styles.categorySummary}>当前：{getActiveCategoryLabel(filters)}</Text>
                 </View>
                 <ScrollView
                     horizontal
@@ -385,14 +375,15 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     },
     engineSegmentBtn: {
         flex: 1,
-        minHeight: 74,
+        minHeight: 46,
         borderRadius: BorderRadius.lg,
         borderWidth: 1,
         borderColor: Colors.border.subtle,
         backgroundColor: Colors.bg.elevated,
         paddingHorizontal: Spacing.md,
-        paddingVertical: Spacing.md,
+        paddingVertical: Spacing.sm,
         justifyContent: 'center',
+        alignItems: 'center',
         gap: 4,
     },
     engineSegmentBtnActive: {
@@ -435,7 +426,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         paddingRight: Spacing.md,
     },
     filterChip: {
-        minHeight: 38,
+        minHeight: 44,
         paddingHorizontal: Spacing.md,
         borderRadius: 999,
         borderWidth: 1,
@@ -529,8 +520,8 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         gap: Spacing.xs,
     },
     actionBtn: {
-        width: 40,
-        height: 40,
+        width: 44,
+        height: 44,
         justifyContent: 'center',
         alignItems: 'center',
     },

@@ -62,7 +62,9 @@ export default function SettingsPage() {
     const { Colors, theme, setTheme } = useTheme();
     const styles = makeStyles(Colors);
     const [settings, setSettings] = useState<AISettings>(DEFAULT_SETTINGS);
-    const [loading, setLoading] = useState(true);
+    const [isInitializing, setIsInitializing] = useState(true);
+    const [isBackingUp, setIsBackingUp] = useState(false);
+    const [isRestoring, setIsRestoring] = useState(false);
     const [savingAI, setSavingAI] = useState(false);
     const [fetchingModels, setFetchingModels] = useState(false);
     const [previewVisible, setPreviewVisible] = useState(false);
@@ -73,7 +75,7 @@ export default function SettingsPage() {
     useEffect(() => {
         getSettings().then((nextSettings) => {
             setSettings(nextSettings);
-            setLoading(false);
+            setIsInitializing(false);
         });
     }, []);
 
@@ -153,7 +155,7 @@ export default function SettingsPage() {
 
     const handleBackup = async () => {
         try {
-            setLoading(true);
+            setIsBackingUp(true);
             const records = await exportAllRecords();
             const backupData = {
                 version: 2,
@@ -184,7 +186,7 @@ export default function SettingsPage() {
             const message = error instanceof Error ? error.message : '备份失败';
             CustomAlert.alert('备份失败', message);
         } finally {
-            setLoading(false);
+            setIsBackingUp(false);
         }
     };
 
@@ -229,7 +231,7 @@ export default function SettingsPage() {
         conflictPolicy: ImportConflictPolicy;
     }) => {
         try {
-            setLoading(true);
+            setIsRestoring(true);
 
             if (pendingSettingsRaw) {
                 const normalizedSettings = normalizeImportedSettings(pendingSettingsRaw, settings);
@@ -254,11 +256,11 @@ export default function SettingsPage() {
             const message = error instanceof Error ? error.message : '文件解析错误';
             CustomAlert.alert('恢复失败', message);
         } finally {
-            setLoading(false);
+            setIsRestoring(false);
         }
     };
 
-    if (loading) {
+    if (isInitializing) {
         return (
             <View style={styles.container}>
                 <StatusBarDecor />
@@ -372,8 +374,12 @@ export default function SettingsPage() {
                 </Text>
 
                 <View style={styles.backupOptionsContainer}>
-                    <TouchableOpacity style={styles.backupBtn} onPress={handleBackup}>
-                        <Text style={styles.backupBtnText}>导出全量数据 (Backup)</Text>
+                    <TouchableOpacity style={styles.backupBtn} onPress={handleBackup} disabled={isBackingUp}>
+                        {isBackingUp ? (
+                            <ActivityIndicator size="small" color={Colors.text.primary} />
+                        ) : (
+                            <Text style={styles.backupBtnText}>导出全量数据 (Backup)</Text>
+                        )}
                     </TouchableOpacity>
                     <TouchableOpacity style={[styles.backupBtn, styles.restoreBtn]} onPress={handleRestore}>
                         <Text style={[styles.backupBtnText, styles.restoreBtnText]}>导入外部档案 (Restore)</Text>
@@ -385,7 +391,7 @@ export default function SettingsPage() {
 
             <ImportPreviewModal
                 visible={previewVisible}
-                loading={loading}
+                loading={isRestoring}
                 records={pendingRecords}
                 duplicateCount={pendingDuplicateCount}
                 allowEmptySelection={pendingSettingsRaw !== null && pendingSettingsRaw !== undefined}
@@ -499,6 +505,9 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         paddingVertical: 5,
         backgroundColor: Colors.bg.elevated,
         borderRadius: BorderRadius.sm,
+        minWidth: 120,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     fetchBtnText: {
         fontSize: FontSize.xs,
