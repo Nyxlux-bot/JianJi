@@ -1,5 +1,6 @@
 import { CityInfo, getAllCities } from '../../core/city-data';
 import { BaziResult } from '../../core/bazi-types';
+import { buildLocalDateTimeFromDateAndTime, parseLocalDateTime } from '../../core/bazi-local-time';
 import { BaziFormState } from './types';
 
 function normalizePlaceName(value: string): string {
@@ -46,10 +47,13 @@ export function findCityForBaziResult(result: BaziResult): CityInfo | null {
 
 export function buildBaziEditFormState(result: BaziResult, now: Date = new Date()): BaziFormState {
     const city = findCityForBaziResult(result);
+    const birthDate = parseLocalDateTime(result.timeMeta.solarDateTimeLocal)
+        ?? parseLocalDateTime(buildLocalDateTimeFromDateAndTime(result.solarDate, result.solarTime))
+        ?? new Date(result.timeMeta.solarDateTimeIso);
 
     return {
         name: result.subject.name,
-        birthDate: new Date(result.timeMeta.solarDateTimeIso),
+        birthDate,
         gender: result.gender,
         city,
         editingRecordId: result.id,

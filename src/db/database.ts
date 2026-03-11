@@ -4,6 +4,7 @@
  */
 
 import { Platform } from 'react-native';
+import { normalizeStoredBaziResult } from '../core/bazi-normalize';
 import { BaziResult } from '../core/bazi-types';
 import { PanResult } from '../core/liuyao-calc';
 import { validateImportRecords } from './import-validation';
@@ -14,7 +15,6 @@ import {
     DivinationRecordEnvelope,
     DivinationResult,
     inferEngineFromResult,
-    isBaziResult,
     isDivinationMethod,
     isPanResult,
     RecordSummary,
@@ -116,8 +116,11 @@ function toRecordDetail(row: RecordDetailRow): RecordDetail | null {
     if (engineType === 'liuyao' && isPanResult(parsed)) {
         return { engineType, result: parsed };
     }
-    if (engineType === 'bazi' && isBaziResult(parsed)) {
-        return { engineType, result: parsed };
+    if (engineType === 'bazi') {
+        const normalized = normalizeStoredBaziResult(parsed);
+        if (normalized) {
+            return { engineType, result: normalized };
+        }
     }
     return null;
 }
@@ -328,11 +331,14 @@ const webDb = {
                 result: record.fullResult,
             };
         }
-        if (record.engineType === 'bazi' && isBaziResult(record.fullResult)) {
-            return {
-                engineType: 'bazi',
-                result: record.fullResult,
-            };
+        if (record.engineType === 'bazi') {
+            const normalized = normalizeStoredBaziResult(record.fullResult);
+            if (normalized) {
+                return {
+                    engineType: 'bazi',
+                    result: normalized,
+                };
+            }
         }
         return null;
     },
@@ -353,16 +359,44 @@ const webDb = {
     },
 
     async exportAll(): Promise<DivinationRecordEnvelope[]> {
-        return getWebRecords().map((record) => ({
-            engineType: record.engineType,
-            result: record.fullResult,
-            summary: {
-                method: record.method || undefined,
-                question: record.question,
-                title: record.title,
-                subtitle: record.subtitle,
-            },
-        }));
+        const exported: DivinationRecordEnvelope[] = [];
+
+        getWebRecords().forEach((record) => {
+            if (record.engineType === 'bazi') {
+                const normalized = normalizeStoredBaziResult(record.fullResult);
+                if (!normalized) {
+                    return;
+                }
+                exported.push({
+                    engineType: 'bazi',
+                    result: normalized,
+                    summary: {
+                        method: record.method || undefined,
+                        question: record.question,
+                        title: record.title,
+                        subtitle: record.subtitle,
+                    },
+                });
+                return;
+            }
+
+            if (!isPanResult(record.fullResult)) {
+                return;
+            }
+
+            exported.push({
+                engineType: 'liuyao',
+                result: record.fullResult,
+                summary: {
+                    method: record.method || undefined,
+                    question: record.question,
+                    title: record.title,
+                    subtitle: record.subtitle,
+                },
+            });
+        });
+
+        return exported;
     },
 
     async importAll(records: DivinationRecordEnvelope[], options: ImportOptions = {}): Promise<ImportStats> {

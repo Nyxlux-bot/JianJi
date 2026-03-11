@@ -1,9 +1,9 @@
+import { normalizeStoredBaziResult } from '../core/bazi-normalize';
 import { BaziResult } from '../core/bazi-types';
 import { PanResult } from '../core/liuyao-calc';
 import {
     DivinationEngine,
     DivinationRecordEnvelope,
-    isBaziResult,
     isDivinationMethod,
     isPanResult,
 } from './record-types';
@@ -32,11 +32,13 @@ function validateLiuyaoRecord(result: unknown, index: number): void {
     assertCreatedAt(result.createdAt, index);
 }
 
-function validateBaziRecord(result: unknown, index: number): void {
-    if (!isBaziResult(result)) {
+function validateBaziRecord(result: unknown, index: number): BaziResult {
+    const normalized = normalizeStoredBaziResult(result);
+    if (!normalized) {
         throw new Error(`第${index + 1}条记录格式无效：八字结果结构非法`);
     }
-    assertCreatedAt(result.createdAt, index);
+    assertCreatedAt(normalized.createdAt, index);
+    return normalized;
 }
 
 function normalizeSummary(summary: unknown): DivinationRecordEnvelope['summary'] {
@@ -78,8 +80,7 @@ function normalizeRecord(record: unknown, index: number): DivinationRecordEnvelo
             };
         }
 
-        validateBaziRecord(record.result, index);
-        const result = record.result as unknown as BaziResult;
+        const result = validateBaziRecord(record.result, index);
         return {
             engineType: 'bazi',
             result,

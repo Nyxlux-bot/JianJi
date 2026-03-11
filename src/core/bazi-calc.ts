@@ -18,6 +18,7 @@ import {
     SolarTime,
 } from 'tyme4ts';
 import { formatTrueSolarTime } from './true-solar-time';
+import { formatLocalDateTime } from './bazi-local-time';
 import { solarToLunar } from './lunar';
 import { getXunKong } from './xun-kong';
 import { calculateRenYuanDuty } from './renyuan-duty';
@@ -329,6 +330,8 @@ function buildTimeMeta(input: { inputDate: Date; chartDate: Date }): BaziTimeMet
         solarDateIso: formatIsoDate(input.inputDate),
         solarDateTimeIso: input.inputDate.toISOString(),
         trueSolarDateTimeIso: input.chartDate.toISOString(),
+        solarDateTimeLocal: formatLocalDateTime(input.inputDate),
+        trueSolarDateTimeLocal: formatLocalDateTime(input.chartDate),
     };
 }
 

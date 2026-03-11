@@ -44,6 +44,8 @@ export interface BaziTimeMeta {
     solarDateIso: string;
     solarDateTimeIso: string;
     trueSolarDateTimeIso: string;
+    solarDateTimeLocal?: string;
+    trueSolarDateTimeLocal?: string;
 }
 
 export interface BaziShiShenItem {

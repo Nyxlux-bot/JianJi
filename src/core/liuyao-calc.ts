@@ -118,7 +118,7 @@ export function calculatePan(
         ? calculateTrueSolarTime(date, longitude)
         : date;
     const lunarInfo = solarToLunar(effectiveDate);
-    const jieqi = getCurrentJieqi(date);
+    const jieqi = getCurrentJieqi(effectiveDate);
 
     // 2. 确定本卦的上下卦
     const lowerYao = yaoValues.slice(0, 3).map(v => (v === 7 || v === 9) ? 1 : 0);
@@ -314,7 +314,7 @@ export function calculatePan(
         xunKong: getXunKong(lunarInfo.dayGanZhi),
         shenSha: getShenSha(lunarInfo.dayGanZhi[0], lunarInfo.dayGanZhi[1]),
         monthGeneral: getMonthGeneralByJieqi(jieqi.current, lunarInfo.monthGanZhi[1]),
-        moonPhase: getMoonPhase(date, lunarInfo.day),
+        moonPhase: getMoonPhase(effectiveDate, lunarInfo.day),
         benGua,
         benGuaYao,
         bianGua,

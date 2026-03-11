@@ -329,46 +329,42 @@ export function getNaYin(ganZhi: string): string {
 
 /** 获取当前时辰对应的节气信息 */
 export function getCurrentJieqi(date: Date): { current: string; currentDate: string; next: string; nextDate: string } {
-    const y = date.getFullYear();
-    const m = date.getMonth() + 1;
-    const d = date.getDate();
+    const targetDate = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+    const termPool: Array<{ name: string; date: Date }> = [];
 
-    let currentName = '';
-    let currentDateStr = '';
-    let nextName = '';
-    let nextDateStr = '';
-
-    for (let i = 0; i < 24; i++) {
-        const termDate = getSolarTermDate(y, i);
-        const tm = termDate.getMonth() + 1;
-        const td = termDate.getDate();
-
-        if (m > tm || (m === tm && d >= td)) {
-            currentName = SOLAR_TERM_NAMES[i];
-            currentDateStr = `${String(tm).padStart(2, '0')}-${String(td).padStart(2, '0')}`;
+    for (let year = date.getFullYear() - 1; year <= date.getFullYear() + 1; year += 1) {
+        for (let index = 0; index < 24; index += 1) {
+            termPool.push({
+                name: SOLAR_TERM_NAMES[index],
+                date: getSolarTermDate(year, index),
+            });
         }
     }
 
-    // 找下一个节气
-    let found = false;
-    for (let i = 0; i < 24; i++) {
-        const termDate = getSolarTermDate(y, i);
-        const tm = termDate.getMonth() + 1;
-        const td = termDate.getDate();
-        if (m < tm || (m === tm && d < td)) {
-            nextName = SOLAR_TERM_NAMES[i];
-            nextDateStr = `${String(tm).padStart(2, '0')}-${String(td).padStart(2, '0')}`;
-            found = true;
-            break;
+    termPool.sort((left, right) => left.date.getTime() - right.date.getTime());
+
+    let current = termPool[0];
+    let next = termPool[termPool.length - 1];
+
+    for (const term of termPool) {
+        if (term.date.getTime() <= targetDate.getTime()) {
+            current = term;
+            continue;
         }
-    }
-    if (!found) {
-        const nextTerm = getSolarTermDate(y + 1, 0);
-        nextName = SOLAR_TERM_NAMES[0];
-        nextDateStr = `01-${String(nextTerm.getDate()).padStart(2, '0')}`;
+        next = term;
+        break;
     }
 
-    return { current: currentName, currentDate: currentDateStr, next: nextName, nextDate: nextDateStr };
+    const formatTermDate = (termDate: Date): string => (
+        `${String(termDate.getMonth() + 1).padStart(2, '0')}-${String(termDate.getDate()).padStart(2, '0')}`
+    );
+
+    return {
+        current: current.name,
+        currentDate: formatTermDate(current.date),
+        next: next.name,
+        nextDate: formatTermDate(next.date),
+    };
 }
 
 // ==================== 反向推导 (Reverse Lookup) ====================
