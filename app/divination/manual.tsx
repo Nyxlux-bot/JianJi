@@ -12,6 +12,7 @@ import StatusBarDecor from '../../src/components/StatusBarDecor';
 import { router } from 'expo-router';
 import { CustomAlert } from '../../src/components/CustomAlertProvider';
 import { Spacing, FontSize, BorderRadius } from '../../src/theme/colors';
+import { buildRegionDisplayName } from '../../src/core/city-data';
 import { BackIcon } from '../../src/components/Icons';
 import { YaoValue } from '../../src/core/liuyao-data';
 import { divinateManual } from '../../src/core/liuyao-calc';
@@ -34,7 +35,7 @@ export default function ManualDivination() {
     const styles = makeStyles(Colors);
     const [yaoValues, setYaoValues] = useState<(YaoValue | null)[]>([null, null, null, null, null, null]);
     const [question, setQuestion] = useState('');
-    const { city, pickerVisible, openPicker, closePicker, handleSelectCity } = useLocation();
+    const { location, pickerVisible, openPicker, closePicker, handleSelectLocation } = useLocation();
 
     const setYao = (index: number, value: YaoValue) => {
         setYaoValues(prev => {
@@ -52,7 +53,13 @@ export default function ManualDivination() {
             return;
         }
         try {
-            const result = divinateManual(yaoValues as YaoValue[], new Date(), question, city?.longitude, city?.name);
+            const result = divinateManual(
+                yaoValues as YaoValue[],
+                new Date(),
+                question,
+                location?.longitude,
+                location ? buildRegionDisplayName(location) : undefined,
+            );
             await saveRecord({
                 engineType: 'liuyao',
                 result,
@@ -84,7 +91,7 @@ export default function ManualDivination() {
                 <Text style={styles.hint}>逐爻选择阴阳和动静</Text>
 
                 {/* 地点选择 */}
-                <LocationBar city={city} onPress={openPicker} />
+                <LocationBar location={location} onPress={openPicker} />
 
                 {/* 占问事项 */}
                 <View style={styles.questionSection}>
@@ -177,8 +184,8 @@ export default function ManualDivination() {
             <CityPicker
                 visible={pickerVisible}
                 onClose={closePicker}
-                onSelect={handleSelectCity}
-                selectedCity={city}
+                onSelect={handleSelectLocation}
+                selectedRegion={location}
             />
         </View>
     );

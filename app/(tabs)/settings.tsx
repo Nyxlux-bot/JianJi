@@ -28,6 +28,7 @@ import {
     AISettings,
     DEFAULT_SETTINGS,
     getSettings,
+    mergeImportedSettings,
     saveSettings,
 } from '../../src/services/settings';
 
@@ -35,26 +36,7 @@ function buildBackupSettings(settings: AISettings): AISettings {
     return {
         ...settings,
         apiKey: '',
-    };
-}
-
-function normalizeImportedSettings(rawSettings: unknown, currentSettings: AISettings): AISettings {
-    if (!rawSettings || typeof rawSettings !== 'object') {
-        return currentSettings;
-    }
-
-    const incoming = rawSettings as Record<string, unknown>;
-
-    return {
-        apiUrl: typeof incoming.apiUrl === 'string' && incoming.apiUrl.trim().length > 0
-            ? incoming.apiUrl
-            : currentSettings.apiUrl,
-        apiKey: typeof incoming.apiKey === 'string' && incoming.apiKey.trim().length > 0
-            ? incoming.apiKey
-            : currentSettings.apiKey,
-        model: typeof incoming.model === 'string' && incoming.model.trim().length > 0
-            ? incoming.model
-            : currentSettings.model,
+        geocoderApiKey: '',
     };
 }
 
@@ -178,7 +160,7 @@ export default function SettingsPage() {
                     dialogTitle: '备份易学数据',
                     UTI: 'public.json',
                 });
-                CustomAlert.alert('备份已导出', '为安全起见，备份文件默认不包含 API Key，恢复后请手动填写。');
+                CustomAlert.alert('备份已导出', '为安全起见，备份文件默认不包含 API Key 与腾讯位置服务 Key，恢复后请手动填写。');
             } else {
                 CustomAlert.alert('提示', '当前设备不支持分享文件');
             }
@@ -234,7 +216,7 @@ export default function SettingsPage() {
             setIsRestoring(true);
 
             if (pendingSettingsRaw) {
-                const normalizedSettings = normalizeImportedSettings(pendingSettingsRaw, settings);
+                const normalizedSettings = mergeImportedSettings(pendingSettingsRaw, settings);
                 await saveSettings(normalizedSettings);
                 setSettings(normalizedSettings);
             }
@@ -360,17 +342,39 @@ export default function SettingsPage() {
                         />
                     </View>
                 </View>
+
+                <Text style={styles.sectionTitle}>地区校时配置</Text>
+                <Text style={styles.sectionHint}>
+                    用于省 / 市 / 区县选择后的经纬度解析。若未配置腾讯位置服务 Key，仅能选择已缓存过坐标的区县。
+                </Text>
+
+                <View style={styles.card}>
+                    <View style={styles.fieldGroup}>
+                        <Text style={styles.label}>腾讯位置服务 Key</Text>
+                        <TextInput
+                            style={styles.input}
+                            value={settings.geocoderApiKey}
+                            onChangeText={(value) => setSettings((prev) => ({ ...prev, geocoderApiKey: value }))}
+                            placeholder="请输入腾讯位置服务 Key"
+                            placeholderTextColor={Colors.text.tertiary}
+                            secureTextEntry
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                        />
+                    </View>
+                </View>
+
                 <TouchableOpacity
                     style={[styles.primaryBtn, savingAI && styles.primaryBtnDisabled]}
                     onPress={handleSaveAISettings}
                     disabled={savingAI}
                 >
-                    <Text style={styles.primaryBtnText}>{savingAI ? '保存中...' : '保存 AI 配置'}</Text>
+                    <Text style={styles.primaryBtnText}>{savingAI ? '保存中...' : '保存接口配置'}</Text>
                 </TouchableOpacity>
 
                 <Text style={styles.sectionTitle}>卷宗备份与迁移</Text>
                 <Text style={styles.sectionHint}>
-                    将接口配置与占卜记录安全打包为本地文件并支持恢复。为保护隐私，导出备份默认不包含 API Key。
+                    将接口配置与占卜记录安全打包为本地文件并支持恢复。为保护隐私，导出备份默认不包含 API Key 与腾讯位置服务 Key。
                 </Text>
 
                 <View style={styles.backupOptionsContainer}>

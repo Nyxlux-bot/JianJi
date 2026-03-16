@@ -16,9 +16,10 @@ import {
     CoinIcon,
     HandIcon,
     NumberIcon,
+    SparklesIcon,
 } from '../../src/components/Icons';
 
-type HomeSystemTab = 'liuyao' | 'bazi';
+type HomeSystemTab = 'liuyao' | 'bazi' | 'ziwei';
 
 interface MethodTileProps {
     title: string;
@@ -54,7 +55,7 @@ export default function HomePage() {
                         <BaGuaIcon size={62} color={Colors.accent.gold} />
                     </View>
                     <Text style={styles.appTitle}>见机</Text>
-                    <Text style={styles.appSubtitle}>六爻易数 · 八字命理</Text>
+                    <Text style={styles.appSubtitle}>六爻易数 · 八字命理 · 紫微斗数</Text>
                     <Text style={styles.heroDesc}>
                         起卦、排盘、回看、备份，一处完成。
                     </Text>
@@ -77,6 +78,15 @@ export default function HomePage() {
                     >
                         <Text style={[styles.segmentedText, activeTab === 'bazi' && styles.segmentedTextActive]}>
                             八字命理
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.segmentedBtn, activeTab === 'ziwei' && styles.segmentedBtnActive]}
+                        onPress={() => setActiveTab('ziwei')}
+                        activeOpacity={0.84}
+                    >
+                        <Text style={[styles.segmentedText, activeTab === 'ziwei' && styles.segmentedTextActive]}>
+                            紫微斗数
                         </Text>
                     </TouchableOpacity>
                 </View>
@@ -119,7 +129,7 @@ export default function HomePage() {
                             />
                         </View>
                     </View>
-                ) : (
+                ) : activeTab === 'bazi' ? (
                     <View style={styles.primarySection}>
                         <View style={styles.sectionHeader}>
                             <Text style={styles.sectionTitle}>八字命理</Text>
@@ -139,6 +149,29 @@ export default function HomePage() {
                             </View>
                             <Text style={styles.baziFeatureDesc}>
                                 支持四柱、十神、藏干、大运、流年、流月，以及专业细盘查看。
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                ) : (
+                    <View style={styles.primarySection}>
+                        <View style={styles.sectionHeader}>
+                            <Text style={styles.sectionTitle}>紫微斗数</Text>
+                            <Text style={styles.sectionHint}>真太阳时校正后排盘</Text>
+                        </View>
+
+                        <TouchableOpacity
+                            style={styles.baziFeatureCard}
+                            activeOpacity={0.82}
+                            onPress={() => router.push('/ziwei/input')}
+                        >
+                            <View style={styles.baziFeatureTitleRow}>
+                                <View style={styles.baziFeatureIcon}>
+                                    <SparklesIcon size={30} color={Colors.accent.gold} />
+                                </View>
+                                <Text style={styles.baziFeatureTitle}>紫微排盘</Text>
+                            </View>
+                            <Text style={styles.baziFeatureDesc}>
+                                先按出生城市换算真太阳时，再生成十二宫盘面与当前运限摘要。
                             </Text>
                         </TouchableOpacity>
                     </View>

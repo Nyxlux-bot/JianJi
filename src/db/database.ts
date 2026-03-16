@@ -7,6 +7,7 @@ import { Platform } from 'react-native';
 import { normalizeStoredBaziResult } from '../core/bazi-normalize';
 import { BaziResult } from '../core/bazi-types';
 import { PanResult } from '../core/liuyao-calc';
+import { ZiweiRecordResult } from '../features/ziwei/record';
 import { validateImportRecords } from './import-validation';
 import { resolveImportAction } from './import-strategy';
 import {
@@ -17,6 +18,7 @@ import {
     inferEngineFromResult,
     isDivinationMethod,
     isPanResult,
+    isZiweiRecordResult,
     RecordSummary,
 } from './record-types';
 
@@ -42,6 +44,7 @@ interface RecordDetailRow {
     title: string | null;
     subtitle: string | null;
     full_result: string;
+    is_favorite?: number;
 }
 
 interface ExportRow extends RecordDetailRow {
@@ -49,8 +52,9 @@ interface ExportRow extends RecordDetailRow {
 }
 
 export type RecordDetail =
-    | { engineType: 'liuyao'; result: PanResult }
-    | { engineType: 'bazi'; result: BaziResult };
+    | { engineType: 'liuyao'; result: PanResult; isFavorite: boolean }
+    | { engineType: 'bazi'; result: BaziResult; isFavorite: boolean }
+    | { engineType: 'ziwei'; result: ZiweiRecordResult; isFavorite: boolean };
 
 export type ImportMode = 'merge' | 'replace';
 export type ImportConflictPolicy = 'skip' | 'replace';
@@ -71,11 +75,14 @@ function normalizeEngineType(
     method: unknown,
     result: unknown
 ): DivinationEngine {
-    if (engineType === 'liuyao' || engineType === 'bazi') {
+    if (engineType === 'liuyao' || engineType === 'bazi' || engineType === 'ziwei') {
         return engineType;
     }
     if (method === 'bazi') {
         return 'bazi';
+    }
+    if (method === 'ziwei' || method === 'male' || method === 'female') {
+        return 'ziwei';
     }
     if (isDivinationMethod(method)) {
         return 'liuyao';
@@ -89,6 +96,9 @@ function normalizeEngineType(
 function toMethodForStorage(engineType: DivinationEngine, method: string | undefined): string {
     if (engineType === 'bazi') {
         return method || 'bazi';
+    }
+    if (engineType === 'ziwei') {
+        return method || 'ziwei';
     }
     return method || '';
 }
@@ -112,15 +122,19 @@ function toRecordSummary(row: RecordRow): RecordSummary {
 function toRecordDetail(row: RecordDetailRow): RecordDetail | null {
     const parsed = JSON.parse(row.full_result) as unknown;
     const engineType = normalizeEngineType(row.engine_type, row.method, parsed);
+    const isFavorite = row.is_favorite === 1;
 
     if (engineType === 'liuyao' && isPanResult(parsed)) {
-        return { engineType, result: parsed };
+        return { engineType, result: parsed, isFavorite };
     }
     if (engineType === 'bazi') {
         const normalized = normalizeStoredBaziResult(parsed);
         if (normalized) {
-            return { engineType, result: normalized };
+            return { engineType, result: normalized, isFavorite };
         }
+    }
+    if (engineType === 'ziwei' && isZiweiRecordResult(parsed)) {
+        return { engineType, result: parsed, isFavorite };
     }
     return null;
 }
@@ -238,7 +252,7 @@ function getWebRecords(): WebRecord[] {
             .filter((item) => (
                 typeof item.id === 'string'
                 && typeof item.createdAt === 'string'
-                && (item.engineType === 'liuyao' || item.engineType === 'bazi')
+                && (item.engineType === 'liuyao' || item.engineType === 'bazi' || item.engineType === 'ziwei')
                 && typeof item.method === 'string'
                 && typeof item.title === 'string'
                 && typeof item.subtitle === 'string'
@@ -329,6 +343,7 @@ const webDb = {
             return {
                 engineType: 'liuyao',
                 result: record.fullResult,
+                isFavorite: record.isFavorite,
             };
         }
         if (record.engineType === 'bazi') {
@@ -337,8 +352,16 @@ const webDb = {
                 return {
                     engineType: 'bazi',
                     result: normalized,
+                    isFavorite: record.isFavorite,
                 };
             }
+        }
+        if (record.engineType === 'ziwei' && isZiweiRecordResult(record.fullResult)) {
+            return {
+                engineType: 'ziwei',
+                result: record.fullResult,
+                isFavorite: record.isFavorite,
+            };
         }
         return null;
     },
@@ -370,6 +393,23 @@ const webDb = {
                 exported.push({
                     engineType: 'bazi',
                     result: normalized,
+                    summary: {
+                        method: record.method || undefined,
+                        question: record.question,
+                        title: record.title,
+                        subtitle: record.subtitle,
+                    },
+                });
+                return;
+            }
+
+            if (record.engineType === 'ziwei') {
+                if (!isZiweiRecordResult(record.fullResult)) {
+                    return;
+                }
+                exported.push({
+                    engineType: 'ziwei',
+                    result: record.fullResult,
                     summary: {
                         method: record.method || undefined,
                         question: record.question,
@@ -630,7 +670,7 @@ const nativeDb = {
     async get(id: string): Promise<RecordDetail | null> {
         const database = await getNativeDatabase();
         const row = await database.getFirstAsync(
-            `SELECT engine_type, method, question, title, subtitle, full_result FROM records WHERE id = ?`,
+            `SELECT engine_type, method, question, title, subtitle, full_result, is_favorite FROM records WHERE id = ?`,
             [id]
         );
         if (!row) {

@@ -1,167 +1,447 @@
 /**
- * 城市选择组件
- * 两级选择：省份 → 城市
- * 用于真太阳时校准的经度选择
+ * 地区选择组件
+ * 搜索 + 省 / 市 / 区县三列滚轮
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import {
-    View, Text, StyleSheet, TouchableOpacity,
-    Modal, ScrollView, TextInput, FlatList,
+    FlatList,
+    Modal,
+    Pressable,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from 'react-native';
+import {
+    buildRegionPathLabel,
+    getCitiesByProvinceCode,
+    getDefaultRegionCandidate,
+    getDistrictsByCityCode,
+    getProvinceOptions,
+    RegionCandidate,
+    RegionSearchResult,
+    RegionSelection,
+    resolveRegionCandidate,
+    searchRegions,
+} from '../core/city-data';
+import { CustomAlert } from './CustomAlertProvider';
+import ScrollPicker from './ScrollPicker';
 import { Spacing, FontSize, BorderRadius } from '../theme/colors';
-import { PROVINCES, CITIES, CityInfo, searchCities } from '../core/city-data';
-import { useTheme } from "../theme/ThemeContext";
+import { getCachedRegionCoordinates, resolveRegionSelection } from '../services/region-geocode';
+import { getSettings } from '../services/settings';
+import { useTheme } from '../theme/ThemeContext';
 
 interface CityPickerProps {
     visible: boolean;
     onClose: () => void;
-    onSelect: (city: CityInfo) => void;
-    selectedCity?: CityInfo | null;
+    onSelect: (region: RegionSelection | null) => void | Promise<void>;
+    selectedRegion?: RegionSelection | null;
 }
 
-export default function CityPicker({ visible, onClose, onSelect, selectedCity }: CityPickerProps) {
-    const { Colors } = useTheme();
-        const styles = makeStyles(Colors);
-    const [selectedProvince, setSelectedProvince] = useState<string | null>(null);
-    const [searchText, setSearchText] = useState('');
-    const [searchResults, setSearchResults] = useState<CityInfo[]>([]);
+type CityPickerStyles = ReturnType<typeof makeStyles>;
 
-    // 重置状态
+interface SearchResultRowProps {
+    districtCode: string;
+    districtName: string;
+    label: string;
+    styles: CityPickerStyles;
+    onPress: (districtCode: string) => void;
+}
+
+const SearchResultRow = memo(function SearchResultRow({
+    districtCode,
+    districtName,
+    label,
+    styles,
+    onPress,
+}: SearchResultRowProps) {
+    const handlePress = useCallback(() => {
+        onPress(districtCode);
+    }, [districtCode, onPress]);
+
+    return (
+        <Pressable
+            style={({ pressed }) => [styles.searchResultRow, pressed && styles.pressablePressed]}
+            onPress={handlePress}
+        >
+            <Text style={styles.searchResultDistrict}>{districtName}</Text>
+            <Text style={styles.searchResultPath}>{label}</Text>
+        </Pressable>
+    );
+});
+
+function createCandidateFromSelection(selection?: RegionSelection | null): RegionCandidate {
+    if (!selection) {
+        return getDefaultRegionCandidate();
+    }
+
+    return resolveRegionCandidate({
+        provinceCode: selection.provinceCode,
+        cityCode: selection.cityCode,
+        districtCode: selection.districtCode || undefined,
+        provinceName: selection.provinceName,
+        cityName: selection.cityName,
+        districtName: selection.districtName || undefined,
+    }) || getDefaultRegionCandidate();
+}
+
+export default function CityPicker({
+    visible,
+    onClose,
+    onSelect,
+    selectedRegion,
+}: CityPickerProps) {
+    const { Colors } = useTheme();
+    const styles = useMemo(() => makeStyles(Colors), [Colors]);
+    const provinceOptions = useMemo(() => getProvinceOptions(), []);
+    const [candidate, setCandidate] = useState<RegionCandidate>(() => createCandidateFromSelection(selectedRegion));
+    const [searchText, setSearchText] = useState('');
+    const [geocoderApiKey, setGeocoderApiKey] = useState('');
+    const [cachedCoordinates, setCachedCoordinates] = useState<{ longitude: number; latitude: number | null } | null>(null);
+    const [cacheStatus, setCacheStatus] = useState<'loading' | 'hit' | 'miss'>('loading');
+    const [resolving, setResolving] = useState(false);
+    const [statusMessage, setStatusMessage] = useState('');
+    const deferredSearchText = useDeferredValue(searchText);
+
+    const initialCandidate = useMemo(
+        () => createCandidateFromSelection(selectedRegion),
+        [selectedRegion],
+    );
+
     useEffect(() => {
-        if (visible) {
-            setSearchText('');
-            setSearchResults([]);
-            setSelectedProvince(null);
+        if (!visible) {
+            return;
         }
+
+        setCandidate(initialCandidate);
+        setSearchText('');
+        setStatusMessage('');
+    }, [initialCandidate, visible]);
+
+    useEffect(() => {
+        if (!visible) {
+            return;
+        }
+
+        let active = true;
+        getSettings().then((settings) => {
+            if (active) {
+                setGeocoderApiKey(settings.geocoderApiKey);
+            }
+        });
+
+        return () => {
+            active = false;
+        };
     }, [visible]);
 
-    const handleSearch = useCallback((text: string) => {
-        setSearchText(text);
-        if (text.trim().length > 0) {
-            setSearchResults(searchCities(text));
-            setSelectedProvince(null);
-        } else {
-            setSearchResults([]);
+    const cityOptions = useMemo(
+        () => getCitiesByProvinceCode(candidate.provinceCode),
+        [candidate.provinceCode],
+    );
+
+    const districtOptions = useMemo(
+        () => getDistrictsByCityCode(candidate.cityCode),
+        [candidate.cityCode],
+    );
+
+    const provinceNames = useMemo(() => provinceOptions.map((item) => item.name), [provinceOptions]);
+    const cityNames = useMemo(() => cityOptions.map((item) => item.name), [cityOptions]);
+    const districtNames = useMemo(() => districtOptions.map((item) => item.name), [districtOptions]);
+
+    useEffect(() => {
+        if (cityOptions.length === 0) {
+            return;
         }
-    }, []);
 
-    const handleSelectCity = useCallback((city: CityInfo) => {
-        onSelect(city);
+        const currentCity = cityOptions.find((item) => item.code === candidate.cityCode);
+        if (currentCity) {
+            return;
+        }
+
+        const nextCity = cityOptions[0];
+        const nextDistrict = getDistrictsByCityCode(nextCity.code)[0];
+        if (!nextDistrict) {
+            return;
+        }
+
+        setCandidate((prev) => ({
+            ...prev,
+            cityCode: nextCity.code,
+            cityName: nextCity.name,
+            districtCode: nextDistrict.code,
+            districtName: nextDistrict.name,
+        }));
+    }, [candidate.cityCode, cityOptions]);
+
+    useEffect(() => {
+        if (districtOptions.length === 0) {
+            return;
+        }
+
+        const currentDistrict = districtOptions.find((item) => item.code === candidate.districtCode);
+        if (currentDistrict) {
+            return;
+        }
+
+        const nextDistrict = districtOptions[0];
+        setCandidate((prev) => ({
+            ...prev,
+            districtCode: nextDistrict.code,
+            districtName: nextDistrict.name,
+        }));
+    }, [candidate.districtCode, districtOptions]);
+
+    useEffect(() => {
+        if (!visible || !candidate.districtCode) {
+            setCachedCoordinates(null);
+            setCacheStatus('miss');
+            return;
+        }
+
+        let active = true;
+        setCacheStatus('loading');
+        getCachedRegionCoordinates(candidate.districtCode)
+            .then((coordinates) => {
+                if (!active) {
+                    return;
+                }
+                setCachedCoordinates(coordinates);
+                setCacheStatus(coordinates ? 'hit' : 'miss');
+            })
+            .catch(() => {
+                if (!active) {
+                    return;
+                }
+                setCachedCoordinates(null);
+                setCacheStatus('miss');
+            });
+
+        return () => {
+            active = false;
+        };
+    }, [candidate.districtCode, visible]);
+
+    const searchResults = useMemo(
+        () => (deferredSearchText.trim().length > 0 ? searchRegions(deferredSearchText, 20) : []),
+        [deferredSearchText],
+    );
+    const searchResultsByDistrictCode = useMemo<Record<string, RegionSearchResult>>(
+        () => Object.fromEntries(searchResults.map((item) => [item.districtCode, item])),
+        [searchResults],
+    );
+
+    const handleProvinceChange = useCallback((provinceName: string) => {
+        const province = provinceOptions.find((item) => item.name === provinceName);
+        if (!province) {
+            return;
+        }
+
+        const nextCity = getCitiesByProvinceCode(province.code)[0];
+        const nextDistrict = nextCity ? getDistrictsByCityCode(nextCity.code)[0] : null;
+        if (!nextCity || !nextDistrict) {
+            return;
+        }
+
+        setCandidate({
+            provinceCode: province.code,
+            provinceName: province.name,
+            cityCode: nextCity.code,
+            cityName: nextCity.name,
+            districtCode: nextDistrict.code,
+            districtName: nextDistrict.name,
+        });
+    }, [provinceOptions]);
+
+    const handleCityChange = useCallback((cityName: string) => {
+        const nextCity = cityOptions.find((item) => item.name === cityName);
+        if (!nextCity) {
+            return;
+        }
+
+        const nextDistrict = getDistrictsByCityCode(nextCity.code)[0];
+        if (!nextDistrict) {
+            return;
+        }
+
+        setCandidate((prev) => ({
+            ...prev,
+            cityCode: nextCity.code,
+            cityName: nextCity.name,
+            districtCode: nextDistrict.code,
+            districtName: nextDistrict.name,
+        }));
+    }, [cityOptions]);
+
+    const handleDistrictChange = useCallback((districtName: string) => {
+        const nextDistrict = districtOptions.find((item) => item.name === districtName);
+        if (!nextDistrict) {
+            return;
+        }
+
+        setCandidate((prev) => ({
+            ...prev,
+            districtCode: nextDistrict.code,
+            districtName: nextDistrict.name,
+        }));
+    }, [districtOptions]);
+
+    const handleSearchResultPress = useCallback((districtCode: string) => {
+        const item = searchResultsByDistrictCode[districtCode];
+        if (!item) {
+            return;
+        }
+        setCandidate(item);
+        setSearchText('');
+        setStatusMessage('');
+    }, [searchResultsByDistrictCode]);
+
+    const handleClear = useCallback(async () => {
+        await Promise.resolve(onSelect(null));
         onClose();
-    }, [onSelect, onClose]);
+    }, [onClose, onSelect]);
 
-    const handleClear = useCallback(() => {
-        onSelect(null as any);
-        onClose();
-    }, [onSelect, onClose]);
+    const handleConfirm = useCallback(async () => {
+        try {
+            setResolving(true);
+            setStatusMessage('');
+            const region = cachedCoordinates
+                ? {
+                    ...candidate,
+                    longitude: cachedCoordinates.longitude,
+                    latitude: cachedCoordinates.latitude,
+                }
+                : await resolveRegionSelection(candidate);
 
-    const cities = selectedProvince ? (CITIES[selectedProvince] || []) : [];
+            await Promise.resolve(onSelect(region));
+            onClose();
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : '地区解析失败';
+            setStatusMessage(message);
+            CustomAlert.alert('地区解析失败', message);
+        } finally {
+            setResolving(false);
+        }
+    }, [cachedCoordinates, candidate, onClose, onSelect]);
+
+    const confirmDisabled = resolving || (cacheStatus === 'miss' && geocoderApiKey.trim().length === 0);
+    const previewLabel = buildRegionPathLabel(candidate);
+    const footerHint = cacheStatus === 'hit'
+        ? '已缓存该区县经纬度，确认后将直接使用缓存结果。'
+        : (geocoderApiKey.trim().length > 0
+            ? '确认后将联网解析该区县经纬度，并缓存到本地。'
+            : '请先在设置中填写腾讯位置服务 Key，或选择已缓存过的区县。');
 
     return (
         <Modal
             visible={visible}
             animationType="slide"
-            transparent={true}
+            transparent
             onRequestClose={onClose}
         >
             <View style={styles.overlay}>
                 <View style={styles.container}>
-                    {/* 标题栏 */}
                     <View style={styles.header}>
-                        <TouchableOpacity onPress={onClose} style={styles.headerBtn}>
+                        <Pressable
+                            style={({ pressed }) => [styles.headerBtn, pressed && styles.pressablePressed]}
+                            onPress={onClose}
+                        >
                             <Text style={styles.headerBtnText}>取消</Text>
-                        </TouchableOpacity>
-                        <Text style={styles.headerTitle}>选择所在地</Text>
-                        <TouchableOpacity onPress={handleClear} style={styles.headerBtn}>
+                        </Pressable>
+                        <Text style={styles.headerTitle}>选择地区</Text>
+                        <Pressable
+                            style={({ pressed }) => [styles.headerBtn, pressed && styles.pressablePressed]}
+                            onPress={() => {
+                                void handleClear();
+                            }}
+                        >
                             <Text style={styles.clearText}>不使用</Text>
-                        </TouchableOpacity>
+                        </Pressable>
                     </View>
 
-                    {/* 当前选择 */}
-                    {selectedCity && (
-                        <View style={styles.currentCity}>
-                            <Text style={styles.currentLabel}>当前：</Text>
-                            <Text style={styles.currentName}>
-                                {selectedCity.province} · {selectedCity.name}
-                            </Text>
-                            <Text style={styles.currentLng}>
-                                E{selectedCity.longitude.toFixed(2)}°
-                            </Text>
-                        </View>
-                    )}
-
-                    {/* 搜索框 */}
                     <View style={styles.searchContainer}>
                         <TextInput
                             style={styles.searchInput}
                             value={searchText}
-                            onChangeText={handleSearch}
-                            placeholder="搜索城市名..."
+                            onChangeText={setSearchText}
+                            placeholder="搜索全国城市及地区"
                             placeholderTextColor={Colors.text.tertiary}
                         />
                     </View>
 
-                    {/* 内容区域 */}
                     {searchText.trim().length > 0 ? (
-                        /* 搜索结果 */
                         <FlatList
                             data={searchResults}
-                            keyExtractor={(item) => `${item.province}-${item.name}`}
-                            style={styles.list}
+                            keyExtractor={(item) => item.districtCode}
+                            style={styles.resultsList}
+                            contentContainerStyle={styles.resultsListContent}
+                            showsVerticalScrollIndicator={false}
                             renderItem={({ item }) => (
-                                <TouchableOpacity
-                                    style={styles.cityItem}
-                                    onPress={() => handleSelectCity(item)}
-                                >
-                                    <Text style={styles.cityName}>{item.name}</Text>
-                                    <Text style={styles.cityProvince}>{item.province}</Text>
-                                    <Text style={styles.cityLng}>E{item.longitude.toFixed(2)}°</Text>
-                                </TouchableOpacity>
+                                <SearchResultRow
+                                    districtCode={item.districtCode}
+                                    districtName={item.districtName}
+                                    label={item.label}
+                                    styles={styles}
+                                    onPress={handleSearchResultPress}
+                                />
                             )}
-                            ListEmptyComponent={
-                                <Text style={styles.emptyText}>未找到匹配的城市</Text>
-                            }
+                            ListEmptyComponent={<Text style={styles.emptyText}>未找到匹配地区</Text>}
                         />
-                    ) : selectedProvince ? (
-                        /* 城市列表 */
-                        <View style={styles.list}>
-                            <TouchableOpacity
-                                style={styles.backToProvince}
-                                onPress={() => setSelectedProvince(null)}
-                            >
-                                <Text style={styles.backText}>← 返回省份</Text>
-                            </TouchableOpacity>
-                            <Text style={styles.provinceTitle}>{selectedProvince}</Text>
-                            <ScrollView showsVerticalScrollIndicator={false}>
-                                {cities.map(city => (
-                                    <TouchableOpacity
-                                        key={city.name}
-                                        style={styles.cityItem}
-                                        onPress={() => handleSelectCity(city)}
-                                    >
-                                        <Text style={styles.cityName}>{city.name}</Text>
-                                        <Text style={styles.cityLng}>E{city.longitude.toFixed(2)}°</Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </ScrollView>
-                        </View>
                     ) : (
-                        /* 省份列表 */
-                        <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
-                            <View style={styles.provinceGrid}>
-                                {PROVINCES.map(province => (
-                                    <TouchableOpacity
-                                        key={province}
-                                        style={styles.provinceItem}
-                                        onPress={() => setSelectedProvince(province)}
-                                    >
-                                        <Text style={styles.provinceName}>{province}</Text>
-                                    </TouchableOpacity>
-                                ))}
+                        <View style={styles.wheelArea}>
+                            <View style={styles.wheelHeaderRow}>
+                                <Text style={styles.wheelHeaderText}>省份</Text>
+                                <Text style={styles.wheelHeaderText}>城市</Text>
+                                <Text style={styles.wheelHeaderText}>区县</Text>
                             </View>
-                        </ScrollView>
+
+                            <View style={styles.wheelRow}>
+                                <ScrollPicker
+                                    data={provinceNames}
+                                    value={candidate.provinceName}
+                                    onValueChange={handleProvinceChange}
+                                    Colors={Colors}
+                                />
+                                <ScrollPicker
+                                    data={cityNames}
+                                    value={candidate.cityName}
+                                    onValueChange={handleCityChange}
+                                    Colors={Colors}
+                                />
+                                <ScrollPicker
+                                    data={districtNames}
+                                    value={candidate.districtName}
+                                    onValueChange={handleDistrictChange}
+                                    Colors={Colors}
+                                />
+                            </View>
+                        </View>
                     )}
+
+                    <View style={styles.footer}>
+                        <View style={styles.previewCard}>
+                            <Text style={styles.previewLabel}>当前候选</Text>
+                            <Text style={styles.previewValue}>{previewLabel}</Text>
+                            <Text style={styles.previewHint}>{statusMessage || footerHint}</Text>
+                        </View>
+
+                        <Pressable
+                            style={({ pressed }) => [
+                                styles.confirmBtn,
+                                confirmDisabled && styles.confirmBtnDisabled,
+                                pressed && !confirmDisabled && styles.pressablePressed,
+                            ]}
+                            onPress={() => {
+                                void handleConfirm();
+                            }}
+                            disabled={confirmDisabled}
+                        >
+                            <Text style={styles.confirmBtnText}>
+                                {resolving ? '解析中...' : '确定'}
+                            </Text>
+                        </Pressable>
+                    </View>
                 </View>
             </View>
         </Modal>
@@ -169,98 +449,160 @@ export default function CityPicker({ visible, onClose, onSelect, selectedCity }:
 }
 
 const makeStyles = (Colors: any) => StyleSheet.create({
-        overlay: {
-            flex: 1,
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            justifyContent: 'flex-end',
-        },
-        container: {
-            backgroundColor: Colors.bg.primary,
-            borderTopLeftRadius: BorderRadius.xl,
-            borderTopRightRadius: BorderRadius.xl,
-            maxHeight: '80%',
-            minHeight: '60%',
-        },
-        header: {
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            paddingHorizontal: Spacing.lg,
-            paddingVertical: Spacing.lg,
-            borderBottomWidth: 0.5,
-            borderBottomColor: Colors.border.subtle,
-        },
-        headerBtn: { width: 60 },
-        headerBtnText: { fontSize: FontSize.md, color: Colors.text.secondary },
-        headerTitle: { fontSize: FontSize.lg, color: Colors.text.heading, fontWeight: '400' },
-        clearText: { fontSize: FontSize.sm, color: Colors.accent.red, textAlign: 'right' },
-        currentCity: {
-            flexDirection: 'row',
-            alignItems: 'center',
-            paddingHorizontal: Spacing.lg,
-            paddingVertical: Spacing.sm,
-            backgroundColor: Colors.bg.card,
-            gap: Spacing.sm,
-        },
-        currentLabel: { fontSize: FontSize.sm, color: Colors.text.tertiary },
-        currentName: { fontSize: FontSize.sm, color: Colors.accent.gold, flex: 1 },
-        currentLng: { fontSize: FontSize.xs, color: Colors.text.tertiary },
-        searchContainer: {
-            paddingHorizontal: Spacing.lg,
-            paddingVertical: Spacing.md,
-        },
-        searchInput: {
-            backgroundColor: Colors.bg.card,
-            color: Colors.text.primary,
-            fontSize: FontSize.md,
-            paddingHorizontal: Spacing.lg,
-            paddingVertical: Spacing.sm,
-            borderRadius: BorderRadius.md,
-            borderWidth: 0.5,
-            borderColor: Colors.border.subtle,
-        },
-        list: { flex: 1, paddingHorizontal: Spacing.lg },
-        provinceGrid: {
-            flexDirection: 'row',
-            flexWrap: 'wrap',
-            gap: Spacing.sm,
-            paddingBottom: 40,
-        },
-        provinceItem: {
-            backgroundColor: Colors.bg.card,
-            borderRadius: BorderRadius.md,
-            paddingHorizontal: Spacing.lg,
-            paddingVertical: Spacing.md,
-            borderWidth: 0.5,
-            borderColor: Colors.border.subtle,
-        },
-        provinceName: { fontSize: FontSize.sm, color: Colors.text.primary },
-        backToProvince: {
-            paddingVertical: Spacing.sm,
-            marginBottom: Spacing.sm,
-        },
-        backText: { fontSize: FontSize.sm, color: Colors.accent.gold },
-        provinceTitle: {
-            fontSize: FontSize.lg,
-            color: Colors.text.heading,
-            fontWeight: '400',
-            marginBottom: Spacing.md,
-        },
-        cityItem: {
-            flexDirection: 'row',
-            alignItems: 'center',
-            paddingVertical: Spacing.md,
-            paddingHorizontal: Spacing.md,
-            borderBottomWidth: 0.5,
-            borderBottomColor: Colors.border.subtle,
-        },
-        cityName: { fontSize: FontSize.md, color: Colors.text.primary, flex: 1 },
-        cityProvince: { fontSize: FontSize.xs, color: Colors.text.tertiary, marginRight: Spacing.md },
-        cityLng: { fontSize: FontSize.xs, color: Colors.text.tertiary },
-        emptyText: {
-            fontSize: FontSize.sm,
-            color: Colors.text.tertiary,
-            textAlign: 'center',
-            marginTop: Spacing.xxl,
-        },
-    });
+    overlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'flex-end',
+    },
+    container: {
+        backgroundColor: Colors.bg.primary,
+        borderTopLeftRadius: BorderRadius.xl,
+        borderTopRightRadius: BorderRadius.xl,
+        minHeight: '72%',
+        maxHeight: '88%',
+    },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: Spacing.lg,
+        paddingVertical: Spacing.lg,
+        borderBottomWidth: 0.5,
+        borderBottomColor: Colors.border.subtle,
+    },
+    headerBtn: {
+        width: 64,
+        minHeight: 28,
+        justifyContent: 'center',
+    },
+    headerBtnText: {
+        fontSize: FontSize.md,
+        color: Colors.text.secondary,
+    },
+    headerTitle: {
+        fontSize: FontSize.lg,
+        color: Colors.text.heading,
+        fontWeight: '500',
+    },
+    clearText: {
+        fontSize: FontSize.sm,
+        color: Colors.accent.red,
+        textAlign: 'right',
+    },
+    searchContainer: {
+        paddingHorizontal: Spacing.lg,
+        paddingVertical: Spacing.md,
+    },
+    searchInput: {
+        backgroundColor: Colors.bg.card,
+        color: Colors.text.primary,
+        fontSize: FontSize.md,
+        paddingHorizontal: Spacing.lg,
+        paddingVertical: Spacing.md,
+        borderRadius: 999,
+        borderWidth: 0.5,
+        borderColor: Colors.border.subtle,
+    },
+    wheelArea: {
+        flex: 1,
+        paddingHorizontal: Spacing.lg,
+        paddingBottom: Spacing.lg,
+    },
+    wheelHeaderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: Spacing.md,
+        paddingHorizontal: Spacing.xs,
+    },
+    wheelHeaderText: {
+        flex: 1,
+        textAlign: 'center',
+        fontSize: FontSize.md,
+        color: Colors.text.heading,
+        fontWeight: '700',
+    },
+    wheelRow: {
+        flexDirection: 'row',
+        gap: Spacing.sm,
+    },
+    resultsList: {
+        flex: 1,
+        paddingHorizontal: Spacing.lg,
+    },
+    resultsListContent: {
+        paddingBottom: Spacing.lg,
+    },
+    searchResultRow: {
+        backgroundColor: Colors.bg.card,
+        borderRadius: BorderRadius.lg,
+        paddingHorizontal: Spacing.lg,
+        paddingVertical: Spacing.md,
+        marginBottom: Spacing.sm,
+        borderWidth: 0.5,
+        borderColor: Colors.border.subtle,
+    },
+    searchResultDistrict: {
+        fontSize: FontSize.md,
+        color: Colors.text.heading,
+        fontWeight: '600',
+    },
+    searchResultPath: {
+        fontSize: FontSize.xs,
+        color: Colors.text.tertiary,
+        marginTop: 4,
+    },
+    footer: {
+        paddingHorizontal: Spacing.lg,
+        paddingTop: Spacing.sm,
+        paddingBottom: Spacing.xl,
+        gap: Spacing.md,
+    },
+    previewCard: {
+        backgroundColor: Colors.bg.card,
+        borderRadius: BorderRadius.lg,
+        paddingHorizontal: Spacing.lg,
+        paddingVertical: Spacing.md,
+        borderWidth: 0.5,
+        borderColor: Colors.border.subtle,
+    },
+    previewLabel: {
+        fontSize: FontSize.xs,
+        color: Colors.text.tertiary,
+        marginBottom: 4,
+    },
+    previewValue: {
+        fontSize: FontSize.md,
+        color: Colors.text.heading,
+        fontWeight: '600',
+    },
+    previewHint: {
+        marginTop: Spacing.xs,
+        fontSize: FontSize.xs,
+        color: Colors.text.secondary,
+        lineHeight: 18,
+    },
+    confirmBtn: {
+        backgroundColor: Colors.accent.gold,
+        borderRadius: BorderRadius.lg,
+        paddingVertical: Spacing.lg,
+        alignItems: 'center',
+    },
+    confirmBtnDisabled: {
+        opacity: 0.5,
+    },
+    confirmBtnText: {
+        fontSize: FontSize.lg,
+        color: Colors.text.inverse,
+        fontWeight: '600',
+        letterSpacing: 2,
+    },
+    pressablePressed: {
+        opacity: 0.72,
+    },
+    emptyText: {
+        fontSize: FontSize.sm,
+        color: Colors.text.tertiary,
+        textAlign: 'center',
+        marginTop: Spacing.xxl,
+    },
+});

@@ -1,0 +1,320 @@
+{
+  "version": 2,
+  "generatedAt": "2026-03-14T00:00:00+08:00",
+  "branchOrder": ["寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥", "子", "丑"],
+  "levels": ["miao", "wang", "de", "li", "ping", "xian", "bu"],
+  "schools": {
+    "common_quanshu": {
+      "displayName": "通行/全书系（基准）",
+      "sources": [
+        {
+          "title": "紫微斗數全書/全覽（维基文库）",
+          "authorOrSite": "Wikisource",
+          "url": "https://zh.wikisource.org/wiki/%E7%B4%AB%E5%BE%AE%E6%96%97%E6%95%B8%E5%85%A8%E6%9B%B8/%E5%85%A8%E8%A6%BD",
+          "retrievedAt": "2026-03-14",
+          "format": "text"
+        },
+        {
+          "title": "紫微斗數主星廟旺失陷表（可结构化数值矩阵）",
+          "authorOrSite": "kvov.com",
+          "url": "http://zm-zw.kvov.com/sswzx.php?id=5323333666655555560",
+          "retrievedAt": "2026-03-14",
+          "format": "table"
+        },
+        {
+          "title": "星曜庙旺平陷总表（中州派）（mw1~mw5）",
+          "authorOrSite": "令东来/玄门信息咨询",
+          "url": "https://www.xuanmen.com.cn/archives/99.html",
+          "retrievedAt": "2026-03-14",
+          "format": "image"
+        },
+        {
+          "title": "星曜庙旺平陷表（令东来）（mwpxb1/mwpxb2 + 规则说明）",
+          "authorOrSite": "令东来/玄门信息咨询",
+          "url": "https://www.xuanmen.com.cn/archives/101.html",
+          "retrievedAt": "2026-03-14",
+          "format": "image"
+        }
+      ],
+      "renderScopeStarKeys": [
+        "ziweiMaj", "tianjiMaj", "taiyangMaj", "wuquMaj", "tiantongMaj", "lianzhenMaj", "tianfuMaj", "taiyinMaj", "tanlangMaj", "jumenMaj", "tianxiangMaj", "tianliangMaj", "qishaMaj", "pojunMaj",
+        "zuofuMin", "youbiMin", "wenchangMin", "wenquMin", "tiankuiMin", "tianyueMin", "lucunMin", "tianmaMin", "dikongMin", "dijieMin", "huoxingMin", "lingxingMin", "qingyangMin", "tuoluoMin",
+        "hongluan", "tianxi", "tianyao", "xianchi", "jieshen", "santai", "bazuo", "engguang", "tiangui", "longchi", "fengge", "tiancai", "tianshou", "taifu", "fenggao", "tianwu", "huagai", "tianguan",
+        "tianfu", "tianchu", "tianyue", "tiande", "yuede", "tiankong", "xunkong", "jielu", "kongwang", "guchen", "guasu", "feilian", "posui", "tianxing", "yinsha", "tianku", "tianxu", "tianshi",
+        "tianshang", "nianjie"
+      ],
+      "notApplicableStarKeys": [],
+      "unresolvedStarKeys": [
+        "tianmaMin", "hongluan", "tianxi", "tianyao", "xianchi", "jieshen", "longchi", "fengge", "taifu", "fenggao", "tianwu", "huagai", "tianguan", "tianfu", "tianchu", "tianyue", "tiande", "yuede",
+        "tiankong", "jielu", "kongwang", "guchen", "guasu", "feilian", "posui", "tianxing", "yinsha", "tianku", "tianxu", "nianjie"
+      ],
+      "sourceTables": [
+        {
+          "id": "kvov-matrix",
+          "title": "主星/关键辅星数值矩阵",
+          "format": "table",
+          "url": "http://zm-zw.kvov.com/sswzx.php?id=5323333666655555560",
+          "starKeys": [
+            "ziweiMaj", "tianjiMaj", "taiyangMaj", "wuquMaj", "tiantongMaj", "lianzhenMaj", "tianfuMaj", "taiyinMaj", "tanlangMaj", "jumenMaj", "tianxiangMaj", "tianliangMaj", "qishaMaj", "pojunMaj",
+            "wenchangMin", "wenquMin", "huoxingMin", "lingxingMin", "qingyangMin", "tuoluoMin"
+          ]
+        },
+        {
+          "id": "mwpxb2-rules",
+          "title": "令东来六吉六煞说明",
+          "format": "image",
+          "url": "https://www.xuanmen.com.cn/wp-content/uploads/mwpxb2.jpg",
+          "starKeys": ["zuofuMin", "youbiMin", "qingyangMin", "tuoluoMin", "huoxingMin", "lingxingMin", "dikongMin", "dijieMin"]
+        },
+        {
+          "id": "mw4-heavenly-stem",
+          "title": "天干星曜庙陷表",
+          "format": "image",
+          "url": "https://www.xuanmen.com.cn/wp-content/uploads/mw4.jpg",
+          "starKeys": ["tiankuiMin", "tianyueMin", "lucunMin"]
+        },
+        {
+          "id": "mw3-timely",
+          "title": "生时星曜庙陷表",
+          "format": "image",
+          "url": "https://www.xuanmen.com.cn/wp-content/uploads/mw3.jpg",
+          "starKeys": ["wenchangMin", "wenquMin", "dikongMin", "dijieMin", "taifu", "fenggao"]
+        },
+        {
+          "id": "mw5-misc",
+          "title": "吉凶杂曜庙陷表",
+          "format": "image",
+          "url": "https://www.xuanmen.com.cn/wp-content/uploads/mw5.jpg",
+          "starKeys": ["tianshou", "tiancai", "tianshi", "tianshang", "tiangui", "engguang", "bazuo", "santai", "xunkong"]
+        }
+      ],
+      "stars": {
+        "ziweiMaj": ["wang", "wang", "de", "wang", "miao", "miao", "wang", "wang", "de", "wang", "ping", "miao"],
+        "tianjiMaj": ["de", "wang", "li", "ping", "miao", "xian", "de", "wang", "li", "ping", "miao", "xian"],
+        "taiyangMaj": ["wang", "miao", "wang", "wang", "wang", "de", "de", "xian", "bu", "xian", "xian", "bu"],
+        "wuquMaj": ["de", "li", "miao", "ping", "wang", "miao", "de", "li", "miao", "ping", "wang", "miao"],
+        "tiantongMaj": ["li", "ping", "ping", "miao", "xian", "bu", "wang", "ping", "ping", "miao", "wang", "bu"],
+        "lianzhenMaj": ["miao", "ping", "li", "xian", "ping", "li", "miao", "ping", "li", "xian", "ping", "li"],
+        "tianfuMaj": ["miao", "de", "miao", "de", "wang", "miao", "de", "wang", "miao", "de", "miao", "miao"],
+        "taiyinMaj": ["wang", "xian", "xian", "xian", "bu", "bu", "li", "bu", "wang", "miao", "miao", "miao"],
+        "tanlangMaj": ["ping", "li", "miao", "xian", "wang", "miao", "ping", "li", "miao", "xian", "wang", "miao"],
+        "jumenMaj": ["miao", "miao", "xian", "wang", "wang", "bu", "miao", "miao", "xian", "wang", "wang", "bu"],
+        "tianxiangMaj": ["miao", "xian", "de", "de", "miao", "de", "miao", "xian", "de", "de", "miao", "miao"],
+        "tianliangMaj": ["miao", "miao", "miao", "xian", "miao", "wang", "xian", "de", "miao", "xian", "miao", "wang"],
+        "qishaMaj": ["miao", "wang", "miao", "ping", "wang", "miao", "miao", "miao", "miao", "ping", "wang", "miao"],
+        "pojunMaj": ["de", "xian", "wang", "ping", "miao", "wang", "de", "xian", "wang", "ping", "miao", "wang"],
+        "zuofuMin": ["wang", "wang", "miao", "wang", "wang", "miao", "wang", "wang", "miao", "wang", "wang", "miao"],
+        "youbiMin": ["wang", "wang", "miao", "wang", "wang", "miao", "wang", "wang", "miao", "wang", "wang", "miao"],
+        "wenchangMin": ["xian", "ping", "wang", "miao", "xian", "ping", "wang", "miao", "xian", "wang", "wang", "miao"],
+        "wenquMin": ["ping", "wang", "miao", "miao", "xian", "wang", "ping", "miao", "xian", "wang", "miao", "miao"],
+        "lucunMin": ["miao", "miao", "miao", "miao", "miao", "miao", "miao", "miao", "miao", "miao", "miao", "miao"],
+        "tiankuiMin": ["miao", "miao", "miao", "miao", "miao", "wang", "miao", "miao", "miao", "miao", "miao", "wang"],
+        "tianyueMin": ["miao", "miao", "miao", "miao", "miao", "wang", "miao", "miao", "miao", "miao", "miao", "wang"],
+        "tianmaMin": [null, null, null, null, null, null, null, null, null, null, null, null],
+        "dikongMin": ["xian", "ping", "xian", "miao", "miao", "ping", "miao", "miao", "xian", "xian", "ping", "xian"],
+        "dijieMin": ["ping", "ping", "xian", "ping", "miao", "ping", "miao", "ping", "ping", "wang", "xian", "xian"],
+        "huoxingMin": ["miao", "li", "xian", "de", "miao", "li", "xian", "de", "miao", "li", "xian", "de"],
+        "lingxingMin": ["miao", "li", "xian", "de", "miao", "li", "xian", "de", "miao", "li", "xian", "de"],
+        "qingyangMin": ["xian", "xian", "miao", "xian", "xian", "miao", "xian", "xian", "miao", "xian", "xian", "miao"],
+        "tuoluoMin": ["xian", "xian", "miao", "xian", "xian", "miao", "xian", "xian", "miao", "xian", "xian", "miao"],
+        "santai": ["ping", "xian", "miao", "ping", "wang", "miao", "ping", "miao", "wang", "ping", "ping", "miao"],
+        "bazuo": ["miao", "ping", "wang", "miao", "wang", "ping", "miao", "miao", "ping", "miao", "xian", "miao"],
+        "engguang": ["ping", "miao", "miao", "ping", "miao", "wang", "ping", "xian", "miao", "ping", "ping", "miao"],
+        "tiangui": ["ping", "wang", "wang", "ping", "miao", "wang", "xian", "miao", "wang", "ping", "miao", "wang"],
+        "tiancai": ["miao", "wang", "xian", "miao", "wang", "ping", "miao", "wang", "xian", "miao", "wang", "ping"],
+        "tianshou": ["wang", "xian", "miao", "ping", "ping", "wang", "wang", "ping", "miao", "wang", "ping", "miao"],
+        "xunkong": ["xian", "ping", "xian", "miao", "miao", "xian", "miao", "miao", "xian", "ping", "xian", "ping"],
+        "tianshi": ["ping", "ping", "xian", "ping", "ping", "ping", "ping", "xian", "xian", "wang", "xian", "xian"],
+        "tianshang": ["ping", "xian", "ping", "ping", "xian", "xian", "ping", "ping", "ping", "wang", "xian", "ping"]
+      }
+    },
+    "zhongzhou": {
+      "displayName": "中州派（参考公开总表）",
+      "sources": [
+        {
+          "title": "星曜庙旺平陷总表（中州派）（mw1~mw5）",
+          "authorOrSite": "令东来/玄门信息咨询",
+          "url": "https://www.xuanmen.com.cn/archives/99.html",
+          "retrievedAt": "2026-03-14",
+          "format": "image"
+        }
+      ],
+      "renderScopeStarKeys": [
+        "ziweiMaj", "tianjiMaj", "taiyangMaj", "wuquMaj", "tiantongMaj", "lianzhenMaj", "tianfuMaj", "taiyinMaj", "tanlangMaj", "jumenMaj", "tianxiangMaj", "tianliangMaj", "qishaMaj", "pojunMaj",
+        "zuofuMin", "youbiMin", "wenchangMin", "wenquMin", "tiankuiMin", "tianyueMin", "lucunMin", "tianmaMin", "dikongMin", "dijieMin", "huoxingMin", "lingxingMin", "qingyangMin", "tuoluoMin",
+        "hongluan", "tianxi", "tianyao", "xianchi", "jieshen", "santai", "bazuo", "engguang", "tiangui", "longchi", "fengge", "tiancai", "tianshou", "taifu", "fenggao", "tianwu", "huagai", "tianguan",
+        "tianfu", "tianchu", "tianyue", "tiande", "yuede", "tiankong", "xunkong", "longde", "jiekong", "jieshaAdj", "dahao", "guchen", "guasu", "feilian", "posui", "tianxing", "yinsha", "tianku",
+        "tianxu", "tianshi", "tianshang", "nianjie"
+      ],
+      "notApplicableStarKeys": [],
+      "unresolvedStarKeys": [
+        "tianmaMin", "hongluan", "tianxi", "tianyao", "xianchi", "jieshen", "longchi", "fengge", "taifu", "fenggao", "tianwu", "huagai", "tianguan", "tianfu", "tianchu", "tianyue", "tiande", "yuede",
+        "tiankong", "longde", "jiekong", "jieshaAdj", "dahao", "guchen", "guasu", "feilian", "posui", "tianxing", "yinsha", "tianku", "tianxu", "nianjie"
+      ],
+      "sourceTables": [
+        {
+          "id": "mw1-main",
+          "title": "生月星曜庙陷表",
+          "format": "image",
+          "url": "https://www.xuanmen.com.cn/wp-content/uploads/mw1.jpg",
+          "starKeys": [
+            "ziweiMaj", "tianjiMaj", "taiyangMaj", "wuquMaj", "tiantongMaj", "lianzhenMaj", "tianfuMaj", "taiyinMaj", "tanlangMaj", "jumenMaj", "tianxiangMaj", "tianliangMaj", "qishaMaj", "pojunMaj"
+          ]
+        },
+        {
+          "id": "mw3-timely",
+          "title": "生时星曜庙陷表",
+          "format": "image",
+          "url": "https://www.xuanmen.com.cn/wp-content/uploads/mw3.jpg",
+          "starKeys": ["wenchangMin", "wenquMin", "dikongMin", "dijieMin", "taifu", "fenggao"]
+        },
+        {
+          "id": "mw4-heavenly-stem",
+          "title": "天干星曜庙陷表",
+          "format": "image",
+          "url": "https://www.xuanmen.com.cn/wp-content/uploads/mw4.jpg",
+          "starKeys": ["tiankuiMin", "tianyueMin", "lucunMin", "qingyangMin", "tuoluoMin"]
+        },
+        {
+          "id": "mw5-misc",
+          "title": "吉凶杂曜庙陷表",
+          "format": "image",
+          "url": "https://www.xuanmen.com.cn/wp-content/uploads/mw5.jpg",
+          "starKeys": ["tianshou", "tiancai", "tianshi", "tianshang", "tiangui", "engguang", "bazuo", "santai", "xunkong"]
+        }
+      ],
+      "stars": {
+        "ziweiMaj": ["wang", "wang", "de", "wang", "miao", "miao", "wang", "wang", "de", "wang", "ping", "miao"],
+        "tianjiMaj": ["de", "wang", "li", "ping", "miao", "xian", "de", "wang", "li", "ping", "miao", "xian"],
+        "taiyangMaj": ["wang", "miao", "wang", "wang", "wang", "de", "de", "xian", "bu", "xian", "xian", "bu"],
+        "wuquMaj": ["de", "li", "miao", "ping", "wang", "miao", "de", "li", "miao", "ping", "wang", "miao"],
+        "tiantongMaj": ["li", "ping", "ping", "miao", "xian", "bu", "wang", "ping", "ping", "miao", "wang", "bu"],
+        "lianzhenMaj": ["miao", "ping", "li", "xian", "ping", "li", "miao", "ping", "li", "xian", "ping", "li"],
+        "tianfuMaj": ["miao", "de", "miao", "de", "wang", "miao", "de", "wang", "miao", "de", "miao", "miao"],
+        "taiyinMaj": ["wang", "xian", "xian", "xian", "bu", "bu", "li", "bu", "wang", "miao", "miao", "miao"],
+        "tanlangMaj": ["ping", "li", "miao", "xian", "wang", "miao", "ping", "li", "miao", "xian", "wang", "miao"],
+        "jumenMaj": ["miao", "miao", "xian", "wang", "wang", "bu", "miao", "miao", "xian", "wang", "wang", "bu"],
+        "tianxiangMaj": ["miao", "xian", "de", "de", "miao", "de", "miao", "xian", "de", "de", "miao", "miao"],
+        "tianliangMaj": ["miao", "miao", "miao", "xian", "miao", "wang", "xian", "de", "miao", "xian", "miao", "wang"],
+        "qishaMaj": ["miao", "wang", "miao", "ping", "wang", "miao", "miao", "miao", "miao", "ping", "wang", "miao"],
+        "pojunMaj": ["de", "xian", "wang", "ping", "miao", "wang", "de", "xian", "wang", "ping", "miao", "wang"],
+        "zuofuMin": ["wang", "wang", "miao", "wang", "wang", "miao", "wang", "wang", "miao", "wang", "wang", "miao"],
+        "youbiMin": ["wang", "wang", "miao", "wang", "wang", "miao", "wang", "wang", "miao", "wang", "wang", "miao"],
+        "wenchangMin": ["xian", "ping", "wang", "miao", "xian", "ping", "wang", "miao", "xian", "wang", "wang", "miao"],
+        "wenquMin": ["ping", "wang", "miao", "miao", "xian", "wang", "ping", "miao", "xian", "wang", "miao", "miao"],
+        "lucunMin": ["miao", "miao", "miao", "miao", "miao", "miao", "miao", "miao", "miao", "miao", "miao", "miao"],
+        "tiankuiMin": ["miao", "miao", "miao", "miao", "miao", "wang", "miao", "miao", "miao", "miao", "miao", "wang"],
+        "tianyueMin": ["miao", "miao", "miao", "miao", "miao", "wang", "miao", "miao", "miao", "miao", "miao", "wang"],
+        "tianmaMin": [null, null, null, null, null, null, null, null, null, null, null, null],
+        "dikongMin": ["xian", "ping", "xian", "miao", "miao", "ping", "miao", "miao", "xian", "xian", "ping", "xian"],
+        "dijieMin": ["ping", "ping", "xian", "ping", "miao", "ping", "miao", "ping", "ping", "wang", "xian", "xian"],
+        "huoxingMin": ["miao", "li", "xian", "de", "miao", "li", "xian", "de", "miao", "li", "xian", "de"],
+        "lingxingMin": ["miao", "li", "xian", "de", "miao", "li", "xian", "de", "miao", "li", "xian", "de"],
+        "qingyangMin": ["xian", "xian", "miao", "xian", "xian", "miao", "xian", "xian", "miao", "xian", "xian", "miao"],
+        "tuoluoMin": ["xian", "xian", "miao", "xian", "xian", "miao", "xian", "xian", "miao", "xian", "xian", "miao"],
+        "santai": ["ping", "xian", "miao", "ping", "wang", "miao", "ping", "miao", "wang", "ping", "ping", "miao"],
+        "bazuo": ["miao", "ping", "wang", "miao", "wang", "ping", "miao", "miao", "ping", "miao", "xian", "miao"],
+        "engguang": ["ping", "miao", "miao", "ping", "miao", "wang", "ping", "xian", "miao", "ping", "ping", "miao"],
+        "tiangui": ["ping", "wang", "wang", "ping", "miao", "wang", "xian", "miao", "wang", "ping", "miao", "wang"],
+        "tiancai": ["miao", "wang", "xian", "miao", "wang", "ping", "miao", "wang", "xian", "miao", "wang", "ping"],
+        "tianshou": ["wang", "xian", "miao", "ping", "ping", "wang", "wang", "ping", "miao", "wang", "ping", "miao"],
+        "xunkong": ["xian", "ping", "xian", "miao", "miao", "xian", "miao", "miao", "xian", "ping", "xian", "ping"],
+        "tianshi": ["ping", "ping", "xian", "ping", "ping", "ping", "ping", "xian", "xian", "wang", "xian", "xian"],
+        "tianshang": ["ping", "xian", "ping", "ping", "xian", "xian", "ping", "ping", "ping", "wang", "xian", "ping"]
+      }
+    },
+    "lingdonglai": {
+      "displayName": "令东来修正版（通行修正口径）",
+      "sources": [
+        {
+          "title": "星曜庙旺平陷表（令东来）（mwpxb1/mwpxb2 + 规则说明）",
+          "authorOrSite": "令东来/玄门信息咨询",
+          "url": "https://www.xuanmen.com.cn/archives/101.html",
+          "retrievedAt": "2026-03-14",
+          "format": "image"
+        },
+        {
+          "title": "星曜庙旺平陷总表（中州派）（mw1~mw5）",
+          "authorOrSite": "令东来/玄门信息咨询",
+          "url": "https://www.xuanmen.com.cn/archives/99.html",
+          "retrievedAt": "2026-03-14",
+          "format": "image"
+        }
+      ],
+      "renderScopeStarKeys": [
+        "ziweiMaj", "tianjiMaj", "taiyangMaj", "wuquMaj", "tiantongMaj", "lianzhenMaj", "tianfuMaj", "taiyinMaj", "tanlangMaj", "jumenMaj", "tianxiangMaj", "tianliangMaj", "qishaMaj", "pojunMaj",
+        "zuofuMin", "youbiMin", "wenchangMin", "wenquMin", "tiankuiMin", "tianyueMin", "lucunMin", "tianmaMin", "dikongMin", "dijieMin", "huoxingMin", "lingxingMin", "qingyangMin", "tuoluoMin",
+        "hongluan", "tianxi", "tianyao", "xianchi", "jieshen", "santai", "bazuo", "engguang", "tiangui", "longchi", "fengge", "tiancai", "tianshou", "taifu", "fenggao", "tianwu", "huagai", "tianguan",
+        "tianfu", "tianchu", "tianyue", "tiande", "yuede", "tiankong", "xunkong", "jielu", "kongwang", "guchen", "guasu", "feilian", "posui", "tianxing", "yinsha", "tianku", "tianxu", "tianshi",
+        "tianshang", "nianjie"
+      ],
+      "notApplicableStarKeys": [],
+      "unresolvedStarKeys": [
+        "tianmaMin", "hongluan", "tianxi", "tianyao", "xianchi", "jieshen", "longchi", "fengge", "taifu", "fenggao", "tianwu", "huagai", "tianguan", "tianfu", "tianchu", "tianyue", "tiande", "yuede",
+        "tiankong", "jielu", "kongwang", "guchen", "guasu", "feilian", "posui", "tianxing", "yinsha", "tianku", "tianxu", "nianjie"
+      ],
+      "sourceTables": [
+        {
+          "id": "mwpxb2-rules",
+          "title": "令东来六吉六煞说明",
+          "format": "image",
+          "url": "https://www.xuanmen.com.cn/wp-content/uploads/mwpxb2.jpg",
+          "starKeys": ["zuofuMin", "youbiMin", "qingyangMin", "tuoluoMin", "huoxingMin", "lingxingMin", "dikongMin", "dijieMin"]
+        },
+        {
+          "id": "mw3-timely",
+          "title": "生时星曜庙陷表",
+          "format": "image",
+          "url": "https://www.xuanmen.com.cn/wp-content/uploads/mw3.jpg",
+          "starKeys": ["wenchangMin", "wenquMin", "dikongMin", "dijieMin", "taifu", "fenggao"]
+        },
+        {
+          "id": "mw5-misc",
+          "title": "吉凶杂曜庙陷表",
+          "format": "image",
+          "url": "https://www.xuanmen.com.cn/wp-content/uploads/mw5.jpg",
+          "starKeys": ["tianshou", "tiancai", "tianshi", "tianshang", "tiangui", "engguang", "bazuo", "santai", "xunkong"]
+        }
+      ],
+      "stars": {
+        "ziweiMaj": ["wang", "wang", "de", "wang", "miao", "miao", "wang", "wang", "de", "wang", "ping", "miao"],
+        "tianjiMaj": ["de", "wang", "li", "ping", "miao", "xian", "de", "wang", "li", "ping", "miao", "xian"],
+        "taiyangMaj": ["wang", "miao", "wang", "wang", "wang", "de", "de", "xian", "bu", "xian", "xian", "bu"],
+        "wuquMaj": ["de", "li", "miao", "ping", "wang", "miao", "de", "li", "miao", "ping", "wang", "miao"],
+        "tiantongMaj": ["li", "ping", "ping", "miao", "xian", "bu", "wang", "ping", "ping", "miao", "wang", "bu"],
+        "lianzhenMaj": ["miao", "ping", "li", "xian", "ping", "li", "miao", "ping", "li", "xian", "ping", "li"],
+        "tianfuMaj": ["miao", "de", "miao", "de", "wang", "miao", "de", "wang", "miao", "de", "miao", "miao"],
+        "taiyinMaj": ["wang", "xian", "xian", "xian", "bu", "bu", "li", "bu", "wang", "miao", "miao", "miao"],
+        "tanlangMaj": ["ping", "li", "miao", "xian", "wang", "miao", "ping", "li", "miao", "xian", "wang", "miao"],
+        "jumenMaj": ["miao", "miao", "xian", "wang", "wang", "bu", "miao", "miao", "xian", "wang", "wang", "bu"],
+        "tianxiangMaj": ["miao", "xian", "de", "de", "miao", "de", "miao", "xian", "de", "de", "miao", "miao"],
+        "tianliangMaj": ["miao", "miao", "miao", "xian", "miao", "wang", "xian", "de", "miao", "xian", "miao", "wang"],
+        "qishaMaj": ["miao", "wang", "miao", "ping", "wang", "miao", "miao", "miao", "miao", "ping", "wang", "miao"],
+        "pojunMaj": ["de", "xian", "wang", "ping", "miao", "wang", "de", "xian", "wang", "ping", "miao", "wang"],
+        "zuofuMin": ["wang", "wang", "miao", "wang", "wang", "miao", "wang", "wang", "miao", "wang", "wang", "miao"],
+        "youbiMin": ["wang", "wang", "miao", "wang", "wang", "miao", "wang", "wang", "miao", "wang", "wang", "miao"],
+        "wenchangMin": ["xian", "ping", "wang", "miao", "xian", "ping", "wang", "miao", "xian", "wang", "wang", "miao"],
+        "wenquMin": ["ping", "wang", "miao", "miao", "xian", "wang", "ping", "miao", "xian", "wang", "miao", "miao"],
+        "lucunMin": ["miao", "miao", "miao", "miao", "miao", "miao", "miao", "miao", "miao", "miao", "miao", "miao"],
+        "tiankuiMin": ["miao", "miao", "miao", "miao", "miao", "wang", "miao", "miao", "miao", "miao", "miao", "wang"],
+        "tianyueMin": ["miao", "miao", "miao", "miao", "miao", "wang", "miao", "miao", "miao", "miao", "miao", "wang"],
+        "tianmaMin": [null, null, null, null, null, null, null, null, null, null, null, null],
+        "dikongMin": ["xian", "ping", "xian", "miao", "miao", "ping", "miao", "miao", "xian", "xian", "ping", "xian"],
+        "dijieMin": ["ping", "ping", "xian", "ping", "miao", "ping", "miao", "ping", "ping", "wang", "xian", "xian"],
+        "huoxingMin": ["miao", "li", "xian", "de", "miao", "li", "xian", "de", "miao", "li", "xian", "de"],
+        "lingxingMin": ["miao", "li", "xian", "de", "miao", "li", "xian", "de", "miao", "li", "xian", "de"],
+        "qingyangMin": ["xian", "xian", "miao", "xian", "xian", "miao", "xian", "xian", "miao", "xian", "xian", "miao"],
+        "tuoluoMin": ["xian", "xian", "miao", "xian", "xian", "miao", "xian", "xian", "miao", "xian", "xian", "miao"],
+        "santai": ["ping", "xian", "miao", "ping", "wang", "miao", "ping", "miao", "wang", "ping", "ping", "miao"],
+        "bazuo": ["miao", "ping", "wang", "miao", "wang", "ping", "miao", "miao", "ping", "miao", "xian", "miao"],
+        "engguang": ["ping", "miao", "miao", "ping", "miao", "wang", "ping", "xian", "miao", "ping", "ping", "miao"],
+        "tiangui": ["ping", "wang", "wang", "ping", "miao", "wang", "xian", "miao", "wang", "ping", "miao", "wang"],
+        "tiancai": ["miao", "wang", "xian", "miao", "wang", "ping", "miao", "wang", "xian", "miao", "wang", "ping"],
+        "tianshou": ["wang", "xian", "miao", "ping", "ping", "wang", "wang", "ping", "miao", "wang", "ping", "miao"],
+        "xunkong": ["xian", "ping", "xian", "miao", "miao", "xian", "miao", "miao", "xian", "ping", "xian", "ping"],
+        "tianshi": ["ping", "ping", "xian", "ping", "ping", "ping", "ping", "xian", "xian", "wang", "xian", "xian"],
+        "tianshang": ["ping", "xian", "ping", "ping", "xian", "xian", "ping", "ping", "ping", "wang", "xian", "ping"]
+      }
+    }
+  }
+}

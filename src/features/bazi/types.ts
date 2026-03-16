@@ -1,5 +1,5 @@
 import { BaziGender, BaziResult, BaziTimeMode, BaziZiHourMode } from '../../core/bazi-types';
-import { CityInfo } from '../../core/city-data';
+import { RegionSelection } from '../../core/city-data';
 import { BaziGanZhiLayerSummary } from '../../core/bazi-ganzhi-layer';
 
 export type BaziSectionKey = 'basicInfo' | 'basicChart' | 'proChart';
@@ -8,7 +8,7 @@ export interface BaziFormState {
     name: string;
     birthDate: Date;
     gender: BaziGender;
-    city: CityInfo | null;
+    location: RegionSelection | null;
     editingRecordId: string | null;
     locationFallbackLabel: string;
     useCustomReferenceDate: boolean;

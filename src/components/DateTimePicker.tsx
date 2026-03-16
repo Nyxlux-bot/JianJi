@@ -1,20 +1,48 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    Modal, View, Text, StyleSheet, TouchableOpacity,
-    TouchableWithoutFeedback, TextInput, Alert, ScrollView
+    FlatList,
+    ListRenderItemInfo,
+    Modal,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    TouchableWithoutFeedback,
+    View,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import ScrollPicker from './ScrollPicker';
 import { Spacing, FontSize, BorderRadius } from '../theme/colors';
-import { solarToLunar, lunarToSolar, findDatesByBazi } from '../core/lunar';
+import {
+    findDatesByBazi,
+    formatLunarDateLabel,
+    getLunarLeapMonth,
+    getLunarMonthDays,
+    lunarToSolar,
+    solarToLunar,
+} from '../core/lunar';
 import { CustomAlert } from './CustomAlertProvider';
-import { useTheme } from "../theme/ThemeContext";
+import { useTheme } from '../theme/ThemeContext';
 
 interface DateTimePickerProps {
     visible: boolean;
     initialDate: Date;
     onClose: () => void;
     onConfirm: (date: Date) => void;
+    onConfirmDetail?: (selection: DateTimePickerSelection) => void;
+}
+
+export interface DateTimePickerSelection {
+    date: Date;
+    sourceTab: 'solar' | 'lunar' | 'bazi';
+    calendarType: 'solar' | 'lunar';
+    lunar?: {
+        year: number;
+        month: number;
+        day: number;
+        isLeapMonth: boolean;
+        label: string;
+    };
 }
 
 const TIAN_GAN = ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸'];
@@ -26,6 +54,12 @@ const DAY_CN = [
     '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十',
     '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十',
 ];
+
+const YEARS = Array.from({ length: 150 }, (_, i) => (1900 + i).toString());
+const SOLAR_MONTHS = Array.from({ length: 12 }, (_, i) => (i + 1).toString().padStart(2, '0'));
+const HOURS = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0'));
+const MINUTES = Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, '0'));
+const BAZI_RESULT_ROW_HEIGHT = 44;
 
 function getDaysInMonth(year: number, month: number): number {
     if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return 31;
@@ -75,198 +109,379 @@ const getHourPillarsForDay = (dGan: string) => {
 
 type BaziStep = 'Y_GAN' | 'Y_ZHI' | 'M' | 'D_GAN' | 'D_ZHI' | 'H' | null;
 
+interface BaziDraftState {
+    step: BaziStep;
+    yearGan: string;
+    yearZhi: string;
+    monthGan: string;
+    monthZhi: string;
+    dayGan: string;
+    dayZhi: string;
+    hourGan: string;
+    hourZhi: string;
+}
+
+interface BaziResultRowItem {
+    index: number;
+    key: string;
+    label: string;
+}
+
+interface BaziResultRowProps {
+    index: number;
+    label: string;
+    onPress: (index: number) => void;
+    itemStyle: object;
+    textStyle: object;
+}
+
+const BaziResultRow = memo(function BaziResultRow({
+    index,
+    label,
+    onPress,
+    itemStyle,
+    textStyle,
+}: BaziResultRowProps) {
+    const handlePress = useCallback(() => {
+        onPress(index);
+    }, [index, onPress]);
+
+    return (
+        <TouchableOpacity style={itemStyle} onPress={handlePress}>
+            <Text style={textStyle}>{label}</Text>
+        </TouchableOpacity>
+    );
+});
+
+function createBaziDraftFromDate(date: Date): BaziDraftState {
+    const lunar = solarToLunar(date);
+
+    return {
+        step: null,
+        yearGan: lunar.yearGanZhi[0],
+        yearZhi: lunar.yearGanZhi[1],
+        monthGan: lunar.monthGanZhi[0],
+        monthZhi: lunar.monthGanZhi[1],
+        dayGan: lunar.dayGanZhi[0],
+        dayZhi: lunar.dayGanZhi[1],
+        hourGan: lunar.hourGanZhi[0],
+        hourZhi: lunar.hourGanZhi[1],
+    };
+}
+
+function buildSelection(date: Date, sourceTab: DateTimePickerSelection['sourceTab']): DateTimePickerSelection {
+    if (sourceTab === 'lunar') {
+        const lunar = solarToLunar(date);
+        return {
+            date,
+            sourceTab,
+            calendarType: 'lunar',
+            lunar: {
+                year: lunar.year,
+                month: lunar.month,
+                day: lunar.day,
+                isLeapMonth: lunar.isLeap,
+                label: formatLunarDateLabel({
+                    year: lunar.year,
+                    month: lunar.month,
+                    day: lunar.day,
+                    isLeap: lunar.isLeap,
+                }),
+            },
+        };
+    }
+
+    return {
+        date,
+        sourceTab,
+        calendarType: 'solar',
+    };
+}
+
+function formatBaziResultLabel(date: Date): string {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:00`;
+}
+
 export default function DateTimePicker({
     visible,
     initialDate,
     onClose,
     onConfirm,
+    onConfirmDetail,
 }: DateTimePickerProps) {
     const { Colors } = useTheme();
-    const styles = makeStyles(Colors);
+    const styles = useMemo(() => makeStyles(Colors), [Colors]);
     const [activeTab, setActiveTab] = useState<'solar' | 'lunar' | 'bazi'>('solar');
-
-    // === 公历/农历 共享的时分状态 ===
-    const [hour, setHour] = useState('00');
-    const [minute, setMinute] = useState('00');
-
-    // === 公历状态 ===
-    const [solarYear, setSolarYear] = useState('1900');
-    const [solarMonth, setSolarMonth] = useState('01');
-    const [solarDay, setSolarDay] = useState('01');
-
-    // === 农历状态 ===
-    const [lunarYear, setLunarYear] = useState('1900');
-    const [lunarMonth, setLunarMonth] = useState('正');
-    const [lunarDay, setLunarDay] = useState('初一');
-
-    // === 四柱状态 ===
-    const [bzStep, setBzStep] = useState<BaziStep>('Y_GAN');
-    const [bzYGan, setBzYGan] = useState('甲');
-    const [bzYZhi, setBzYZhi] = useState('子');
-    const [bzMGan, setBzMGan] = useState('丙');
-    const [bzMZhi, setBzMZhi] = useState('寅');
-    const [bzDGan, setBzDGan] = useState('甲');
-    const [bzDZhi, setBzDZhi] = useState('子');
-    const [bzHGan, setBzHGan] = useState('甲');
-    const [bzHZhi, setBzHZhi] = useState('子');
-
+    const [draftDate, setDraftDate] = useState(() => new Date(initialDate));
     const [fastInput, setFastInput] = useState('');
+    const [baziDraft, setBaziDraft] = useState<BaziDraftState>(() => createBaziDraftFromDate(initialDate));
     const [baziResults, setBaziResults] = useState<Date[]>([]);
 
     useEffect(() => {
         if (visible) {
-            syncFromDate(initialDate);
+            const nextDate = new Date(initialDate);
+            setDraftDate(nextDate);
             setFastInput('');
+            setBaziDraft(createBaziDraftFromDate(nextDate));
+            setBaziResults([]);
         }
     }, [visible, initialDate]);
 
-    const syncFromDate = (date: Date) => {
-        setSolarYear(date.getFullYear().toString());
-        setSolarMonth((date.getMonth() + 1).toString().padStart(2, '0'));
-        setSolarDay(date.getDate().toString().padStart(2, '0'));
-        setHour(date.getHours().toString().padStart(2, '0'));
-        setMinute(date.getMinutes().toString().padStart(2, '0'));
-
-        const lunar = solarToLunar(date);
-        setLunarYear(lunar.year.toString());
-        setLunarMonth(MONTH_CN[lunar.month - 1]);
-        setLunarDay(DAY_CN[lunar.day - 1]);
-
-        setBzYGan(lunar.yearGanZhi[0]); setBzYZhi(lunar.yearGanZhi[1]);
-        setBzMGan(lunar.monthGanZhi[0]); setBzMZhi(lunar.monthGanZhi[1]);
-        setBzDGan(lunar.dayGanZhi[0]); setBzDZhi(lunar.dayGanZhi[1]);
-        setBzHGan(lunar.hourGanZhi[0]); setBzHZhi(lunar.hourGanZhi[1]);
+    const applyDraftDate = useCallback((date: Date) => {
+        const nextDate = new Date(date.getTime());
+        nextDate.setSeconds(0, 0);
+        setDraftDate(nextDate);
         setBaziResults([]);
-        setBzStep(null);
-    };
+        setBaziDraft(createBaziDraftFromDate(nextDate));
+    }, []);
 
-    const clearBazi = () => {
-        setBaziResults([]);
-        setBzStep('Y_GAN');
-        setBzYGan(''); setBzYZhi('');
-        setBzMGan(''); setBzMZhi('');
-        setBzDGan(''); setBzDZhi('');
-        setBzHGan(''); setBzHZhi('');
-    };
+    const handleConfirmSelection = useCallback((date: Date, sourceTab: DateTimePickerSelection['sourceTab']) => {
+        const confirmedDate = new Date(date.getTime());
+        onConfirm(confirmedDate);
+        onConfirmDetail?.(buildSelection(confirmedDate, sourceTab));
+    }, [onConfirm, onConfirmDetail]);
 
-    const yearsNum = Array.from({ length: 150 }, (_, i) => (1900 + i).toString());
-    const solarMonthsNum = Array.from({ length: 12 }, (_, i) => (i + 1).toString().padStart(2, '0'));
+    const solarYear = draftDate.getFullYear().toString();
+    const solarMonth = String(draftDate.getMonth() + 1).padStart(2, '0');
+    const solarDay = String(draftDate.getDate()).padStart(2, '0');
+    const hour = String(draftDate.getHours()).padStart(2, '0');
+    const minute = String(draftDate.getMinutes()).padStart(2, '0');
+
     const solarDaysNum = useMemo(() => {
-        const y = parseInt(solarYear, 10);
-        const m = parseInt(solarMonth, 10);
+        const y = draftDate.getFullYear();
+        const m = draftDate.getMonth() + 1;
         const maxDays = getDaysInMonth(y, m);
         return Array.from({ length: maxDays }, (_, i) => (i + 1).toString().padStart(2, '0'));
-    }, [solarYear, solarMonth]);
-    const hoursNum = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0'));
-    const minutesNum = Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, '0'));
+    }, [draftDate]);
 
-    useEffect(() => {
-        const day = parseInt(solarDay, 10);
-        if (!Number.isInteger(day)) {
-            setSolarDay('01');
+    const lunarDate = useMemo(() => solarToLunar(draftDate), [draftDate]);
+    const lunarYear = lunarDate.year.toString();
+    const lunarMonth = MONTH_CN[lunarDate.month - 1];
+    const lunarDay = DAY_CN[lunarDate.day - 1];
+    const lunarLeapMonth = getLunarLeapMonth(lunarDate.year);
+    const canToggleLeapMonth = lunarLeapMonth > 0 && lunarLeapMonth === lunarDate.month;
+
+    const updateSolarDate = useCallback((overrides: Partial<{
+        year: number;
+        month: number;
+        day: number;
+        hour: number;
+        minute: number;
+    }>) => {
+        const nextYear = overrides.year ?? draftDate.getFullYear();
+        const nextMonth = overrides.month ?? draftDate.getMonth() + 1;
+        const nextHour = overrides.hour ?? draftDate.getHours();
+        const nextMinute = overrides.minute ?? draftDate.getMinutes();
+        const nextDay = Math.max(
+            1,
+            Math.min(overrides.day ?? draftDate.getDate(), getDaysInMonth(nextYear, nextMonth)),
+        );
+        applyDraftDate(new Date(nextYear, nextMonth - 1, nextDay, nextHour, nextMinute));
+    }, [applyDraftDate, draftDate]);
+
+    const updateLunarDate = useCallback((overrides: Partial<{
+        year: number;
+        month: number;
+        day: number;
+        isLeapMonth: boolean;
+    }>) => {
+        const nextYear = overrides.year ?? lunarDate.year;
+        const nextMonth = overrides.month ?? lunarDate.month;
+        const requestedIsLeap = overrides.isLeapMonth ?? lunarDate.isLeap;
+        const nextIsLeap = requestedIsLeap && getLunarLeapMonth(nextYear) === nextMonth;
+        const nextDay = Math.max(
+            1,
+            Math.min(overrides.day ?? lunarDate.day, getLunarMonthDays(nextYear, nextMonth, nextIsLeap)),
+        );
+        const nextDate = lunarToSolar(nextYear, nextMonth, nextDay, nextIsLeap);
+        if (!nextDate) {
             return;
         }
-        const maxDays = solarDaysNum.length;
-        if (day > maxDays) {
-            setSolarDay(String(maxDays).padStart(2, '0'));
-        } else if (day < 1) {
-            setSolarDay('01');
-        }
-    }, [solarDay, solarDaysNum]);
+        nextDate.setHours(draftDate.getHours(), draftDate.getMinutes(), 0, 0);
+        applyDraftDate(nextDate);
+    }, [applyDraftDate, draftDate, lunarDate.day, lunarDate.isLeap, lunarDate.month, lunarDate.year]);
 
-    const handleFastInput = (val: string) => {
+    const clearBazi = useCallback(() => {
+        setBaziResults([]);
+        setBaziDraft({
+            step: 'Y_GAN',
+            yearGan: '',
+            yearZhi: '',
+            monthGan: '',
+            monthZhi: '',
+            dayGan: '',
+            dayZhi: '',
+            hourGan: '',
+            hourZhi: '',
+        });
+    }, []);
+
+    const handleFastInput = useCallback((val: string) => {
         setFastInput(val);
         const pureNumbers = val.replace(/\D/g, '');
         if (pureNumbers.length >= 8) {
-            const y = parseInt(pureNumbers.substring(0, 4));
-            const m = parseInt(pureNumbers.substring(4, 6));
-            const d = parseInt(pureNumbers.substring(6, 8));
-            const h = pureNumbers.length >= 10 ? parseInt(pureNumbers.substring(8, 10)) : 0;
-            const min = pureNumbers.length >= 12 ? parseInt(pureNumbers.substring(10, 12)) : 0;
+            const y = parseInt(pureNumbers.substring(0, 4), 10);
+            const m = parseInt(pureNumbers.substring(4, 6), 10);
+            const d = parseInt(pureNumbers.substring(6, 8), 10);
+            const h = pureNumbers.length >= 10 ? parseInt(pureNumbers.substring(8, 10), 10) : 0;
+            const min = pureNumbers.length >= 12 ? parseInt(pureNumbers.substring(10, 12), 10) : 0;
 
             if (isValidSolarDate(y, m, d, h, min)) {
-                syncFromDate(new Date(y, m - 1, d, h, min));
+                applyDraftDate(new Date(y, m - 1, d, h, min));
             }
         }
-    };
+    }, [applyDraftDate]);
 
-    const handleConfirm = () => {
-        if (activeTab === 'solar') {
-            const y = parseInt(solarYear, 10);
-            const m = parseInt(solarMonth, 10);
-            const d = parseInt(solarDay, 10);
-            const h = parseInt(hour, 10);
-            const min = parseInt(minute, 10);
-            if (!isValidSolarDate(y, m, d, h, min)) {
-                CustomAlert.alert("错误", "该公历日期无效，请重新选择");
-                return;
-            }
-            onConfirm(new Date(y, m - 1, d, h, min));
-        } else if (activeTab === 'lunar') {
-            const mIdx = MONTH_CN.indexOf(lunarMonth) + 1;
-            const dIdx = DAY_CN.indexOf(lunarDay) + 1;
-            const d = lunarToSolar(parseInt(lunarYear), mIdx, dIdx, false);
-            if (d) {
-                d.setHours(parseInt(hour), parseInt(minute), 0, 0);
-                onConfirm(d);
-            } else {
-                CustomAlert.alert("错误", "该农历日期无效");
-            }
-        } else if (activeTab === 'bazi') {
-            if (baziResults.length > 0) {
-                onConfirm(baziResults[0]);
-            } else {
-                searchBazi();
-            }
-        }
-    };
-
-    const searchBazi = () => {
-        if (!bzYGan || !bzYZhi || !bzMGan || !bzMZhi || !bzDGan || !bzDZhi || !bzHGan || !bzHZhi) {
-            CustomAlert.alert("提示", "请完整填选四柱所有的八个字！");
+    const runBaziSearch = useCallback(() => {
+        if (
+            !baziDraft.yearGan
+            || !baziDraft.yearZhi
+            || !baziDraft.monthGan
+            || !baziDraft.monthZhi
+            || !baziDraft.dayGan
+            || !baziDraft.dayZhi
+            || !baziDraft.hourGan
+            || !baziDraft.hourZhi
+        ) {
+            CustomAlert.alert('提示', '请完整填选四柱所有的八个字！');
             return;
         }
-        const results = findDatesByBazi(bzYGan + bzYZhi, bzMGan + bzMZhi, bzDGan + bzDZhi, bzHGan + bzHZhi, 1801, 2099);
-        setBaziResults(results);
-        setBzStep(null);
-        if (results.length === 0) {
-            CustomAlert.alert("未找到", "在 1801-2099 年间没有找到这套四柱搭配的准确时间！");
-        }
-    };
 
-    const setGanAndAutoJump = (step: 'Y_GAN' | 'D_GAN', gan: string) => {
+        const nextResults = findDatesByBazi(
+            baziDraft.yearGan + baziDraft.yearZhi,
+            baziDraft.monthGan + baziDraft.monthZhi,
+            baziDraft.dayGan + baziDraft.dayZhi,
+            baziDraft.hourGan + baziDraft.hourZhi,
+            1801,
+            2099,
+        );
+        setBaziResults(nextResults);
+        setBaziDraft((prev) => ({
+            ...prev,
+            step: null,
+        }));
+        if (nextResults.length === 0) {
+            CustomAlert.alert('未找到', '在 1801-2099 年间没有找到这套四柱搭配的准确时间！');
+        }
+    }, [baziDraft]);
+
+    const handleConfirm = useCallback(() => {
+        if (activeTab === 'solar') {
+            handleConfirmSelection(draftDate, 'solar');
+            return;
+        }
+
+        if (activeTab === 'lunar') {
+            handleConfirmSelection(draftDate, 'lunar');
+            return;
+        }
+
+        if (baziResults.length > 0) {
+            const firstResult = baziResults[0];
+            applyDraftDate(firstResult);
+            handleConfirmSelection(firstResult, 'bazi');
+            return;
+        }
+
+        runBaziSearch();
+    }, [activeTab, applyDraftDate, baziResults, draftDate, handleConfirmSelection, runBaziSearch]);
+
+    const setGanAndAutoJump = useCallback((step: 'Y_GAN' | 'D_GAN', gan: string) => {
+        setBaziResults([]);
         if (step === 'Y_GAN') {
-            setBzYGan(gan);
-            setBzYZhi('');
-            setBzMGan(''); setBzMZhi('');
-            setBzStep('Y_ZHI');
-        } else {
-            setBzDGan(gan);
-            setBzDZhi('');
-            setBzHGan(''); setBzHZhi('');
-            setBzStep('D_ZHI');
+            setBaziDraft((prev) => ({
+                ...prev,
+                step: 'Y_ZHI',
+                yearGan: gan,
+                yearZhi: '',
+                monthGan: '',
+                monthZhi: '',
+            }));
+            return;
         }
-    };
 
-    const handleSetZhi = (step: 'Y_ZHI' | 'D_ZHI', zhi: string) => {
+        setBaziDraft((prev) => ({
+            ...prev,
+            step: 'D_ZHI',
+            dayGan: gan,
+            dayZhi: '',
+            hourGan: '',
+            hourZhi: '',
+        }));
+    }, []);
+
+    const handleSetZhi = useCallback((step: 'Y_ZHI' | 'D_ZHI', zhi: string) => {
+        setBaziResults([]);
         if (step === 'Y_ZHI') {
-            setBzYZhi(zhi);
-            setBzStep('M');
-        } else {
-            setBzDZhi(zhi);
-            setBzStep('H');
+            setBaziDraft((prev) => ({
+                ...prev,
+                yearZhi: zhi,
+                step: 'M',
+            }));
+            return;
         }
-    };
 
-    const handleSetPillar = (step: 'M' | 'H', p: string) => {
+        setBaziDraft((prev) => ({
+            ...prev,
+            dayZhi: zhi,
+            step: 'H',
+        }));
+    }, []);
+
+    const handleSetPillar = useCallback((step: 'M' | 'H', pillar: string) => {
+        setBaziResults([]);
         if (step === 'M') {
-            setBzMGan(p[0]); setBzMZhi(p[1]);
-            setBzStep('D_GAN');
-        } else {
-            setBzHGan(p[0]); setBzHZhi(p[1]);
-            setBzStep(null);
+            setBaziDraft((prev) => ({
+                ...prev,
+                monthGan: pillar[0],
+                monthZhi: pillar[1],
+                step: 'D_GAN',
+            }));
+            return;
         }
-    };
+
+        setBaziDraft((prev) => ({
+            ...prev,
+            hourGan: pillar[0],
+            hourZhi: pillar[1],
+            step: null,
+        }));
+    }, []);
+
+    const handleSelectBaziResult = useCallback((index: number) => {
+        const nextDate = baziResults[index];
+        if (!nextDate) {
+            return;
+        }
+
+        applyDraftDate(nextDate);
+        handleConfirmSelection(nextDate, 'bazi');
+    }, [applyDraftDate, baziResults, handleConfirmSelection]);
+
+    const baziResultItems = useMemo<BaziResultRowItem[]>(() => (
+        baziResults.map((date, index) => ({
+            index,
+            key: `${date.getTime()}-${index}`,
+            label: formatBaziResultLabel(date),
+        }))
+    ), [baziResults]);
+
+    const renderBaziResultItem = useCallback(({ item }: ListRenderItemInfo<BaziResultRowItem>) => (
+        <BaziResultRow
+            index={item.index}
+            label={item.label}
+            onPress={handleSelectBaziResult}
+            itemStyle={styles.baziResultItem}
+            textStyle={styles.baziResultText}
+        />
+    ), [handleSelectBaziResult, styles.baziResultItem, styles.baziResultText]);
+
+    const keyExtractor = useCallback((item: BaziResultRowItem) => item.key, []);
+    const getBaziItemLayout = useCallback((_: ArrayLike<BaziResultRowItem> | null | undefined, index: number) => ({
+        length: BAZI_RESULT_ROW_HEIGHT,
+        offset: BAZI_RESULT_ROW_HEIGHT * index,
+        index,
+    }), []);
 
     const renderHeaders = () => (
         <View style={styles.pickerHeader}>
@@ -282,22 +497,67 @@ export default function DateTimePicker({
         if (activeTab === 'solar') {
             return (
                 <View style={styles.pickerContainer}>
-                    <ScrollPicker data={yearsNum} value={solarYear} onValueChange={setSolarYear} Colors={Colors} />
-                    <ScrollPicker data={solarMonthsNum} value={solarMonth} onValueChange={setSolarMonth} Colors={Colors} />
-                    <ScrollPicker data={solarDaysNum} value={solarDay} onValueChange={setSolarDay} Colors={Colors} />
-                    <ScrollPicker data={hoursNum} value={hour} onValueChange={setHour} Colors={Colors} />
-                    <ScrollPicker data={minutesNum} value={minute} onValueChange={setMinute} Colors={Colors} />
+                    <ScrollPicker data={YEARS} value={solarYear} onValueChange={(value) => updateSolarDate({ year: parseInt(value, 10) })} Colors={Colors} />
+                    <ScrollPicker data={SOLAR_MONTHS} value={solarMonth} onValueChange={(value) => updateSolarDate({ month: parseInt(value, 10) })} Colors={Colors} />
+                    <ScrollPicker data={solarDaysNum} value={solarDay} onValueChange={(value) => updateSolarDate({ day: parseInt(value, 10) })} Colors={Colors} />
+                    <ScrollPicker data={HOURS} value={hour} onValueChange={(value) => updateSolarDate({ hour: parseInt(value, 10) })} Colors={Colors} />
+                    <ScrollPicker data={MINUTES} value={minute} onValueChange={(value) => updateSolarDate({ minute: parseInt(value, 10) })} Colors={Colors} />
                 </View>
             );
         }
         if (activeTab === 'lunar') {
             return (
-                <View style={styles.pickerContainer}>
-                    <ScrollPicker data={yearsNum} value={lunarYear} onValueChange={setLunarYear} Colors={Colors} />
-                    <ScrollPicker data={MONTH_CN} value={lunarMonth} onValueChange={setLunarMonth} Colors={Colors} />
-                    <ScrollPicker data={DAY_CN} value={lunarDay} onValueChange={setLunarDay} Colors={Colors} />
-                    <ScrollPicker data={hoursNum} value={hour} onValueChange={setHour} Colors={Colors} />
-                    <ScrollPicker data={minutesNum} value={minute} onValueChange={setMinute} Colors={Colors} />
+                <View>
+                    <View style={styles.pickerContainer}>
+                        <ScrollPicker data={YEARS} value={lunarYear} onValueChange={(value) => updateLunarDate({ year: parseInt(value, 10) })} Colors={Colors} />
+                        <ScrollPicker data={MONTH_CN} value={lunarMonth} onValueChange={(value) => updateLunarDate({ month: MONTH_CN.indexOf(value) + 1 })} Colors={Colors} />
+                        <ScrollPicker data={DAY_CN} value={lunarDay} onValueChange={(value) => updateLunarDate({ day: DAY_CN.indexOf(value) + 1 })} Colors={Colors} />
+                        <ScrollPicker data={HOURS} value={hour} onValueChange={(value) => updateSolarDate({ hour: parseInt(value, 10) })} Colors={Colors} />
+                        <ScrollPicker data={MINUTES} value={minute} onValueChange={(value) => updateSolarDate({ minute: parseInt(value, 10) })} Colors={Colors} />
+                    </View>
+                    <View style={styles.lunarMetaRow}>
+                        <Text style={styles.lunarMetaText}>
+                            {lunarLeapMonth > 0
+                                ? `本年闰 ${MONTH_CN[lunarLeapMonth - 1]} 月`
+                                : '本年无闰月'}
+                        </Text>
+                        {canToggleLeapMonth ? (
+                            <View style={styles.lunarLeapToggleRow}>
+                                <TouchableOpacity
+                                    style={[
+                                        styles.lunarLeapToggleBtn,
+                                        !lunarDate.isLeap && styles.lunarLeapToggleBtnActive,
+                                    ]}
+                                    onPress={() => updateLunarDate({ isLeapMonth: false })}
+                                >
+                                    <Text
+                                        style={[
+                                            styles.lunarLeapToggleText,
+                                            !lunarDate.isLeap && styles.lunarLeapToggleTextActive,
+                                        ]}
+                                    >
+                                        平月
+                                    </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[
+                                        styles.lunarLeapToggleBtn,
+                                        lunarDate.isLeap && styles.lunarLeapToggleBtnActive,
+                                    ]}
+                                    onPress={() => updateLunarDate({ isLeapMonth: true })}
+                                >
+                                    <Text
+                                        style={[
+                                            styles.lunarLeapToggleText,
+                                            lunarDate.isLeap && styles.lunarLeapToggleTextActive,
+                                        ]}
+                                    >
+                                        闰月
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        ) : null}
+                    </View>
                 </View>
             );
         }
@@ -319,23 +579,23 @@ export default function DateTimePicker({
                 <View style={styles.bzIndicators}>
                     <View style={styles.bzCol}>
                         <Text style={styles.bzColTitle}>年柱</Text>
-                        {renderCircle(bzYGan, bzStep === 'Y_GAN', () => setBzStep('Y_GAN'))}
-                        {renderCircle(bzYZhi, bzStep === 'Y_ZHI', () => !bzYGan ? setBzStep('Y_GAN') : setBzStep('Y_ZHI'))}
+                        {renderCircle(baziDraft.yearGan, baziDraft.step === 'Y_GAN', () => setBaziDraft((prev) => ({ ...prev, step: 'Y_GAN' })))}
+                        {renderCircle(baziDraft.yearZhi, baziDraft.step === 'Y_ZHI', () => setBaziDraft((prev) => ({ ...prev, step: prev.yearGan ? 'Y_ZHI' : 'Y_GAN' })))}
                     </View>
                     <View style={styles.bzCol}>
                         <Text style={styles.bzColTitle}>月柱</Text>
-                        {renderCircle(bzMGan, bzStep === 'M', () => !bzYGan ? setBzStep('Y_GAN') : setBzStep('M'), true)}
-                        {renderCircle(bzMZhi, bzStep === 'M', () => !bzYGan ? setBzStep('Y_GAN') : setBzStep('M'), true)}
+                        {renderCircle(baziDraft.monthGan, baziDraft.step === 'M', () => setBaziDraft((prev) => ({ ...prev, step: prev.yearGan ? 'M' : 'Y_GAN' })), true)}
+                        {renderCircle(baziDraft.monthZhi, baziDraft.step === 'M', () => setBaziDraft((prev) => ({ ...prev, step: prev.yearGan ? 'M' : 'Y_GAN' })), true)}
                     </View>
                     <View style={styles.bzCol}>
                         <Text style={styles.bzColTitle}>日柱</Text>
-                        {renderCircle(bzDGan, bzStep === 'D_GAN', () => setBzStep('D_GAN'))}
-                        {renderCircle(bzDZhi, bzStep === 'D_ZHI', () => !bzDGan ? setBzStep('D_GAN') : setBzStep('D_ZHI'))}
+                        {renderCircle(baziDraft.dayGan, baziDraft.step === 'D_GAN', () => setBaziDraft((prev) => ({ ...prev, step: 'D_GAN' })))}
+                        {renderCircle(baziDraft.dayZhi, baziDraft.step === 'D_ZHI', () => setBaziDraft((prev) => ({ ...prev, step: prev.dayGan ? 'D_ZHI' : 'D_GAN' })))}
                     </View>
                     <View style={styles.bzCol}>
                         <Text style={styles.bzColTitle}>时柱</Text>
-                        {renderCircle(bzHGan, bzStep === 'H', () => !bzDGan ? setBzStep('D_GAN') : setBzStep('H'), true)}
-                        {renderCircle(bzHZhi, bzStep === 'H', () => !bzDGan ? setBzStep('D_GAN') : setBzStep('H'), true)}
+                        {renderCircle(baziDraft.hourGan, baziDraft.step === 'H', () => setBaziDraft((prev) => ({ ...prev, step: prev.dayGan ? 'H' : 'D_GAN' })), true)}
+                        {renderCircle(baziDraft.hourZhi, baziDraft.step === 'H', () => setBaziDraft((prev) => ({ ...prev, step: prev.dayGan ? 'H' : 'D_GAN' })), true)}
                     </View>
                 </View>
 
@@ -351,39 +611,39 @@ export default function DateTimePicker({
                         </Svg>
                         <Text style={styles.baziClearText}>清除</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.baziSearchBtn} onPress={searchBazi}>
+                    <TouchableOpacity style={styles.baziSearchBtn} onPress={runBaziSearch}>
                         <Text style={styles.baziSearchBtnText}>开始推算起时</Text>
                     </TouchableOpacity>
                 </View>
 
                 {/* 候选底盘渲染 */}
                 <View style={styles.bzGridContainer}>
-                    {bzStep === 'Y_GAN' || bzStep === 'D_GAN' ? (
+                    {baziDraft.step === 'Y_GAN' || baziDraft.step === 'D_GAN' ? (
                         <View style={styles.bzGridRow}>
-                            {TIAN_GAN.map(g => (
-                                <TouchableOpacity key={g} style={[styles.bzDataBtn, { width: '18%' }]} onPress={() => setGanAndAutoJump(bzStep, g)}>
-                                    <Text style={{ color: getColor(g, Colors), fontSize: FontSize.xl, fontWeight: 'bold' }}>{g}</Text>
+                            {TIAN_GAN.map((gan) => (
+                                <TouchableOpacity key={gan} style={[styles.bzDataBtn, { width: '18%' }]} onPress={() => setGanAndAutoJump(baziDraft.step as 'Y_GAN' | 'D_GAN', gan)}>
+                                    <Text style={{ color: getColor(gan, Colors), fontSize: FontSize.xl, fontWeight: 'bold' }}>{gan}</Text>
                                 </TouchableOpacity>
                             ))}
                         </View>
                     ) : null}
 
-                    {bzStep === 'Y_ZHI' || bzStep === 'D_ZHI' ? (
+                    {baziDraft.step === 'Y_ZHI' || baziDraft.step === 'D_ZHI' ? (
                         <View style={styles.bzGridRow}>
-                            {getParityBranches(bzStep === 'Y_ZHI' ? bzYGan : bzDGan).map(z => (
-                                <TouchableOpacity key={z} style={[styles.bzDataBtn, { width: '30%' }]} onPress={() => handleSetZhi(bzStep as 'Y_ZHI' | 'D_ZHI', z)}>
-                                    <Text style={{ color: getColor(z, Colors), fontSize: FontSize.xl, fontWeight: 'bold' }}>{z}</Text>
+                            {getParityBranches(baziDraft.step === 'Y_ZHI' ? baziDraft.yearGan : baziDraft.dayGan).map((zhi) => (
+                                <TouchableOpacity key={zhi} style={[styles.bzDataBtn, { width: '30%' }]} onPress={() => handleSetZhi(baziDraft.step as 'Y_ZHI' | 'D_ZHI', zhi)}>
+                                    <Text style={{ color: getColor(zhi, Colors), fontSize: FontSize.xl, fontWeight: 'bold' }}>{zhi}</Text>
                                 </TouchableOpacity>
                             ))}
                         </View>
                     ) : null}
 
-                    {bzStep === 'M' || bzStep === 'H' ? (
+                    {baziDraft.step === 'M' || baziDraft.step === 'H' ? (
                         <View style={styles.bzGridRow}>
-                            {(bzStep === 'M' ? getMonthPillarsForYear(bzYGan) : getHourPillarsForDay(bzDGan)).map(p => (
-                                <TouchableOpacity key={p} style={[styles.bzDataBtn, { width: '23%', flexDirection: 'row', gap: 4 }]} onPress={() => handleSetPillar(bzStep as 'M' | 'H', p)}>
-                                    <Text style={{ color: getColor(p[0], Colors), fontSize: FontSize.lg, fontWeight: 'bold' }}>{p[0]}</Text>
-                                    <Text style={{ color: getColor(p[1], Colors), fontSize: FontSize.lg, fontWeight: 'bold' }}>{p[1]}</Text>
+                            {(baziDraft.step === 'M' ? getMonthPillarsForYear(baziDraft.yearGan) : getHourPillarsForDay(baziDraft.dayGan)).map((pillar) => (
+                                <TouchableOpacity key={pillar} style={[styles.bzDataBtn, { width: '23%', flexDirection: 'row', gap: 4 }]} onPress={() => handleSetPillar(baziDraft.step as 'M' | 'H', pillar)}>
+                                    <Text style={{ color: getColor(pillar[0], Colors), fontSize: FontSize.lg, fontWeight: 'bold' }}>{pillar[0]}</Text>
+                                    <Text style={{ color: getColor(pillar[1], Colors), fontSize: FontSize.lg, fontWeight: 'bold' }}>{pillar[1]}</Text>
                                 </TouchableOpacity>
                             ))}
                         </View>
@@ -392,23 +652,25 @@ export default function DateTimePicker({
 
                 {/* 结果显示 */}
                 {baziResults.length > 0 && (
-                    <ScrollView style={styles.baziResults}>
+                    <View style={styles.baziResults}>
                         <Text style={styles.baziResultTitle}>满足该干支流转的时刻 (点击即可选中):</Text>
-                        {baziResults.map((date, idx) => (
-                            <TouchableOpacity key={idx} style={styles.baziResultItem} onPress={() => onConfirm(date)}>
-                                <Text style={styles.baziResultText}>
-                                    {date.getFullYear()}-{String(date.getMonth() + 1).padStart(2, '0')}-{String(date.getDate()).padStart(2, '0')} {String(date.getHours()).padStart(2, '0')}:00
-                                </Text>
-                            </TouchableOpacity>
-                        ))}
-                    </ScrollView>
+                        <FlatList
+                            data={baziResultItems}
+                            renderItem={renderBaziResultItem}
+                            keyExtractor={keyExtractor}
+                            getItemLayout={getBaziItemLayout}
+                            initialNumToRender={8}
+                            showsVerticalScrollIndicator={false}
+                            style={styles.baziResultsList}
+                        />
+                    </View>
                 )}
             </View>
         );
-    }
+    };
 
     return (
-        <Modal visible={visible} transparent={true} animationType="slide" onRequestClose={onClose}>
+        <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
             <View style={styles.overlay}>
                 <TouchableWithoutFeedback onPress={onClose}><View style={styles.closeArea} /></TouchableWithoutFeedback>
                 <View style={styles.content}>
@@ -432,7 +694,7 @@ export default function DateTimePicker({
                     {activeTab !== 'bazi' && (
                         <View style={styles.fastInputContainer}>
                             <TextInput style={styles.fastInput} placeholder="出生年月(格式 199303270255)" placeholderTextColor={Colors.text.tertiary} keyboardType="numeric" value={fastInput} onChangeText={handleFastInput} />
-                            <TouchableOpacity style={styles.fastInputBtn} onPress={() => syncFromDate(new Date())}>
+                            <TouchableOpacity style={styles.fastInputBtn} onPress={() => applyDraftDate(new Date())}>
                                 <Text style={styles.fastInputBtnText}>当前时刻</Text>
                             </TouchableOpacity>
                         </View>
@@ -472,6 +734,43 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     pickerHeader: { flexDirection: 'row', paddingHorizontal: Spacing.lg, marginTop: Spacing.md },
     pickerTitle: { flex: 1, textAlign: 'center', fontSize: FontSize.sm, color: Colors.text.secondary, fontWeight: 'bold' },
     pickerContainer: { flexDirection: 'row', paddingHorizontal: Spacing.sm, height: 200, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+    lunarMetaRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: Spacing.lg,
+        paddingTop: Spacing.sm,
+    },
+    lunarMetaText: {
+        fontSize: FontSize.sm,
+        color: Colors.text.secondary,
+    },
+    lunarLeapToggleRow: {
+        flexDirection: 'row',
+        gap: 6,
+    },
+    lunarLeapToggleBtn: {
+        minHeight: 34,
+        paddingHorizontal: Spacing.md,
+        borderRadius: BorderRadius.round,
+        borderWidth: 1,
+        borderColor: Colors.border.subtle,
+        backgroundColor: Colors.bg.elevated,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    lunarLeapToggleBtnActive: {
+        borderColor: Colors.accent.gold,
+        backgroundColor: Colors.bg.card,
+    },
+    lunarLeapToggleText: {
+        fontSize: FontSize.sm,
+        color: Colors.text.secondary,
+    },
+    lunarLeapToggleTextActive: {
+        color: Colors.accent.gold,
+        fontWeight: '600',
+    },
 
     // ======== Bazi Styles ========
     bzContainer: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg },
@@ -491,7 +790,8 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     bzGridRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8 },
     bzDataBtn: { height: 50, backgroundColor: Colors.bg.elevated, borderRadius: BorderRadius.md, justifyContent: 'center', alignItems: 'center', borderWidth: 0.5, borderColor: Colors.border.subtle },
     baziResults: { height: 160, backgroundColor: Colors.bg.elevated, borderRadius: BorderRadius.md, padding: Spacing.md, marginTop: Spacing.md },
+    baziResultsList: { flex: 1 },
     baziResultTitle: { color: Colors.text.secondary, fontSize: FontSize.sm, marginBottom: Spacing.sm },
-    baziResultItem: { paddingVertical: Spacing.sm, borderBottomWidth: 0.5, borderBottomColor: Colors.border.subtle },
+    baziResultItem: { minHeight: BAZI_RESULT_ROW_HEIGHT, justifyContent: 'center', borderBottomWidth: 0.5, borderBottomColor: Colors.border.subtle },
     baziResultText: { color: Colors.accent.gold, fontSize: FontSize.md, textAlign: 'center', fontWeight: 'bold' }
 });

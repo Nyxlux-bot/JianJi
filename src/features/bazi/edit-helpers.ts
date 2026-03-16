@@ -1,4 +1,8 @@
-import { CityInfo, getAllCities } from '../../core/city-data';
+import {
+    buildRegionSelection,
+    findRegionCandidateByDisplayText,
+    RegionSelection,
+} from '../../core/city-data';
 import { BaziResult } from '../../core/bazi-types';
 import { buildLocalDateTimeFromDateAndTime, parseLocalDateTime } from '../../core/bazi-local-time';
 import { BaziFormState } from './types';
@@ -13,40 +17,41 @@ function normalizePlaceName(value: string): string {
         .replace(/省|市|区|县/g, '');
 }
 
-export function findCityForBaziResult(result: BaziResult): CityInfo | null {
-    const allCities = getAllCities();
+export function findRegionForBaziResult(result: BaziResult): RegionSelection | null {
     const placeText = normalizePlaceName(result.baseInfo.birthPlaceDisplay || '');
+    const candidate = placeText ? findRegionCandidateByDisplayText(placeText) : null;
 
-    if (placeText) {
-        const byPlace = allCities.find((city) => {
-            const cityText = normalizePlaceName(`${city.province}${city.name}`);
-            return placeText.includes(cityText) || cityText.includes(placeText);
+    if (candidate && result.longitude !== null) {
+        return buildRegionSelection(candidate, {
+            longitude: result.longitude,
+            latitude: null,
         });
-        if (byPlace) {
-            return byPlace;
-        }
     }
 
-    if (result.longitude !== null) {
-        const targetLongitude = result.longitude;
-        const byLongitude = allCities.find((city) => Math.abs(city.longitude - targetLongitude) < 0.01);
-        if (byLongitude) {
-            return byLongitude;
-        }
-
-        const nearest = [...allCities].sort(
-            (left, right) => Math.abs(left.longitude - targetLongitude) - Math.abs(right.longitude - targetLongitude)
-        )[0];
-        if (nearest && Math.abs(nearest.longitude - targetLongitude) < 0.5) {
-            return nearest;
-        }
+    if (result.longitude === null) {
+        return null;
     }
 
-    return null;
+    return {
+        provinceCode: '',
+        provinceName: '',
+        cityCode: '',
+        cityName: result.baseInfo.birthPlaceDisplay || '',
+        districtCode: '',
+        districtName: '',
+        longitude: result.longitude,
+        latitude: null,
+    };
 }
 
 export function buildBaziEditFormState(result: BaziResult, now: Date = new Date()): BaziFormState {
-    const city = findCityForBaziResult(result);
+    const location = findRegionForBaziResult(result);
+    const isCompatibilityFallbackLocation = Boolean(
+        location
+        && !location.provinceCode
+        && !location.cityCode
+        && !location.districtCode,
+    );
     const birthDate = parseLocalDateTime(result.timeMeta.solarDateTimeLocal)
         ?? parseLocalDateTime(buildLocalDateTimeFromDateAndTime(result.solarDate, result.solarTime))
         ?? new Date(result.timeMeta.solarDateTimeIso);
@@ -55,9 +60,11 @@ export function buildBaziEditFormState(result: BaziResult, now: Date = new Date(
         name: result.subject.name,
         birthDate,
         gender: result.gender,
-        city,
+        location,
         editingRecordId: result.id,
-        locationFallbackLabel: city ? '' : result.baseInfo.birthPlaceDisplay,
+        locationFallbackLabel: isCompatibilityFallbackLocation
+            ? result.baseInfo.birthPlaceDisplay
+            : (location ? '' : result.baseInfo.birthPlaceDisplay),
         useCustomReferenceDate: false,
         referenceDate: now,
         ziHourMode: result.schoolOptionsResolved.ziHourMode,

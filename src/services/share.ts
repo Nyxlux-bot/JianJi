@@ -3,6 +3,7 @@ import * as Sharing from 'expo-sharing';
 import { PersistedAIChatMessage } from '../core/ai-meta';
 import { BaziResult } from '../core/bazi-types';
 import { PanResult } from '../core/liuyao-calc';
+import { ZiweiRecordResult } from '../features/ziwei/record';
 
 const METHOD_LABEL: Record<string, string> = {
     time: '时间排卦',
@@ -32,8 +33,17 @@ async function shareMarkdownFile(fileName: string, markdown: string): Promise<vo
     });
 }
 
-function isBaziResult(result: PanResult | BaziResult): result is BaziResult {
+function isBaziResult(result: PanResult | BaziResult | ZiweiRecordResult): result is BaziResult {
     return Array.isArray((result as BaziResult).fourPillars);
+}
+
+function isZiweiResult(result: PanResult | BaziResult | ZiweiRecordResult): result is ZiweiRecordResult {
+    const candidate = result as Partial<ZiweiRecordResult>;
+    return typeof candidate.birthLocal === 'string'
+        && typeof candidate.trueSolarDateTimeLocal === 'string'
+        && typeof candidate.fiveElementsClass === 'string'
+        && typeof candidate.soul === 'string'
+        && typeof candidate.body === 'string';
 }
 
 function pickLastAssistant(result: PanResult): string {
@@ -81,7 +91,7 @@ export async function shareResultMarkdown(result: PanResult): Promise<void> {
     await shareMarkdownFile(fileName, markdown);
 }
 
-export async function shareChatMarkdown(result: PanResult | BaziResult, messages: PersistedAIChatMessage[]): Promise<void> {
+export async function shareChatMarkdown(result: PanResult | BaziResult | ZiweiRecordResult, messages: PersistedAIChatMessage[]): Promise<void> {
     const lines: string[] = [];
 
     if (isBaziResult(result)) {
@@ -90,6 +100,13 @@ export async function shareChatMarkdown(result: PanResult | BaziResult, messages
         lines.push('');
         lines.push(`- 命造：${result.subject.mingZaoLabel}（${result.subject.genderLabel}）`);
         lines.push(`- 四柱：${result.fourPillars.join(' ')}`);
+        lines.push(`- 导出时间：${new Date().toISOString()}`);
+    } else if (isZiweiResult(result)) {
+        lines.push(`# AI 会话导出：${result.name?.trim() || '紫微命盘'}`);
+        lines.push('');
+        lines.push(`- 性别：${result.gender === 'male' ? '男命' : '女命'}`);
+        lines.push(`- 命盘：${result.fiveElementsClass} · 命主${result.soul} / 身主${result.body}`);
+        lines.push(`- 真太阳时：${result.trueSolarDateTimeLocal.replace('T', ' ')}`);
         lines.push(`- 导出时间：${new Date().toISOString()}`);
     } else {
         lines.push(`# AI 会话导出：${result.benGua.fullName}`);
@@ -115,6 +132,8 @@ export async function shareChatMarkdown(result: PanResult | BaziResult, messages
 
     const fileName = isBaziResult(result)
         ? `bazi_chat_${sanitizeName(result.subject.name?.trim() || result.fourPillars.join('_'))}_${Date.now()}.md`
+        : isZiweiResult(result)
+            ? `ziwei_chat_${sanitizeName(result.name?.trim() || result.fiveElementsClass)}_${Date.now()}.md`
         : `liuyao_chat_${sanitizeName(result.benGua.fullName)}_${Date.now()}.md`;
     await shareMarkdownFile(fileName, lines.join('\n'));
 }

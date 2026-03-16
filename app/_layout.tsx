@@ -2,10 +2,12 @@
  * 根布局 - expo-router
  */
 
+import '../src/polyfills/intl';
 import React, { useEffect, useRef } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { View, StyleSheet, Animated } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SplashScreen from 'expo-splash-screen';
 import { ThemeProvider, useTheme } from "../src/theme/ThemeContext";
@@ -40,19 +42,21 @@ function RootApp() {
     }, [fadeAnim]);
 
     return (
-        <SafeAreaProvider>
-            <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
-                <StatusBar style={Colors.bg.primary === '#f9f6f0' ? 'dark' : 'light'} />
-                <Stack
-                    screenOptions={{
-                        headerShown: false,
-                        contentStyle: { backgroundColor: Colors.bg.primary },
-                        animation: 'fade',
-                    }}
-                />
-                <CustomAlertProvider />
-            </Animated.View>
-        </SafeAreaProvider>
+        <GestureHandlerRootView style={styles.container}>
+            <SafeAreaProvider>
+                <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
+                    <StatusBar style={Colors.bg.primary === '#f9f6f0' ? 'dark' : 'light'} />
+                    <Stack
+                        screenOptions={{
+                            headerShown: false,
+                            contentStyle: { backgroundColor: Colors.bg.primary },
+                            animation: 'fade',
+                        }}
+                    />
+                    <CustomAlertProvider />
+                </Animated.View>
+            </SafeAreaProvider>
+        </GestureHandlerRootView>
     );
 }
 

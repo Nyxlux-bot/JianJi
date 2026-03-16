@@ -10,6 +10,7 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 import StatusBarDecor from '../../src/components/StatusBarDecor';
 import { BackIcon, ChevronRightIcon } from '../../src/components/Icons';
+import { buildRegionDisplayName } from '../../src/core/city-data';
 import { Spacing, FontSize, BorderRadius } from '../../src/theme/colors';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { CustomAlert } from '../../src/components/CustomAlertProvider';
@@ -32,11 +33,15 @@ function formatDateTime(date: Date): string {
     return `${y}-${m}-${d} ${hh}:${mm}`;
 }
 
-function formatBirthPlace(province?: string, cityName?: string): string {
-    if (!province && !cityName) {
+function formatBirthPlace(
+    provinceName?: string,
+    cityName?: string,
+    districtName?: string,
+): string {
+    if (!provinceName && !cityName && !districtName) {
         return '未设置出生地';
     }
-    return `${province || ''}${cityName || ''}`;
+    return `${provinceName || ''}${cityName || ''}${districtName || ''}`;
 }
 
 function buildBaziSummary(result: BaziResult) {
@@ -68,7 +73,7 @@ export default function BaziInputPage() {
         name: '',
         birthDate: new Date(),
         gender: 1,
-        city: null,
+        location: null,
         editingRecordId: null,
         locationFallbackLabel: '',
         useCustomReferenceDate: false,
@@ -157,7 +162,7 @@ export default function BaziInputPage() {
                 CustomAlert.alert('提示', '出生时间无效');
                 return;
             }
-            if (form.timeMode !== 'clock_time' && !form.city) {
+            if (form.timeMode !== 'clock_time' && !form.location) {
                 CustomAlert.alert('提示', '平太阳时或真太阳时排盘需要先选择出生地');
                 return;
             }
@@ -168,10 +173,10 @@ export default function BaziInputPage() {
             const result = calculateBazi({
                 date: birthDate,
                 gender: form.gender,
-                longitude: form.city?.longitude,
+                longitude: form.location?.longitude,
                 referenceDate,
                 name: form.name,
-                locationName: formatBirthPlace(form.city?.province, form.city?.name),
+                locationName: form.location ? buildRegionDisplayName(form.location) : '未设置出生地',
                 schoolOptions: {
                     ziHourMode: form.ziHourMode,
                     timeMode: form.timeMode,
@@ -202,6 +207,15 @@ export default function BaziInputPage() {
         }
     };
 
+    const locationDetailText = form.locationFallbackLabel
+        ? (form.timeMode === 'clock_time'
+            ? '原记录出生地未自动匹配，建议重新确认区县'
+            : '原记录出生地未自动匹配，当前沿用旧经度，建议重新确认区县')
+        : (form.timeMode === 'clock_time' ? '仅作出生地记录' : '本地时区下的校时经度');
+    const locationFallbackDetailText = form.locationFallbackLabel
+        ? '原记录出生地未能自动匹配，请重新确认区县'
+        : '';
+
     return (
         <View style={styles.container}>
             <StatusBarDecor />
@@ -224,14 +238,14 @@ export default function BaziInputPage() {
                     </Text>
 
                     <LocationBar
-                        city={form.city}
+                        location={form.location}
                         onPress={() => setCityPickerVisible(true)}
-                        detailText={form.timeMode === 'clock_time' ? '仅作出生地记录' : '本地时区下的校时经度'}
+                        detailText={locationDetailText}
                         placeholderDetailText={form.timeMode === 'clock_time'
                             ? '本地钟表时模式下可不选出生地'
                             : '平太阳时或真太阳时需要出生地经度'}
                         fallbackLabel={form.locationFallbackLabel}
-                        fallbackDetailText={form.locationFallbackLabel ? '原记录出生地未能自动匹配，请重新确认城市' : ''}
+                        fallbackDetailText={locationFallbackDetailText}
                     />
 
                     <View style={styles.section}>
@@ -403,15 +417,15 @@ export default function BaziInputPage() {
             <CityPicker
                 visible={cityPickerVisible}
                 onClose={() => setCityPickerVisible(false)}
-                onSelect={async (selectedCity) => {
+                onSelect={async (selectedRegion) => {
                     setForm((prev) => ({
                         ...prev,
-                        city: selectedCity,
+                        location: selectedRegion,
                         locationFallbackLabel: '',
                     }));
                     setCityPickerVisible(false);
                 }}
-                selectedCity={form.city}
+                selectedRegion={form.location}
             />
 
             <DateTimePicker

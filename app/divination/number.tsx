@@ -12,6 +12,7 @@ import StatusBarDecor from '../../src/components/StatusBarDecor';
 import { router } from 'expo-router';
 import { CustomAlert } from '../../src/components/CustomAlertProvider';
 import { Spacing, FontSize, BorderRadius } from '../../src/theme/colors';
+import { buildRegionDisplayName } from '../../src/core/city-data';
 import { BackIcon } from '../../src/components/Icons';
 import { divinateByNumber } from '../../src/core/liuyao-calc';
 import { saveRecord } from '../../src/db/database';
@@ -27,7 +28,7 @@ export default function NumberDivination() {
     const [num2, setNum2] = useState('');
     const [question, setQuestion] = useState('');
     const [loading, setLoading] = useState(false);
-    const { city, pickerVisible, openPicker, closePicker, handleSelectCity } = useLocation();
+    const { location, pickerVisible, openPicker, closePicker, handleSelectLocation } = useLocation();
 
     const handleDivinate = async () => {
         const n1 = parseInt(num1);
@@ -38,7 +39,14 @@ export default function NumberDivination() {
         }
         try {
             setLoading(true);
-            const result = divinateByNumber(n1, n2, new Date(), question, city?.longitude, city?.name);
+            const result = divinateByNumber(
+                n1,
+                n2,
+                new Date(),
+                question,
+                location?.longitude,
+                location ? buildRegionDisplayName(location) : undefined,
+            );
             await saveRecord({
                 engineType: 'liuyao',
                 result,
@@ -69,7 +77,7 @@ export default function NumberDivination() {
                 </Text>
 
                 {/* 地点选择 */}
-                <LocationBar city={city} onPress={openPicker} />
+                <LocationBar location={location} onPress={openPicker} />
 
                 <View style={styles.inputSection}>
                     <Text style={styles.sectionLabel}>输入数字</Text>
@@ -136,8 +144,8 @@ export default function NumberDivination() {
             <CityPicker
                 visible={pickerVisible}
                 onClose={closePicker}
-                onSelect={handleSelectCity}
-                selectedCity={city}
+                onSelect={handleSelectLocation}
+                selectedRegion={location}
             />
         </View>
     );

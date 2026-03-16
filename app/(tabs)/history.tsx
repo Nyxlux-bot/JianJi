@@ -4,9 +4,12 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import React, { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import {
     FlatList,
+    GestureResponderEvent,
+    Pressable,
     ScrollView,
     StyleSheet,
     Text,
@@ -14,12 +17,12 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { router, useFocusEffect } from 'expo-router';
-import StatusBarDecor from '../../src/components/StatusBarDecor';
 import ConfirmModal from '../../src/components/ConfirmModal';
-import { BorderRadius, FontSize, Spacing } from '../../src/theme/colors';
+import StatusBarDecor from '../../src/components/StatusBarDecor';
 import { ChevronRightIcon, StarIcon, TrashIcon } from '../../src/components/Icons';
 import { deleteRecord, getAllRecords, RecordSummary, toggleFavorite } from '../../src/db/database';
+import { buildZiweiHistoryRestoreRoute } from '../../src/features/ziwei/result-route';
+import { BorderRadius, FontSize, Spacing } from '../../src/theme/colors';
 import { useTheme } from '../../src/theme/ThemeContext';
 import {
     BaziHistoryCategory,
@@ -29,6 +32,7 @@ import {
     HistoryActiveEngine,
     HistoryFilterState,
     LiuyaoHistoryCategory,
+    ZiweiHistoryCategory,
 } from '../../src/utils/history-filter';
 
 const HISTORY_FILTER_STORAGE_KEY = 'history_filter_state_v2';
@@ -36,6 +40,7 @@ const HISTORY_FILTER_STORAGE_KEY = 'history_filter_state_v2';
 const ENGINE_OPTIONS: Array<{ key: HistoryActiveEngine; label: string; description: string }> = [
     { key: 'liuyao', label: '六爻', description: '时间、硬币、数字、手动起卦' },
     { key: 'bazi', label: '八字', description: '乾造、坤造与命盘收藏' },
+    { key: 'ziwei', label: '紫微', description: '紫微斗数命盘与运限记录' },
 ];
 
 const LIUYAO_CATEGORY_OPTIONS: Array<{ key: LiuyaoHistoryCategory; label: string }> = [
@@ -54,6 +59,13 @@ const BAZI_CATEGORY_OPTIONS: Array<{ key: BaziHistoryCategory; label: string }> 
     { key: 'favorite', label: '收藏' },
 ];
 
+const ZIWEI_CATEGORY_OPTIONS: Array<{ key: ZiweiHistoryCategory; label: string }> = [
+    { key: 'all', label: '全部' },
+    { key: 'male', label: '男命' },
+    { key: 'female', label: '女命' },
+    { key: 'favorite', label: '收藏' },
+];
+
 const META_LABELS: Record<string, string> = {
     time: '时间',
     coin: '硬币',
@@ -62,7 +74,109 @@ const META_LABELS: Record<string, string> = {
     kunzao: '坤造',
     qianzao: '乾造',
     bazi: '八字',
+    male: '男命',
+    female: '女命',
+    ziwei: '紫微',
 };
+
+type HistoryStyles = ReturnType<typeof makeStyles>;
+
+interface HistoryRecordRowProps {
+    id: string;
+    title: string;
+    question: string;
+    createdAtLabel: string;
+    metaLabel: string;
+    engineType: RecordSummary['engineType'];
+    isFavorite: boolean;
+    favoriteColor: string;
+    tertiaryColor: string;
+    styles: HistoryStyles;
+    onOpenRecord: (id: string, engineType: RecordSummary['engineType']) => void;
+    onToggleFavorite: (id: string) => Promise<void>;
+    onRequestDelete: (id: string, title: string) => void;
+}
+
+const HistoryRecordRow = memo(function HistoryRecordRow({
+    id,
+    title,
+    question,
+    createdAtLabel,
+    metaLabel,
+    engineType,
+    isFavorite,
+    favoriteColor,
+    tertiaryColor,
+    styles,
+    onOpenRecord,
+    onToggleFavorite,
+    onRequestDelete,
+}: HistoryRecordRowProps) {
+    const handleOpen = useCallback(() => {
+        onOpenRecord(id, engineType);
+    }, [engineType, id, onOpenRecord]);
+
+    const handleToggleFavoritePress = useCallback((event: GestureResponderEvent) => {
+        event.stopPropagation();
+        void onToggleFavorite(id);
+    }, [id, onToggleFavorite]);
+
+    const handleDeletePress = useCallback((event: GestureResponderEvent) => {
+        event.stopPropagation();
+        onRequestDelete(id, title);
+    }, [id, onRequestDelete, title]);
+
+    return (
+        <Pressable
+            style={({ pressed }) => [styles.recordCard, pressed && styles.recordCardPressed]}
+            onPress={handleOpen}
+        >
+            <View style={styles.recordMain}>
+                <Text style={styles.recordTitle} numberOfLines={1}>{title}</Text>
+                <View style={styles.recordMetaRow}>
+                    <View
+                        style={[
+                            styles.recordMetaBadge,
+                            engineType === 'bazi'
+                                ? styles.recordMetaBadgeBazi
+                                : engineType === 'ziwei'
+                                    ? styles.recordMetaBadgeZiwei
+                                    : styles.recordMetaBadgeLiuyao,
+                        ]}
+                    >
+                        <Text style={styles.recordMetaBadgeText}>{metaLabel}</Text>
+                    </View>
+                    <Text style={styles.recordMeta}>{createdAtLabel}</Text>
+                </View>
+                {question ? (
+                    <Text style={styles.recordQuestion} numberOfLines={1}>
+                        {question}
+                    </Text>
+                ) : null}
+            </View>
+            <View style={styles.recordActions}>
+                <Pressable
+                    style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
+                    onPress={handleToggleFavoritePress}
+                    hitSlop={10}
+                >
+                    <StarIcon
+                        size={17}
+                        color={isFavorite ? favoriteColor : tertiaryColor}
+                        filled={isFavorite}
+                    />
+                </Pressable>
+                <Pressable
+                    style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
+                    onPress={handleDeletePress}
+                    hitSlop={10}
+                >
+                    <TrashIcon size={16} color={tertiaryColor} />
+                </Pressable>
+            </View>
+        </Pressable>
+    );
+});
 
 function normalizeStoredFilters(raw: unknown): HistoryFilterState {
     if (!raw || typeof raw !== 'object') {
@@ -70,44 +184,44 @@ function normalizeStoredFilters(raw: unknown): HistoryFilterState {
     }
 
     const parsed = raw as Partial<HistoryFilterState>;
-    const activeEngine = parsed.activeEngine === 'bazi' ? 'bazi' : 'liuyao';
+    const activeEngine = parsed.activeEngine === 'bazi' || parsed.activeEngine === 'ziwei' ? parsed.activeEngine : 'liuyao';
     const liuyaoCategory = LIUYAO_CATEGORY_OPTIONS.some((item) => item.key === parsed.liuyaoCategory)
         ? parsed.liuyaoCategory as LiuyaoHistoryCategory
         : DEFAULT_HISTORY_FILTER.liuyaoCategory;
     const baziCategory = BAZI_CATEGORY_OPTIONS.some((item) => item.key === parsed.baziCategory)
         ? parsed.baziCategory as BaziHistoryCategory
         : DEFAULT_HISTORY_FILTER.baziCategory;
+    const ziweiCategory = ZIWEI_CATEGORY_OPTIONS.some((item) => item.key === parsed.ziweiCategory)
+        ? parsed.ziweiCategory as ZiweiHistoryCategory
+        : DEFAULT_HISTORY_FILTER.ziweiCategory;
 
     return {
         keyword: typeof parsed.keyword === 'string' ? parsed.keyword : DEFAULT_HISTORY_FILTER.keyword,
         activeEngine,
         liuyaoCategory,
         baziCategory,
+        ziweiCategory,
     };
 }
 
-function buildPersistedFilters(filter: HistoryFilterState): Pick<HistoryFilterState, 'activeEngine' | 'liuyaoCategory' | 'baziCategory'> {
+function buildPersistedFilters(filter: HistoryFilterState): Pick<HistoryFilterState, 'activeEngine' | 'liuyaoCategory' | 'baziCategory' | 'ziweiCategory'> {
     return {
         activeEngine: filter.activeEngine,
         liuyaoCategory: filter.liuyaoCategory,
         baziCategory: filter.baziCategory,
+        ziweiCategory: filter.ziweiCategory,
     };
-}
-
-function getActiveCategoryLabel(filter: HistoryFilterState): string {
-    const options = filter.activeEngine === 'liuyao' ? LIUYAO_CATEGORY_OPTIONS : BAZI_CATEGORY_OPTIONS;
-    const activeKey = filter.activeEngine === 'liuyao' ? filter.liuyaoCategory : filter.baziCategory;
-    return options.find((item) => item.key === activeKey)?.label || '全部';
 }
 
 export default function HistoryPage() {
     const { Colors } = useTheme();
-    const styles = makeStyles(Colors);
+    const styles = useMemo(() => makeStyles(Colors), [Colors]);
     const [records, setRecords] = useState<RecordSummary[]>([]);
     const [filters, setFilters] = useState<HistoryFilterState>(DEFAULT_HISTORY_FILTER);
     const [filtersReady, setFiltersReady] = useState(false);
     const [deleteModalVisible, setDeleteModalVisible] = useState(false);
     const [deletingRecord, setDeletingRecord] = useState<{ id: string; name: string } | null>(null);
+    const deferredKeyword = useDeferredValue(filters.keyword);
 
     useEffect(() => {
         let active = true;
@@ -136,7 +250,7 @@ export default function HistoryPage() {
             return;
         }
         void AsyncStorage.setItem(HISTORY_FILTER_STORAGE_KEY, JSON.stringify(buildPersistedFilters(filters)));
-    }, [filters.activeEngine, filters.baziCategory, filters.liuyaoCategory, filtersReady]);
+    }, [filters.activeEngine, filters.baziCategory, filters.liuyaoCategory, filters.ziweiCategory, filtersReady]);
 
     const loadRecords = useCallback(async () => {
         const data = await getAllRecords();
@@ -159,93 +273,101 @@ export default function HistoryPage() {
         await loadRecords();
     };
 
-    const handleDelete = (id: string, name: string) => {
+    const handleRequestDelete = useCallback((id: string, name: string) => {
         setDeletingRecord({ id, name });
         setDeleteModalVisible(true);
-    };
+    }, []);
 
-    const handleToggleFavorite = async (id: string) => {
+    const handleToggleFavorite = useCallback(async (id: string) => {
         await toggleFavorite(id);
         await loadRecords();
-    };
+    }, [loadRecords]);
+
+    const handleOpenRecord = useCallback((id: string, engineType: RecordSummary['engineType']) => {
+        if (engineType === 'bazi') {
+            router.push(`/bazi/result/${id}`);
+            return;
+        }
+        if (engineType === 'ziwei') {
+            router.push(buildZiweiHistoryRestoreRoute(id));
+            return;
+        }
+        router.push(`/result/${id}`);
+    }, []);
 
     const filteredRecords = useMemo(
-        () => filterHistoryRecords(records, filters),
-        [records, filters],
+        () => filterHistoryRecords(records, {
+            ...filters,
+            keyword: deferredKeyword,
+        }),
+        [deferredKeyword, filters, records],
     );
 
     const currentEngineOption = ENGINE_OPTIONS.find((item) => item.key === filters.activeEngine) || ENGINE_OPTIONS[0];
-    const currentCategoryOptions = filters.activeEngine === 'liuyao' ? LIUYAO_CATEGORY_OPTIONS : BAZI_CATEGORY_OPTIONS;
+    const currentCategoryOptions = filters.activeEngine === 'liuyao'
+        ? LIUYAO_CATEGORY_OPTIONS
+        : filters.activeEngine === 'bazi'
+            ? BAZI_CATEGORY_OPTIONS
+            : ZIWEI_CATEGORY_OPTIONS;
 
-    const formatDate = (iso: string) => {
+    const formatDate = useCallback((iso: string) => {
         const d = new Date(iso);
         const mm = String(d.getMonth() + 1).padStart(2, '0');
         const dd = String(d.getDate()).padStart(2, '0');
         const hh = String(d.getHours()).padStart(2, '0');
         const mi = String(d.getMinutes()).padStart(2, '0');
         return `${d.getFullYear()}-${mm}-${dd} ${hh}:${mi}`;
-    };
+    }, []);
 
-    const handleEngineChange = (engine: HistoryActiveEngine) => {
+    const handleEngineChange = useCallback((engine: HistoryActiveEngine) => {
         setFilters((prev) => ({
             ...prev,
             activeEngine: engine,
         }));
-    };
+    }, []);
 
-    const handleCategoryChange = (category: LiuyaoHistoryCategory | BaziHistoryCategory) => {
+    const handleCategoryChange = useCallback((category: LiuyaoHistoryCategory | BaziHistoryCategory | ZiweiHistoryCategory) => {
         setFilters((prev) => (
             prev.activeEngine === 'liuyao'
                 ? { ...prev, liuyaoCategory: category as LiuyaoHistoryCategory }
-                : { ...prev, baziCategory: category as BaziHistoryCategory }
+                : prev.activeEngine === 'bazi'
+                    ? { ...prev, baziCategory: category as BaziHistoryCategory }
+                    : { ...prev, ziweiCategory: category as ZiweiHistoryCategory }
         ));
-    };
+    }, []);
 
-    const renderItem = ({ item }: { item: RecordSummary }) => {
+    const keyExtractor = useCallback((item: RecordSummary) => item.id, []);
+
+    const renderItem = useCallback(({ item }: { item: RecordSummary }) => {
         const metaLabelKey = getHistoryMetaLabel(item);
         const metaLabel = META_LABELS[metaLabelKey] || item.engineType;
 
         return (
-            <TouchableOpacity
-                style={styles.recordCard}
-                activeOpacity={0.76}
-                onPress={() => router.push(item.engineType === 'bazi' ? `/bazi/result/${item.id}` : `/result/${item.id}`)}
-            >
-                <View style={styles.recordMain}>
-                    <Text style={styles.recordTitle} numberOfLines={1}>{item.title}</Text>
-                    <View style={styles.recordMetaRow}>
-                        <View style={[styles.recordMetaBadge, item.engineType === 'bazi' ? styles.recordMetaBadgeBazi : styles.recordMetaBadgeLiuyao]}>
-                            <Text style={styles.recordMetaBadgeText}>{metaLabel}</Text>
-                        </View>
-                        <Text style={styles.recordMeta}>{formatDate(item.createdAt)}</Text>
-                    </View>
-                    {item.question ? (
-                        <Text style={styles.recordQuestion} numberOfLines={1}>
-                            {item.question}
-                        </Text>
-                    ) : null}
-                </View>
-                <View style={styles.recordActions}>
-                    <TouchableOpacity
-                        style={styles.actionBtn}
-                        onPress={() => {
-                            void handleToggleFavorite(item.id);
-                        }}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    >
-                        <StarIcon size={17} color={item.isFavorite ? Colors.accent.gold : Colors.text.tertiary} filled={item.isFavorite} />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={styles.actionBtn}
-                        onPress={() => handleDelete(item.id, item.title)}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    >
-                        <TrashIcon size={16} color={Colors.text.tertiary} />
-                    </TouchableOpacity>
-                </View>
-            </TouchableOpacity>
+            <HistoryRecordRow
+                id={item.id}
+                title={item.title}
+                question={item.question}
+                createdAtLabel={formatDate(item.createdAt)}
+                metaLabel={metaLabel}
+                engineType={item.engineType}
+                isFavorite={item.isFavorite}
+                favoriteColor={Colors.accent.gold}
+                tertiaryColor={Colors.text.tertiary}
+                styles={styles}
+                onOpenRecord={handleOpenRecord}
+                onToggleFavorite={handleToggleFavorite}
+                onRequestDelete={handleRequestDelete}
+            />
         );
-    };
+    }, [
+        Colors.accent.gold,
+        Colors.text.tertiary,
+        formatDate,
+        handleOpenRecord,
+        handleRequestDelete,
+        handleToggleFavorite,
+        styles,
+    ]);
 
     return (
         <View style={styles.container}>
@@ -274,6 +396,7 @@ export default function HistoryPage() {
                                 key={option.key}
                                 style={[styles.engineSegmentBtn, active && styles.engineSegmentBtnActive]}
                                 onPress={() => handleEngineChange(option.key)}
+                                activeOpacity={0.78}
                             >
                                 <Text style={[styles.engineSegmentTitle, active && styles.engineSegmentTitleActive]}>
                                     {option.label}
@@ -294,12 +417,15 @@ export default function HistoryPage() {
                     {currentCategoryOptions.map((option) => {
                         const active = filters.activeEngine === 'liuyao'
                             ? filters.liuyaoCategory === option.key
-                            : filters.baziCategory === option.key;
+                            : filters.activeEngine === 'bazi'
+                                ? filters.baziCategory === option.key
+                                : filters.ziweiCategory === option.key;
                         return (
                             <TouchableOpacity
                                 key={option.key}
                                 style={[styles.filterChip, active && styles.filterChipActive]}
                                 onPress={() => handleCategoryChange(option.key)}
+                                activeOpacity={0.78}
                             >
                                 <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
                                     {option.label}
@@ -323,10 +449,12 @@ export default function HistoryPage() {
             ) : (
                 <FlatList
                     data={filteredRecords}
-                    keyExtractor={(item) => item.id}
+                    keyExtractor={keyExtractor}
                     renderItem={renderItem}
                     contentContainerStyle={styles.listContent}
                     showsVerticalScrollIndicator={false}
+                    initialNumToRender={12}
+                    windowSize={8}
                 />
             )}
 
@@ -398,14 +526,6 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     engineSegmentTitleActive: {
         color: Colors.accent.gold,
     },
-    engineSegmentDesc: {
-        fontSize: FontSize.xs,
-        color: Colors.text.tertiary,
-        lineHeight: 18,
-    },
-    engineSegmentDescActive: {
-        color: Colors.text.secondary,
-    },
     categoryHeader: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -416,10 +536,6 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         fontSize: FontSize.sm,
         color: Colors.text.secondary,
         fontWeight: '600',
-    },
-    categorySummary: {
-        fontSize: FontSize.xs,
-        color: Colors.text.tertiary,
     },
     categoryScrollContent: {
         gap: Spacing.sm,
@@ -460,10 +576,8 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         borderColor: Colors.border.subtle,
         gap: Spacing.sm,
     },
-    recordContent: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: Spacing.sm,
+    recordCardPressed: {
+        opacity: 0.82,
     },
     recordMain: {
         flex: 1,
@@ -473,10 +587,6 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         fontSize: FontSize.lg,
         color: Colors.text.heading,
         fontWeight: '500',
-    },
-    recordSubtitle: {
-        fontSize: FontSize.sm,
-        color: Colors.text.secondary,
     },
     recordMetaRow: {
         flexDirection: 'row',
@@ -501,6 +611,11 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         borderWidth: 1,
         borderColor: Colors.accent.gold,
     },
+    recordMetaBadgeZiwei: {
+        backgroundColor: Colors.bg.elevated,
+        borderWidth: 1,
+        borderColor: '#6fa4ff',
+    },
     recordMetaBadgeText: {
         fontSize: FontSize.xs,
         color: Colors.text.secondary,
@@ -520,25 +635,32 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         gap: Spacing.xs,
     },
     actionBtn: {
-        width: 44,
-        height: 44,
-        justifyContent: 'center',
+        width: 36,
+        height: 36,
         alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 18,
+        backgroundColor: Colors.bg.elevated,
+    },
+    actionBtnPressed: {
+        opacity: 0.72,
     },
     empty: {
         flex: 1,
-        justifyContent: 'center',
         alignItems: 'center',
+        justifyContent: 'center',
         paddingHorizontal: Spacing.xl,
     },
     emptyText: {
         fontSize: FontSize.lg,
-        color: Colors.text.tertiary,
+        color: Colors.text.heading,
+        fontWeight: '500',
     },
     emptyHint: {
+        marginTop: Spacing.sm,
         fontSize: FontSize.sm,
         color: Colors.text.tertiary,
-        marginTop: Spacing.sm,
         textAlign: 'center',
+        lineHeight: 22,
     },
 });

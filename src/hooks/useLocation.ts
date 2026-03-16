@@ -4,25 +4,25 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { CityInfo } from '../core/city-data';
+import { RegionSelection } from '../core/city-data';
 import { getLocation, saveLocation, clearLocation } from '../services/location';
 
 export function useLocation() {
-    const [city, setCity] = useState<CityInfo | null>(null);
+    const [location, setLocation] = useState<RegionSelection | null>(null);
     const [pickerVisible, setPickerVisible] = useState(false);
 
     useEffect(() => {
-        getLocation().then(saved => {
-            if (saved) setCity(saved);
+        getLocation().then((saved) => {
+            if (saved) setLocation(saved);
         });
     }, []);
 
-    const handleSelectCity = useCallback(async (selected: CityInfo | null) => {
+    const handleSelectLocation = useCallback(async (selected: RegionSelection | null) => {
         if (selected) {
-            setCity(selected);
+            setLocation(selected);
             await saveLocation(selected);
         } else {
-            setCity(null);
+            setLocation(null);
             await clearLocation();
         }
     }, []);
@@ -31,10 +31,10 @@ export function useLocation() {
     const closePicker = useCallback(() => setPickerVisible(false), []);
 
     return {
-        city,
+        location,
         pickerVisible,
         openPicker,
         closePicker,
-        handleSelectCity,
+        handleSelectLocation,
     };
 }

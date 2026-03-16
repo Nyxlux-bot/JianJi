@@ -6,10 +6,17 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit",
+    "test": "jest --runInBand --passWithNoTests",
+    "test:ziwei": "jest --runInBand --runTestsByPath src/features/ziwei/view-model.test.ts src/features/ziwei/brightness/tile-layout.test.ts src/features/ziwei/brightness/ziwei-brightness-baseline.test.ts src/features/ziwei/brightness/zoom-layout.test.ts src/services/ai.test.ts src/__localtests__/ziwei-ai.test.ts src/__localtests__/ziwei-records.test.ts src/__localtests__/ziwei-brightness-injection.test.ts src/__localtests__/ziwei-adapter.test.ts src/__localtests__/ziwei-result-bootstrap.test.ts src/__localtests__/ziwei-result-route.test.ts"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",
+    "@formatjs/intl-pluralrules": "^6.2.3",
+    "@province-city-china/area": "^8.5.8",
+    "@province-city-china/city": "^8.5.8",
+    "@province-city-china/province": "^8.5.8",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "date-fns": "^4.1.0",
     "expo": "~54.0.33",
@@ -23,6 +30,7 @@
     "expo-sqlite": "~16.0.10",
     "expo-status-bar": "~3.0.9",
     "expo-updates": "~29.0.16",
+    "iztro": "^2.5.8",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",

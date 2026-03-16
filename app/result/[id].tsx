@@ -63,6 +63,9 @@ export default function ResultPage() {
                     } else if (detail.engineType === 'liuyao') {
                         setResult(detail.result);
                         setScreenState('ready');
+                    } else if (detail.engineType === 'ziwei') {
+                        router.replace(`/ziwei/result/${id}`);
+                        return;
                     } else {
                         router.replace(`/bazi/result/${id}`);
                         return;

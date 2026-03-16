@@ -13,6 +13,7 @@ import { router } from 'expo-router';
 import { CustomAlert } from '../../src/components/CustomAlertProvider';
 import { Spacing, FontSize, BorderRadius } from '../../src/theme/colors';
 import { BackIcon, ChevronRightIcon } from '../../src/components/Icons';
+import { buildRegionDisplayName } from '../../src/core/city-data';
 import { divinateByTime } from '../../src/core/liuyao-calc';
 import { saveRecord } from '../../src/db/database';
 import LocationBar from '../../src/components/LocationBar';
@@ -29,7 +30,7 @@ export default function TimeDivination() {
 
     const [question, setQuestion] = useState('');
     const [loading, setLoading] = useState(false);
-    const { city, pickerVisible: cityPickerVisible, openPicker: openCityPicker, closePicker: closeCityPicker, handleSelectCity } = useLocation();
+    const { location, pickerVisible: cityPickerVisible, openPicker: openCityPicker, closePicker: closeCityPicker, handleSelectLocation } = useLocation();
 
     const handleDivinate = async () => {
         try {
@@ -40,7 +41,12 @@ export default function TimeDivination() {
                 return;
             }
 
-            const result = divinateByTime(selectedDate, question, city?.longitude, city?.name);
+            const result = divinateByTime(
+                selectedDate,
+                question,
+                location?.longitude,
+                location ? buildRegionDisplayName(location) : undefined,
+            );
             await saveRecord({
                 engineType: 'liuyao',
                 result,
@@ -79,7 +85,7 @@ export default function TimeDivination() {
                 </Text>
 
                 {/* 地点选择 */}
-                <LocationBar city={city} onPress={openCityPicker} />
+                <LocationBar location={location} onPress={openCityPicker} />
 
                 {/* 日期选择展示块（精简版） */}
                 <View style={styles.dateSection}>
@@ -126,8 +132,8 @@ export default function TimeDivination() {
             <CityPicker
                 visible={cityPickerVisible}
                 onClose={closeCityPicker}
-                onSelect={handleSelectCity}
-                selectedCity={city}
+                onSelect={handleSelectLocation}
+                selectedRegion={location}
             />
 
             <DateTimePicker

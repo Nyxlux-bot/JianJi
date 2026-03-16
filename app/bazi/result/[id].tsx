@@ -214,7 +214,7 @@ export default function BaziResultPage() {
                 return;
             }
             if (detail.engineType !== 'bazi') {
-                router.replace(`/result/${id}`);
+                router.replace(detail.engineType === 'ziwei' ? `/ziwei/result/${id}` : `/result/${id}`);
                 return;
             }
             const normalized = normalizeBaziResultV2(detail.result);

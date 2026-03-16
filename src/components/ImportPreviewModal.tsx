@@ -78,7 +78,7 @@ export default function ImportPreviewModal({
     const renderItem = ({ item }: { item: DivinationRecordEnvelope }) => {
         const checked = selectedIds.has(item.result.id);
         const summary = buildSummaryFields(item);
-        const engineLabel = item.engineType === 'bazi' ? '八字' : '六爻';
+        const engineLabel = item.engineType === 'bazi' ? '八字' : item.engineType === 'ziwei' ? '紫微' : '六爻';
         return (
             <TouchableOpacity style={styles.recordRow} onPress={() => toggleRecord(item.result.id)}>
                 <View style={[styles.checkbox, checked && styles.checkboxChecked]}>

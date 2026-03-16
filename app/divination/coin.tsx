@@ -11,6 +11,7 @@ import StatusBarDecor from '../../src/components/StatusBarDecor';
 import { router } from 'expo-router';
 import { CustomAlert } from '../../src/components/CustomAlertProvider';
 import { Spacing, FontSize, BorderRadius } from '../../src/theme/colors';
+import { buildRegionDisplayName } from '../../src/core/city-data';
 import { BackIcon } from '../../src/components/Icons';
 import { YaoValue } from '../../src/core/liuyao-data';
 import { divinateByCoin } from '../../src/core/liuyao-calc';
@@ -177,7 +178,7 @@ export default function CoinDivination() {
     const [savingResult, setSavingResult] = useState(false);
     const [question, setQuestion] = useState('');
     const currentYao = results.length;
-    const { city, pickerVisible, openPicker, closePicker, handleSelectCity } = useLocation();
+    const { location, pickerVisible, openPicker, closePicker, handleSelectLocation } = useLocation();
 
     const coinA = useCoinMotionState();
     const coinB = useCoinMotionState();
@@ -228,7 +229,13 @@ export default function CoinDivination() {
 
     const handleComplete = async () => {
         if (results.length !== 6 || savingResult) return;
-        const result = divinateByCoin(results, new Date(), question, city?.longitude, city?.name);
+        const result = divinateByCoin(
+            results,
+            new Date(),
+            question,
+            location?.longitude,
+            location ? buildRegionDisplayName(location) : undefined,
+        );
 
         const persistWithRetry = async (): Promise<boolean> => {
             const maxAttempts = 3;
@@ -291,7 +298,7 @@ export default function CoinDivination() {
                     />
                 </View>
 
-                <LocationBar city={city} onPress={openPicker} />
+                <LocationBar location={location} onPress={openPicker} />
 
                 <View style={styles.coinSection}>
                     <View style={styles.coinsDisplay}>
@@ -376,8 +383,8 @@ export default function CoinDivination() {
             <CityPicker
                 visible={pickerVisible}
                 onClose={closePicker}
-                onSelect={handleSelectCity}
-                selectedCity={city}
+                onSelect={handleSelectLocation}
+                selectedRegion={location}
             />
         </View>
     );

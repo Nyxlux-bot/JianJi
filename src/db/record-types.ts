@@ -1,10 +1,16 @@
+import {
+    AIConversationStage,
+    ZiweiAIConversationDigest,
+} from '../core/ai-meta';
 import { BaziResult } from '../core/bazi-types';
 import { PanResult } from '../core/liuyao-calc';
 import { DivinationMethod } from '../core/liuyao-data';
+import { ZiweiRecordResult } from '../features/ziwei/record';
+import { ZIWEI_SUPPORTED_TIMEZONE_OFFSET_MINUTES } from '../features/ziwei/runtime-meta';
 
-export type DivinationEngine = 'liuyao' | 'bazi';
+export type DivinationEngine = 'liuyao' | 'bazi' | 'ziwei';
 
-export type DivinationResult = PanResult | BaziResult;
+export type DivinationResult = PanResult | BaziResult | ZiweiRecordResult;
 
 const LIUYAO_METHODS: readonly DivinationMethod[] = ['time', 'coin', 'number', 'manual'];
 
@@ -44,12 +50,133 @@ function isStringArray(value: unknown): value is string[] {
     return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }
 
+function isPersistedAIChatMessage(value: unknown): boolean {
+    return isObject(value)
+        && (value.role === 'user' || value.role === 'assistant')
+        && typeof value.content === 'string'
+        && (value.hidden === undefined || typeof value.hidden === 'boolean')
+        && (value.requestContent === undefined || typeof value.requestContent === 'string');
+}
+
+function isPersistedAIChatHistory(value: unknown): boolean {
+    return Array.isArray(value) && value.every((item) => isPersistedAIChatMessage(item));
+}
+
 function isBaziTimeMode(value: unknown): boolean {
     return value === 'clock_time' || value === 'mean_solar_time' || value === 'true_solar_time';
 }
 
 function isBaziZiHourMode(value: unknown): boolean {
     return value === 'late_zi_next_day' || value === 'early_zi_same_day';
+}
+
+function isZiweiCalendarType(value: unknown): boolean {
+    return value === 'solar' || value === 'lunar';
+}
+
+function isZiweiGender(value: unknown): boolean {
+    return value === 'male' || value === 'female';
+}
+
+function isZiweiConfigOptions(value: unknown): boolean {
+    return isObject(value)
+        && (value.algorithm === 'default' || value.algorithm === 'zhongzhou')
+        && (value.yearDivide === 'normal' || value.yearDivide === 'exact')
+        && (value.horoscopeDivide === 'normal' || value.horoscopeDivide === 'exact')
+        && (value.dayDivide === 'forward' || value.dayDivide === 'current')
+        && (value.astroType === 'heaven' || value.astroType === 'earth' || value.astroType === 'human');
+}
+
+function isZiweiLunarInput(value: unknown): boolean {
+    return !value || (
+        isObject(value)
+        && isFiniteNumber(value.year)
+        && isFiniteNumber(value.month)
+        && isFiniteNumber(value.day)
+        && typeof value.isLeapMonth === 'boolean'
+        && (value.label === undefined || typeof value.label === 'string')
+    );
+}
+
+function isZiweiAIContextSnapshot(value: unknown): boolean {
+    return !value || (
+        isObject(value)
+        && typeof value.inputSummary === 'string'
+        && typeof value.trueSolarSummary === 'string'
+        && typeof value.chartSummary === 'string'
+        && typeof value.palaceSummary === 'string'
+        && typeof value.scopeSummary === 'string'
+        && (value.defaultPalaceName === undefined || typeof value.defaultPalaceName === 'string')
+        && (value.promptSeed === undefined || typeof value.promptSeed === 'string')
+        && (value.promptVersion === undefined || isFiniteNumber(value.promptVersion))
+        && (
+            value.ruleSignature === undefined
+            || (
+                isObject(value.ruleSignature)
+                && isFiniteNumber(value.ruleSignature.promptSeedVersion)
+                && typeof value.ruleSignature.iztroVersion === 'string'
+                && isFiniteNumber(value.ruleSignature.brightnessBaselineVersion)
+            )
+        )
+    );
+}
+
+function isZiweiChartSnapshot(value: unknown): boolean {
+    return !value || (
+        isObject(value)
+        && value.version === 1
+        && isObject(value.staticMeta)
+        && typeof value.staticMeta.lunarDate === 'string'
+        && typeof value.staticMeta.chineseDate === 'string'
+        && typeof value.staticMeta.fiveElementsClass === 'string'
+        && typeof value.staticMeta.soul === 'string'
+        && typeof value.staticMeta.body === 'string'
+        && typeof value.staticMeta.birthLocal === 'string'
+        && typeof value.staticMeta.trueSolarDateTimeLocal === 'string'
+        && typeof value.staticMeta.timeLabel === 'string'
+        && typeof value.staticMeta.timeRange === 'string'
+        && isObject(value.workbenchLayout)
+        && Array.isArray(value.workbenchLayout.ringCells)
+        && isObject(value.workbenchLayout.byPalaceName)
+        && Array.isArray(value.palaces)
+        && isObject(value.baseBoard)
+        && typeof value.baseBoard.selectedPalaceName === 'string'
+        && isObject(value.baseBoard.byPalaceName)
+        && isObject(value.baseBoard.centerPanel)
+        && typeof value.baseBoard.centerPanel.focusTitle === 'string'
+        && typeof value.baseBoard.centerPanel.scopeState === 'string'
+        && typeof value.baseBoard.centerPanel.scopeSummary === 'string'
+        && isStringArray(value.baseBoard.centerPanel.summaryItems)
+        && Array.isArray(value.baseBoard.centerPanel.mutagenBadges)
+    );
+}
+
+function isAIConversationStage(value: unknown): value is AIConversationStage {
+    return value === 'foundation_pending'
+        || value === 'foundation_ready'
+        || value === 'verification_ready'
+        || value === 'followup_ready';
+}
+
+function isZiweiConversationFoundation(value: unknown): value is ZiweiAIConversationDigest['foundation'] {
+    return isObject(value)
+        && typeof value.lifeTheme === 'string'
+        && typeof value.mingPalace === 'string'
+        && typeof value.bodySoul === 'string'
+        && typeof value.mutagenDynamics === 'string'
+        && typeof value.personality === 'string';
+}
+
+function isZiweiConversationDigest(value: unknown): value is ZiweiAIConversationDigest {
+    return isObject(value)
+        && isFiniteNumber(value.version)
+        && typeof value.generatedAt === 'string'
+        && isZiweiConversationFoundation(value.foundation)
+        && typeof value.verificationSummary === 'string'
+        && typeof value.fiveYearSummary === 'string'
+        && typeof value.rollingSummary === 'string'
+        && isObject(value.topicNotes)
+        && Object.values(value.topicNotes).every((item) => typeof item === 'string');
 }
 
 export function isDivinationMethod(value: unknown): value is DivinationMethod {
@@ -131,12 +258,63 @@ export function isBaziResult(value: unknown): value is BaziResult {
         && hasValidSchoolOptions;
 }
 
+export function isZiweiRecordResult(value: unknown): value is ZiweiRecordResult {
+    if (!isObject(value)) {
+        return false;
+    }
+    const candidate = value as Partial<ZiweiRecordResult>;
+
+    return typeof candidate.id === 'string'
+        && typeof candidate.createdAt === 'string'
+        && typeof candidate.birthLocal === 'string'
+        && isFiniteNumber(candidate.longitude)
+        && isZiweiGender(candidate.gender)
+        && candidate.tzOffsetMinutes === ZIWEI_SUPPORTED_TIMEZONE_OFFSET_MINUTES
+        && typeof candidate.daylightSavingEnabled === 'boolean'
+        && isZiweiCalendarType(candidate.calendarType)
+        && isZiweiLunarInput(candidate.lunar)
+        && isZiweiConfigOptions(candidate.config)
+        && (candidate.name === undefined || typeof candidate.name === 'string')
+        && (candidate.cityLabel === undefined || typeof candidate.cityLabel === 'string')
+        && typeof candidate.solarDate === 'string'
+        && typeof candidate.trueSolarDateTimeLocal === 'string'
+        && isZiweiLunarInput(candidate.trueSolarLunar)
+        && isFiniteNumber(candidate.timeIndex)
+        && typeof candidate.timeLabel === 'string'
+        && typeof candidate.timeRange === 'string'
+        && typeof candidate.lunarDate === 'string'
+        && typeof candidate.chineseDate === 'string'
+        && typeof candidate.fiveElementsClass === 'string'
+        && typeof candidate.soul === 'string'
+        && typeof candidate.body === 'string'
+        && (candidate.aiAnalysis === undefined || typeof candidate.aiAnalysis === 'string')
+        && (candidate.aiChatHistory === undefined || isPersistedAIChatHistory(candidate.aiChatHistory))
+        && (candidate.quickReplies === undefined || isStringArray(candidate.quickReplies))
+        && (candidate.aiConversationDigest === undefined || isZiweiConversationDigest(candidate.aiConversationDigest))
+        && (candidate.aiConversationStage === undefined || isAIConversationStage(candidate.aiConversationStage))
+        && (candidate.aiVerificationSummary === undefined || typeof candidate.aiVerificationSummary === 'string')
+        && isZiweiAIContextSnapshot(candidate.aiContextSnapshot)
+        && isZiweiChartSnapshot(candidate.chartSnapshot)
+        && (
+            candidate.ruleSignature === undefined
+            || (
+                isObject(candidate.ruleSignature)
+                && isFiniteNumber(candidate.ruleSignature.promptSeedVersion)
+                && typeof candidate.ruleSignature.iztroVersion === 'string'
+                && isFiniteNumber(candidate.ruleSignature.brightnessBaselineVersion)
+            )
+        );
+}
+
 export function inferEngineFromResult(result: unknown): DivinationEngine {
     if (isPanResult(result)) {
         return 'liuyao';
     }
     if (isBaziResult(result)) {
         return 'bazi';
+    }
+    if (isZiweiRecordResult(result)) {
+        return 'ziwei';
     }
     throw new Error('无法识别记录引擎类型');
 }
@@ -153,6 +331,20 @@ export function buildSummaryFields(envelope: DivinationRecordEnvelope): RecordSu
             question: summary?.question ?? result.question ?? '',
             title: summary?.title || result.benGua.fullName,
             subtitle: summary?.subtitle ?? result.bianGua?.fullName ?? '',
+        };
+    }
+
+    if (engineType === 'ziwei') {
+        if (!isZiweiRecordResult(result)) {
+            throw new Error('紫微记录结构非法');
+        }
+        const genderLabel = result.gender === 'male' ? '男命' : '女命';
+
+        return {
+            method: summary?.method || result.gender,
+            question: summary?.question ?? '',
+            title: summary?.title || result.name?.trim() || '紫微命盘',
+            subtitle: summary?.subtitle ?? `${genderLabel} · ${result.cityLabel || '未设置出生地'} · ${result.fiveElementsClass}`,
         };
     }
 

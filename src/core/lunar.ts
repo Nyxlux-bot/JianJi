@@ -119,11 +119,22 @@ function leapMonth(y: number): number {
     return LUNAR_INFO[idx] & 0xf;
 }
 
+export function getLunarLeapMonth(year: number): number {
+    return leapMonth(year);
+}
+
 /** 获取农历某月天数 */
 function monthDays(y: number, m: number): number {
     const idx = y - 1900;
     if (idx < 0 || idx >= LUNAR_INFO.length) return 29;
     return (LUNAR_INFO[idx] & (0x10000 >> m)) ? 30 : 29;
+}
+
+export function getLunarMonthDays(year: number, month: number, isLeap: boolean = false): number {
+    if (isLeap && leapMonth(year) === month) {
+        return leapDays(year);
+    }
+    return monthDays(year, month);
 }
 
 export interface LunarDate {
@@ -147,6 +158,23 @@ const DAY_CN = [
     '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十',
     '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十',
 ];
+
+export function getLunarMonthName(month: number): string {
+    return MONTH_CN[month - 1] || `${month}`;
+}
+
+export function getLunarDayName(day: number): string {
+    return DAY_CN[day] || `${day}`;
+}
+
+export function formatLunarDateLabel(input: {
+    year: number;
+    month: number;
+    day: number;
+    isLeap: boolean;
+}): string {
+    return `${input.year}年${input.isLeap ? '闰' : ''}${getLunarMonthName(input.month)}月${getLunarDayName(input.day)}`;
+}
 
 /** 公历转农历 */
 export function solarToLunar(date: Date): LunarDate {

@@ -6,12 +6,12 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Spacing, FontSize, BorderRadius } from '../theme/colors';
-import { CityInfo } from '../core/city-data';
+import { buildRegionDisplayName, RegionSelection } from '../core/city-data';
 import { LocationIcon, ChevronRightIcon } from './Icons';
-import { useTheme } from "../theme/ThemeContext";
+import { useTheme } from '../theme/ThemeContext';
 
 interface LocationBarProps {
-    city: CityInfo | null;
+    location: RegionSelection | null;
     onPress: () => void;
     detailText?: string;
     placeholderDetailText?: string;
@@ -20,7 +20,7 @@ interface LocationBarProps {
 }
 
 export default function LocationBar({
-    city,
+    location,
     onPress,
     detailText = '真太阳时校准',
     placeholderDetailText = '使用真太阳时校准时辰',
@@ -34,11 +34,11 @@ export default function LocationBar({
             <View style={styles.iconContainer}>
                 <LocationIcon size={20} color={Colors.accent.red} />
             </View>
-            {city ? (
+            {location ? (
                 <View style={styles.info}>
-                    <Text style={styles.cityName}>{city.name}</Text>
+                    <Text style={styles.cityName}>{buildRegionDisplayName(location)}</Text>
                     <Text style={styles.detail}>
-                        E{city.longitude.toFixed(2)}° · {detailText}
+                        E{location.longitude.toFixed(2)}° · {detailText}
                     </Text>
                 </View>
             ) : fallbackLabel ? (
