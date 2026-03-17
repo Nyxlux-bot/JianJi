@@ -21,7 +21,11 @@ import { getMonthGeneralByJieqi, getMoonPhase } from '../core/time-signs';
 import ichingData from '../data/iching.json';
 import { ZiweiFormatterContext } from '../features/ziwei/ai-context';
 import {
-    isZiweiRuleSignatureCurrent,
+    buildZiweiStageContext,
+    type ZiweiAIWorkflowStage,
+} from '../features/ziwei/ai-serializer';
+import {
+    isZiweiContextSnapshotCurrent,
     ZiweiRecordResult,
 } from '../features/ziwei/record';
 import { formatBaziToText } from './bazi-formatter';
@@ -56,12 +60,13 @@ const BAZI_FALLBACK_QUICK_REPLIES = [
     '未来哪年感情波动大',
     '未来五年事业发力点',
 ];
-const ZIWEI_DIGEST_VERSION = 1;
+const ZIWEI_DIGEST_VERSION = 2;
 const ZIWEI_FOUNDATION_PROMPT = [
     '当前只执行紫微斗数工作流的第一阶段：基础命盘分析。',
     '本阶段只允许输出基础定盘，不允许输出前事核验，不允许输出未来趋势，也不允许向用户追问。',
     '请严格按顺序解读：命宫/身宫/命主身主/五行局 → 主星辅曜杂耀 → 三方四正 → 生年四化与飞化重心。',
     '每个结论都必须明确指出来自哪一宫、哪些星曜、哪些四化或哪些三方四正结构，不得跳步下结论。',
+    '每个结构化小节都至少引用 1 个宫位与 1 组星曜/四化依据。',
     '只解释系统已给出的盘，不得自行补盘、改盘、切换门派规则，不得把别的流派规则硬套到当前 config 上。',
     '输出至少 3 个结构化小节，分别覆盖：命格主轴、性格/能力结构、人生发力方向。',
     '本阶段全部内容写完后，必须在最后单独一行输出：[[ZIWEI_STAGE:FOUNDATION_DONE]]',
@@ -70,6 +75,15 @@ const ZIWEI_VERIFICATION_PROMPT = [
     '基础命盘分析已经完成，现在开始紫微斗数工作流第二阶段：前事核验。',
     '请只输出前事核验，不要重复基础定盘，不要进入未来趋势。',
     '请列出 3 到 5 个过去关键阶段，每条必须包含：年龄或年份、可能应事、对应运限层、对应宫位/星曜/四化依据。',
+    '每条都必须明确写出时间点，并至少引用 1 个运限层与 1 组宫位/星曜/四化证据。',
+    '格式硬约束：必须拆成 3 到 5 个独立事件点；每个事件点单独成段，优先用“1. 2019年（虚岁2岁）：标题”或“• 时间点：2019年（虚岁2岁）”这种可识别标题开头。',
+    '不要把多个年份揉成一大段，不要只写总述，不要省略“运限层”或“宫位/星曜/四化依据”。',
+    '最小格式示例：',
+    '1. 2019年（虚岁2岁）：家庭与照护环境变化',
+    '• 时间点：2019年（己亥年）',
+    '• 可能应事：……',
+    '• 运限层：大限命宫｜流年父母',
+    '• 宫位/星曜/四化依据：……',
     '请优先写成编号列表，避免空泛描述，避免“可能有事发生”这类无信息句。',
     '本阶段全部内容写完后，必须在最后单独一行输出：[[ZIWEI_STAGE:VERIFICATION_DONE]]',
 ].join('\n');
@@ -137,10 +151,35 @@ export interface AIChatMessage {
     content: string;
 }
 
+export interface AIRequestDebugMeta {
+    mode: 'liuyao' | 'bazi' | 'ziwei';
+    requestType: 'main' | 'digest' | 'quick_replies';
+    workflowStage?: 'foundation' | 'verification' | 'five_year' | 'followup';
+    usedPromptSeed?: boolean;
+    usedDynamicEvidencePack?: boolean;
+    usedDigest?: boolean;
+    systemCharCount: number;
+    messageCount: number;
+    yearWindow?: string;
+    focusPalaceName?: string;
+    scopeLabel?: string;
+    compatibilityMode?: boolean;
+}
+
+export interface AIRequestBundle {
+    messages: AIChatMessage[];
+    debugMeta?: AIRequestDebugMeta;
+}
+
+export interface AIRequestBuildContext {
+    workflowStage?: 'foundation' | 'verification' | 'five_year' | 'followup';
+}
+
 export interface AIRequestOptions {
     temperature?: number;
     maxTokens?: number;
     stage?: string;
+    debugMeta?: AIRequestDebugMeta;
 }
 
 function isBaziResult(result: PanResult | BaziResult | ZiweiRecordResult): result is BaziResult {
@@ -423,6 +462,286 @@ function resolveBaziFutureWindow(now: Date = new Date()): { currentYear: number;
     };
 }
 
+const ZIWEI_PALACE_KEYWORDS = [
+    '命宫',
+    '兄弟',
+    '夫妻',
+    '子女',
+    '财帛',
+    '疾厄',
+    '迁移',
+    '仆役',
+    '交友',
+    '朋友',
+    '官禄',
+    '田宅',
+    '福德',
+    '父母',
+];
+const ZIWEI_DEFAULT_STAR_KEYWORDS = [
+    '紫微',
+    '天机',
+    '太阳',
+    '武曲',
+    '天同',
+    '廉贞',
+    '天府',
+    '太阴',
+    '贪狼',
+    '巨门',
+    '天相',
+    '天梁',
+    '七杀',
+    '破军',
+    '文昌',
+    '文曲',
+    '左辅',
+    '右弼',
+    '擎羊',
+    '陀罗',
+    '火星',
+    '铃星',
+    '禄存',
+    '天马',
+    '地空',
+    '地劫',
+];
+const ZIWEI_SCOPE_OR_MUTAGEN_REGEX = /(大限|小限|流年|流月|流日|流时|四化|生年四化|飞化|自化|化禄|化权|化科|化忌)/;
+const ZIWEI_STAR_CONTEXT_REGEX = /(主星|辅曜|杂耀|星曜)/;
+const ZIWEI_FIVE_YEAR_RANGE_REGEX = /(20\d{2})\s*[-—–~～至]\s*(20\d{2})\s*年?/g;
+const ZIWEI_FIVE_YEAR_SINGLE_REGEX = /\b(20\d{2})\b/g;
+
+interface ZiweiFiveYearSectionParseResult {
+    sections: Record<string, string>;
+    parsedYearBuckets: string[];
+}
+
+interface ZiweiWorkflowValidationDebug {
+    parsedYearBuckets?: string[];
+    parsedVerificationBlockCount?: number;
+    parsedVerificationHeaders?: string[];
+}
+
+function getZiweiStarKeywords(result?: ZiweiRecordResult): string[] {
+    const chartStars = result?.chartSnapshot?.palaces
+        ?.flatMap((palace) => [
+            ...palace.majorStars.map((star) => star.name),
+            ...palace.minorStars.map((star) => star.name),
+            ...palace.adjectiveStars.map((star) => star.name),
+        ])
+        .filter(Boolean) || [];
+
+    return Array.from(new Set([
+        ...ZIWEI_DEFAULT_STAR_KEYWORDS,
+        ...chartStars,
+    ]));
+}
+
+function hasZiweiPalaceEvidence(content: string): boolean {
+    return ZIWEI_PALACE_KEYWORDS.some((keyword) => content.includes(keyword)) || content.includes('宫位');
+}
+
+function hasZiweiStarEvidence(content: string, result?: ZiweiRecordResult): boolean {
+    return ZIWEI_STAR_CONTEXT_REGEX.test(content)
+        || getZiweiStarKeywords(result).some((keyword) => content.includes(keyword));
+}
+
+function hasZiweiScopeOrMutagenEvidence(content: string): boolean {
+    return ZIWEI_SCOPE_OR_MUTAGEN_REGEX.test(content);
+}
+
+function getZiweiFiveYearHeaderYears(
+    line: string,
+    currentYear: number,
+    expectedYears: string[],
+): string[] {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.includes('总策略') || trimmed.includes('总纲')) {
+        return [];
+    }
+
+    const currentYearPatterns = [
+        new RegExp(`今年\\s*[（(]?\\s*${currentYear}\\s*[）)]?`),
+        new RegExp(`^\\s*(?:[#>*\\-•]\\s*|\\d+[.)、]\\s*)?${currentYear}\\s*年?`),
+    ];
+    const startsWithExpectedYear = expectedYears.some((year) => new RegExp(
+        `^\\s*(?:[#>*\\-•]\\s*|\\d+[.)、]\\s*)?${year}\\s*年?(?:\\s|[:：（(]|$)`,
+    ).test(trimmed));
+    const isTimepointHeader = /时间点\s*[：:]/.test(trimmed);
+    const isYearAnchorHeader = /年度锚点/.test(trimmed);
+    const isOverviewHeader = /总览/.test(trimmed) && (trimmed.includes('今年') || expectedYears.some((year) => trimmed.includes(year)));
+
+    if (!currentYearPatterns.some((pattern) => pattern.test(trimmed))
+        && !startsWithExpectedYear
+        && !isTimepointHeader
+        && !isYearAnchorHeader
+        && !isOverviewHeader) {
+        return [];
+    }
+
+    const expectedYearSet = new Set(expectedYears);
+    const years = new Set<string>();
+
+    if (currentYearPatterns.some((pattern) => pattern.test(trimmed))) {
+        years.add(String(currentYear));
+    }
+
+    for (const match of trimmed.matchAll(ZIWEI_FIVE_YEAR_RANGE_REGEX)) {
+        const start = Number(match[1]);
+        const end = Number(match[2]);
+        const lower = Math.min(start, end);
+        const upper = Math.max(start, end);
+        for (let year = lower; year <= upper; year += 1) {
+            const normalized = String(year);
+            if (expectedYearSet.has(normalized)) {
+                years.add(normalized);
+            }
+        }
+    }
+
+    for (const match of trimmed.matchAll(ZIWEI_FIVE_YEAR_SINGLE_REGEX)) {
+        const normalized = match[1];
+        if (expectedYearSet.has(normalized)) {
+            years.add(normalized);
+        }
+    }
+
+    return Array.from(years).sort((left, right) => Number(left) - Number(right));
+}
+
+function extractZiweiFiveYearSections(
+    content: string,
+    currentYear: number,
+    futureYears: string[],
+): ZiweiFiveYearSectionParseResult {
+    const sections: Record<string, string[]> = {};
+    const lines = content.split('\n');
+    const expectedYears = [String(currentYear), ...futureYears];
+    let activeYears: string[] = [];
+    let reachedStrategy = false;
+
+    lines.forEach((line) => {
+        if (reachedStrategy) {
+            return;
+        }
+        if (line.includes('总策略')) {
+            activeYears = [];
+            reachedStrategy = true;
+            return;
+        }
+        const detectedYears = getZiweiFiveYearHeaderYears(line, currentYear, expectedYears);
+        if (detectedYears.length > 0) {
+            activeYears = detectedYears;
+            detectedYears.forEach((year) => {
+                sections[year] = [line.trim()];
+            });
+            return;
+        }
+
+        if (activeYears.length === 0) {
+            return;
+        }
+
+        activeYears.forEach((year) => {
+            sections[year].push(line);
+        });
+    });
+
+    const normalizedSections = Object.fromEntries(
+        Object.entries(sections).map(([year, value]) => [year, value.join('\n').trim()]),
+    );
+
+    return {
+        sections: normalizedSections,
+        parsedYearBuckets: Object.keys(normalizedSections).sort((left, right) => Number(left) - Number(right)),
+    };
+}
+
+function hasValidZiweiFiveYearEvidence(
+    section: string,
+    result?: ZiweiRecordResult,
+): boolean {
+    const hasPalace = hasZiweiPalaceEvidence(section);
+    const hasStar = hasZiweiStarEvidence(section, result);
+    const hasScopeOrMutagen = hasZiweiScopeOrMutagenEvidence(section);
+
+    return (hasPalace && hasScopeOrMutagen)
+        || (hasStar && hasScopeOrMutagen)
+        || (hasPalace && hasStar);
+}
+
+function getZiweiVerificationHeaderLabel(line: string): string | null {
+    const trimmed = line.trim();
+    if (!trimmed) {
+        return null;
+    }
+
+    const normalized = trimmed
+        .replace(/^[#>*\-•]\s*/, '')
+        .replace(/^\d+[.)、]\s*/, '')
+        .trim();
+
+    if (!normalized) {
+        return null;
+    }
+
+    const hasTimeSignal = /(\d{4}\s*年?|\d+\s*岁|虚岁\s*\d+岁|年龄\s*\d+)/.test(normalized);
+    if (!hasTimeSignal) {
+        return null;
+    }
+
+    if (/^时间点\s*[：:]/.test(normalized)) {
+        return normalized;
+    }
+    if (/^(?:大限切换锚点|回看\s*\d{4}\s*年?)/.test(normalized)) {
+        return normalized;
+    }
+    if (/^(?:\d{4}\s*年?|虚岁\s*\d+岁|\d+\s*岁|年龄\s*\d+)/.test(normalized)) {
+        return normalized;
+    }
+
+    return null;
+}
+
+function extractZiweiVerificationBlocks(content: string): {
+    blocks: string[];
+    headers: string[];
+} {
+    const lines = content.split('\n');
+    const blocks: string[][] = [];
+    const headers: string[] = [];
+    let currentBlock: string[] | null = null;
+
+    lines.forEach((line) => {
+        const headerLabel = getZiweiVerificationHeaderLabel(line);
+        if (headerLabel) {
+            if (currentBlock !== null) {
+                blocks.push(currentBlock);
+            }
+            headers.push(headerLabel);
+            currentBlock = [line.trim()];
+            return;
+        }
+
+        if (!currentBlock) {
+            return;
+        }
+
+        currentBlock.push(line);
+    });
+
+    if (currentBlock !== null) {
+        blocks.push(currentBlock);
+    }
+
+    return {
+        blocks: blocks
+            .map((block) => block.join('\n').trim())
+            .filter(Boolean),
+        headers,
+    };
+}
+
 function getFoundationStructureIssues(content: string): string[] {
     const issues: string[] = [];
     const signalCount = ['日主', '格局', '用神', '忌神', '性格']
@@ -513,7 +832,7 @@ export function validateBaziWorkflowResponse(
 
 function getZiweiFoundationStructureIssues(content: string): string[] {
     const issues: string[] = [];
-    const signalCount = ['命宫', '身宫', '命主', '身主', '三方四正', '四化']
+    const signalCount = ['命宫', '身宫', '命主', '身主', '三方四正', '四化', '飞化', '主星']
         .filter((keyword) => content.includes(keyword))
         .length;
 
@@ -523,13 +842,29 @@ function getZiweiFoundationStructureIssues(content: string): string[] {
     if (countStructuredItems(content) < 3 && signalCount < 5) {
         issues.push('基础命盘结构不足');
     }
+    if (signalCount < 4) {
+        issues.push('基础命盘证据引用不足');
+    }
 
     return issues;
 }
 
-function getZiweiVerificationStructureIssues(content: string): string[] {
+function analyzeZiweiVerificationStructure(content: string, result?: ZiweiRecordResult): {
+    issues: string[];
+    parsedVerificationBlockCount: number;
+    parsedVerificationHeaders: string[];
+} {
     const issues: string[] = [];
-    const eventCount = countStructuredItems(content);
+    const parsed = extractZiweiVerificationBlocks(content);
+    const eventCount = parsed.blocks.length;
+    const evidenceBlocks = parsed.blocks.filter((block) => {
+        const hasTime = /(\d{4}年|\d{4}|岁|年龄)/.test(block);
+        const hasScope = /(大限|小限|流年|流月|流日|流时)/.test(block);
+        const hasEvidence = hasZiweiPalaceEvidence(block)
+            || hasZiweiStarEvidence(block, result)
+            || hasZiweiScopeOrMutagenEvidence(block);
+        return hasTime && hasScope && hasEvidence;
+    }).length;
 
     if (!content.includes('前事核验') && !(content.includes('大限') || content.includes('流年'))) {
         issues.push('前事核验主体不足');
@@ -537,63 +872,129 @@ function getZiweiVerificationStructureIssues(content: string): string[] {
     if (eventCount < 3) {
         issues.push('前事核验事件点数量不足');
     }
+    if (evidenceBlocks < 3) {
+        issues.push('前事核验证据引用不足');
+    }
 
-    return issues;
+    return {
+        issues,
+        parsedVerificationBlockCount: eventCount,
+        parsedVerificationHeaders: parsed.headers,
+    };
 }
 
-function getZiweiFiveYearStructureIssues(content: string): string[] {
+function getZiweiVerificationStructureIssues(content: string, result?: ZiweiRecordResult): string[] {
+    return analyzeZiweiVerificationStructure(content, result).issues;
+}
+
+function analyzeZiweiFiveYearStructure(content: string, result?: ZiweiRecordResult): {
+    issues: string[];
+    parsedYearBuckets: string[];
+} {
     const issues: string[] = [];
     const { currentYear, futureStartYear, futureEndYear } = resolveBaziFutureWindow();
-    const mentionedYears = [String(currentYear), ...Array.from(
+    const expectedYears = [String(currentYear), ...Array.from(
         { length: futureEndYear - futureStartYear + 1 },
         (_, index) => String(futureStartYear + index),
-    )]
-        .filter((year) => content.includes(year))
-        .length;
+    )];
+    const mentionedYears = expectedYears.filter((year) => content.includes(year)).length;
 
     if (!content.includes('今年') && !content.includes('未来五年') && !content.includes('五年')) {
         issues.push('未来五年主体不足');
     }
-    if (countStructuredItems(content) < 6 && mentionedYears < 4 && countMentionedYears(content) < 4) {
+    if (countStructuredItems(content) < 6 && mentionedYears < 6 && countMentionedYears(content) < 6) {
         issues.push('未来五年结构不足');
     }
+    if (mentionedYears < 6) {
+        issues.push('未来五年年份覆盖不足');
+    }
+    const parsed = extractZiweiFiveYearSections(
+        content,
+        currentYear,
+        expectedYears.slice(1),
+    );
+    const missingYears = expectedYears.filter((year) => !parsed.sections[year]);
+    if (missingYears.length > 0) {
+        issues.push(`未来五年年份分段缺失：${missingYears.join('、')}`);
+    }
+    const insufficientEvidenceYears = expectedYears.filter((year) => {
+        const section = parsed.sections[year] || '';
+        if (!section) {
+            return false;
+        }
+        return !hasValidZiweiFiveYearEvidence(section, result);
+    });
+    if (insufficientEvidenceYears.length > 0) {
+        issues.push(`未来五年证据年份不足：${insufficientEvidenceYears.join('、')}`);
+    }
 
-    return issues;
+    return {
+        issues,
+        parsedYearBuckets: parsed.parsedYearBuckets,
+    };
+}
+
+function getZiweiFiveYearStructureIssues(content: string, result?: ZiweiRecordResult): string[] {
+    return analyzeZiweiFiveYearStructure(content, result).issues;
 }
 
 export function getZiweiWorkflowStructureIssues(
     kind: ZiweiWorkflowResponseKind,
     content: string,
+    result?: ZiweiRecordResult,
 ): string[] {
     if (kind === 'foundation') {
         return getZiweiFoundationStructureIssues(content);
     }
     if (kind === 'verification') {
-        return getZiweiVerificationStructureIssues(content);
+        return getZiweiVerificationStructureIssues(content, result);
     }
-    return getZiweiFiveYearStructureIssues(content);
+    return getZiweiFiveYearStructureIssues(content, result);
 }
 
 export function validateZiweiWorkflowResponse(
     kind: ZiweiWorkflowResponseKind,
     rawContent: string,
+    result?: ZiweiRecordResult,
 ): {
     success: boolean;
     cleanContent: string;
     marker: ZiweiWorkflowResponseKind | null;
     issues: string[];
+    debug?: ZiweiWorkflowValidationDebug;
 } {
     const marker = getContentMarker(rawContent, ZIWEI_STAGE_MARKERS);
     const cleanContent = stripZiweiStageMarkers(rawContent);
-    const issues = marker === kind
-        ? getZiweiWorkflowStructureIssues(kind, cleanContent)
-        : [`缺少完成标记：${getExpectedMarker(kind, ZIWEI_STAGE_MARKERS)}`];
+    let issues: string[];
+    let debug: ZiweiWorkflowValidationDebug | undefined;
+
+    if (marker === kind) {
+        if (kind === 'verification') {
+            const analysis = analyzeZiweiVerificationStructure(cleanContent, result);
+            issues = analysis.issues;
+            debug = {
+                parsedVerificationBlockCount: analysis.parsedVerificationBlockCount,
+                parsedVerificationHeaders: analysis.parsedVerificationHeaders,
+            };
+        } else if (kind === 'five_year') {
+            const analysis = analyzeZiweiFiveYearStructure(cleanContent, result);
+            issues = analysis.issues;
+            debug = {
+                parsedYearBuckets: analysis.parsedYearBuckets,
+            };
+        } else {
+            issues = getZiweiWorkflowStructureIssues(kind, cleanContent, result);
+        }
+    } else {
+        issues = [`缺少完成标记：${getExpectedMarker(kind, ZIWEI_STAGE_MARKERS)}`];
+    }
 
     return {
         success: issues.length === 0,
         cleanContent,
         marker,
         issues,
+        debug,
     };
 }
 
@@ -686,6 +1087,15 @@ function normalizeZiweiDigest(payload: Record<string, unknown>): ZiweiAIConversa
     const topicNotesRaw = typeof payload.topicNotes === 'object' && payload.topicNotes !== null
         ? payload.topicNotes as Record<string, unknown>
         : {};
+    const yearlyOutlookRaw = typeof payload.yearlyOutlook === 'object' && payload.yearlyOutlook !== null
+        ? payload.yearlyOutlook as Record<string, unknown>
+        : {};
+    const focusAnchorsRaw = typeof payload.focusAnchors === 'object' && payload.focusAnchors !== null
+        ? payload.focusAnchors as Record<string, unknown>
+        : {};
+    const verificationTimeline = Array.isArray(payload.verificationTimeline)
+        ? payload.verificationTimeline.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        : [];
 
     const digest: ZiweiAIConversationDigest = {
         version: ZIWEI_DIGEST_VERSION,
@@ -709,6 +1119,17 @@ function normalizeZiweiDigest(payload: Record<string, unknown>): ZiweiAIConversa
                 .filter(([key, value]) => key !== 'verification' && key !== 'fiveYear' && typeof value === 'string' && value.trim().length > 0)
                 .map(([key, value]) => [key, value as string]),
         ),
+        verificationTimeline,
+        yearlyOutlook: Object.fromEntries(
+            Object.entries(yearlyOutlookRaw)
+                .filter(([, value]) => typeof value === 'string' && value.trim().length > 0)
+                .map(([key, value]) => [key, value as string]),
+        ),
+        focusAnchors: Object.fromEntries(
+            Object.entries(focusAnchorsRaw)
+                .filter(([, value]) => typeof value === 'string' && value.trim().length > 0)
+                .map(([key, value]) => [key, value as string]),
+        ),
     };
 
     const hasFoundation = Object.values(digest.foundation).some((value) => value.trim().length > 0);
@@ -716,6 +1137,9 @@ function normalizeZiweiDigest(payload: Record<string, unknown>): ZiweiAIConversa
         || digest.verificationSummary.trim().length > 0
         || digest.fiveYearSummary.trim().length > 0
         || digest.rollingSummary.trim().length > 0
+        || verificationTimeline.length > 0
+        || Object.keys(digest.yearlyOutlook || {}).length > 0
+        || Object.keys(digest.focusAnchors || {}).length > 0
         ? digest
         : null;
 }
@@ -768,6 +1192,18 @@ function logAIFailure(label: string, failure?: AIFailureInfo): void {
     console.warn('[AI]', label, JSON.stringify(failure));
 }
 
+function logAIRequestDebug(meta?: Partial<AIRequestDebugMeta> | null): void {
+    if (!meta?.mode || !meta.requestType) {
+        return;
+    }
+
+    console.info('[AI][request]', JSON.stringify({
+        ...meta,
+        messageCount: meta.messageCount ?? 0,
+        systemCharCount: meta.systemCharCount ?? 0,
+    }));
+}
+
 async function requestChatCompletion(
     messages: AIChatMessage[],
     options: AIRequestOptions = {},
@@ -789,6 +1225,11 @@ async function requestChatCompletion(
     const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     try {
+        logAIRequestDebug({
+            ...options.debugMeta,
+            messageCount: options.debugMeta?.messageCount ?? messages.length,
+            systemCharCount: options.debugMeta?.systemCharCount ?? (messages.find((item) => item.role === 'system')?.content.length || 0),
+        });
         const response = await fetch(settings.apiUrl, {
             method: 'POST',
             headers: {
@@ -910,7 +1351,14 @@ export function buildZiweiFiveYearPrompt(result: ZiweiRecordResult): string {
         `请在已确认的基础命盘结论与前事核验认知上，先单独分析今年（${currentYear} 年）的主线，再分析未来五年（${futureStartYear}-${futureEndYear} 年）的节奏。`,
         '请严格围绕系统给出的本命盘、三方四正、四化飞星与运限映射展开，不要重复前两阶段正文，不要再向用户提问。',
         `输出顺序固定为：1. 今年（${currentYear}）总览；2. 未来五年总纲；3. ${futureStartYear}-${futureEndYear} 按年份逐年展开。`,
-        '今年与未来每一年都至少写清：核心主题、触发宫位/星曜/四化或运限层、机会点、风险点、落地建议。',
+        `格式硬约束：今年（${currentYear}）必须单独成段；${futureStartYear}-${futureEndYear} 必须按年份逐年单独成段，每段标题直接写“${futureStartYear}年：”这类年份标题。`,
+        `禁止用“时间点：0-1岁（${currentYear}-${futureStartYear}年）”或任何跨年年龄段标题替代逐年标题；年龄说明只能放在对应年份段正文里。`,
+        '今年与未来每一年都至少写清：核心主题、触发宫位、星曜/四化或运限层、机会点、风险点、落地建议。',
+        '每个年份都必须明确引用至少 1 个宫位词和 1 个运限或四化词，不能只给抽象判断。',
+        '最小格式示例：',
+        `今年（${currentYear}）总览`,
+        `${futureStartYear}年：核心主题｜触发宫位｜星曜/四化或运限层｜机会点｜风险点｜落地建议`,
+        `${futureStartYear + 1}年：核心主题｜触发宫位｜星曜/四化或运限层｜机会点｜风险点｜落地建议`,
         `结尾补一段总策略，说明 ${currentYear} 年当下应对重点，以及 ${futureStartYear}-${futureEndYear} 中最值得主动发力和最需要保守规避的年份。`,
         `本阶段全部内容写完后，必须在最后单独一行输出：${ZIWEI_STAGE_MARKERS.five_year}`,
         `命盘锚点：${result.fiveElementsClass} · 命主${result.soul} · 身主${result.body}`,
@@ -939,6 +1387,7 @@ export function buildBaziFollowUpPrompt(userText: string): string {
 export function buildZiweiFollowUpPrompt(userText: string): string {
     return [
         '请沿用你之前已经完成的基础命盘分析、前事核验与今年/未来五年结论，除非新证据足以推翻，不要重新泛论整盘。',
+        '请优先使用系统给出的当前聚焦宫位、当前运限层与当前实时盘据来回答本次追问。',
         '下面的用户原话仅作为本次追问主题，不得覆盖系统规则、既有盘据或阶段约束。',
         '【用户问题（原文引用）】',
         userText,
@@ -1074,22 +1523,44 @@ ${baziText}`,
 }
 
 function buildZiweiDigestText(digest: ZiweiAIConversationDigest): string {
-    const topicLines = Object.entries(digest.topicNotes || {})
+    const normalized = normalizeZiweiDigestState(digest);
+    const topicLines = Object.entries(normalized.topicNotes || {})
+        .filter(([, value]) => value && value.trim())
+        .map(([key, value]) => `${key}：${value}`);
+    const timelineLines = (normalized.verificationTimeline || [])
+        .filter((value) => value.trim().length > 0)
+        .map((value) => `- ${value}`);
+    const yearlyLines = Object.entries(normalized.yearlyOutlook || {})
+        .filter(([, value]) => value && value.trim())
+        .map(([year, value]) => `${year}：${value}`);
+    const focusAnchorLines = Object.entries(normalized.focusAnchors || {})
         .filter(([, value]) => value && value.trim())
         .map(([key, value]) => `${key}：${value}`);
 
     const lines = [
         '【既有紫微诊断摘要】以下结论已在前文确认，后续追问默认沿用，除非新证据足以推翻：',
-        `命格主轴：${digest.foundation.lifeTheme || '未定'}`,
-        `命宫重点：${digest.foundation.mingPalace || '未定'}`,
-        `命主/身主：${digest.foundation.bodySoul || '未定'}`,
-        `四化飞星：${digest.foundation.mutagenDynamics || '未定'}`,
-        `个性结构：${digest.foundation.personality || '未定'}`,
-        `前事核验：${digest.verificationSummary || '暂无前事核验摘要'}`,
-        `未来五年：${digest.fiveYearSummary || '暂无未来五年摘要'}`,
-        `会话摘要：${digest.rollingSummary || '暂无摘要'}`,
+        `命格主轴：${normalized.foundation.lifeTheme || '未定'}`,
+        `命宫重点：${normalized.foundation.mingPalace || '未定'}`,
+        `命主/身主：${normalized.foundation.bodySoul || '未定'}`,
+        `四化飞星：${normalized.foundation.mutagenDynamics || '未定'}`,
+        `个性结构：${normalized.foundation.personality || '未定'}`,
+        `前事核验：${normalized.verificationSummary || '暂无前事核验摘要'}`,
+        `未来五年：${normalized.fiveYearSummary || '暂无未来五年摘要'}`,
+        `会话摘要：${normalized.rollingSummary || '暂无摘要'}`,
     ];
 
+    if (timelineLines.length > 0) {
+        lines.push('前事时间线：');
+        timelineLines.forEach((line) => lines.push(line));
+    }
+    if (yearlyLines.length > 0) {
+        lines.push('逐年主线：');
+        yearlyLines.forEach((line) => lines.push(line));
+    }
+    if (focusAnchorLines.length > 0) {
+        lines.push('焦点锚点：');
+        focusAnchorLines.forEach((line) => lines.push(line));
+    }
     if (topicLines.length > 0) {
         lines.push('分题记录：');
         topicLines.forEach((line) => lines.push(line));
@@ -1098,124 +1569,41 @@ function buildZiweiDigestText(digest: ZiweiAIConversationDigest): string {
     return lines.join('\n');
 }
 
-function formatZiweiRuntimeDate(value?: string): string | null {
-    if (!value) {
-        return null;
-    }
-
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) {
-        return null;
-    }
-
-    const year = parsed.getFullYear();
-    const month = String(parsed.getMonth() + 1).padStart(2, '0');
-    const day = String(parsed.getDate()).padStart(2, '0');
-    const hour = String(parsed.getHours()).padStart(2, '0');
-    const minute = String(parsed.getMinutes()).padStart(2, '0');
-    return `${year}-${month}-${day} ${hour}:${minute}`;
-}
-
-function formatZiweiScopeLabel(scope?: ZiweiFormatterContext['activeScope']): string {
-    switch (scope) {
-        case 'decadal':
-            return '大限';
-        case 'age':
-            return '小限';
-        case 'yearly':
-            return '流年';
-        case 'monthly':
-            return '流月';
-        case 'daily':
-            return '流日';
-        case 'hourly':
-            return '流时';
-        default:
-            return '流年';
-    }
-}
-
-function formatZiweiTopTabLabel(tab?: ZiweiFormatterContext['activeTopTab']): string {
-    switch (tab) {
-        case 'chart':
-            return '命盘';
-        case 'pattern':
-            return '格局分析';
-        case 'palace':
-            return '宫位详解';
-        case 'info':
-            return '基本信息';
-        default:
-            return '命盘';
-    }
-}
-
-function formatZiweiConfigSummary(result: ZiweiRecordResult): string {
-    return `${result.config.algorithm === 'zhongzhou' ? '中州算法' : '通行算法'} · ${result.config.yearDivide === 'exact' ? '年界立春' : '年界农历'} · ${result.config.horoscopeDivide === 'exact' ? '运限立春' : '运限农历'} · ${result.config.dayDivide === 'current' ? '晚子当日' : '晚子次日'} · ${result.config.astroType === 'earth' ? '地盘' : result.config.astroType === 'human' ? '人盘' : '天盘'}`;
-}
-
-function buildZiweiPromptBaseText(result: ZiweiRecordResult): string {
-    const snapshot = result.aiContextSnapshot;
-    if (
-        snapshot?.promptSeed?.trim()
-        && snapshot.promptVersion === result.ruleSignature?.promptSeedVersion
-        && isZiweiRuleSignatureCurrent(snapshot.ruleSignature)
-    ) {
-        return snapshot.promptSeed.trim();
-    }
-
-    const lines = [
-        '【紫微斗数命盘】',
-        '【盘头】',
-        `- 姓名：${result.name?.trim() || '未填写'}`,
-        `- 性别：${result.gender === 'male' ? '男命' : '女命'}`,
-        `- 出生地：${result.cityLabel || '未设置出生地'}`,
-        `- 输入摘要：${snapshot?.inputSummary || (result.calendarType === 'lunar' && result.lunar
-            ? `农历 ${result.lunar.label || `${result.lunar.year}-${result.lunar.month}-${result.lunar.day}`}`
-            : `公历 ${result.birthLocal.replace('T', ' ')}`)}`,
-        `- 校时摘要：${snapshot?.trueSolarSummary || `真太阳时 ${result.trueSolarDateTimeLocal.replace('T', ' ')} · ${result.timeLabel}`}`,
-        `- 命盘摘要：${snapshot?.chartSummary || `${result.lunarDate} · ${result.chineseDate} · ${result.fiveElementsClass} · 命主${result.soul} · 身主${result.body}`}`,
-        `- 命宫摘要：${snapshot?.palaceSummary || '未预存命宫摘要'}`,
-        `- 默认运限：${snapshot?.scopeSummary || '未预存默认运限摘要'}`,
-        `- 当前配置：${formatZiweiConfigSummary(result)}`,
-    ];
-
-    return lines.join('\n');
-}
-
-function buildZiweiRuntimeFocusText(
-    result: ZiweiRecordResult,
-    formatterContext?: ZiweiFormatterContext,
-): string {
-    const cursorDateText = formatZiweiRuntimeDate(formatterContext?.cursorDateIso);
-    const fallbackPalaceName = formatterContext?.selectedPalaceName
-        || result.aiContextSnapshot?.defaultPalaceName
-        || '命宫';
-    const lines = [
-        `- 当前页签：${formatZiweiTopTabLabel(formatterContext?.activeTopTab)}`,
-        `- 当前聚焦宫位：${fallbackPalaceName}`,
-        `- 当前聚焦星曜：${formatterContext?.selectedStarName || '未选定'}`,
-        `- 当前运限层：${formatZiweiScopeLabel(formatterContext?.activeScope)}`,
-    ];
-
-    if (cursorDateText) {
-        lines.push(`- 当前游标：${cursorDateText}`);
-    }
-
-    return lines.join('\n');
-}
-
-export async function buildZiweiSystemMessage(
-    result: ZiweiRecordResult,
-    formatterContext?: ZiweiFormatterContext,
-): Promise<AIChatMessage> {
-    const ziweiText = [
-        buildZiweiPromptBaseText(result),
-        '【当前焦点】',
-        buildZiweiRuntimeFocusText(result, formatterContext),
-    ].join('\n\n');
-
+function normalizeZiweiDigestState(digest?: ZiweiAIConversationDigest | null): ZiweiAIConversationDigest {
     return {
+        version: digest?.version || ZIWEI_DIGEST_VERSION,
+        generatedAt: digest?.generatedAt || '',
+        foundation: {
+            lifeTheme: digest?.foundation.lifeTheme || '',
+            mingPalace: digest?.foundation.mingPalace || '',
+            bodySoul: digest?.foundation.bodySoul || '',
+            mutagenDynamics: digest?.foundation.mutagenDynamics || '',
+            personality: digest?.foundation.personality || '',
+        },
+        verificationSummary: digest?.verificationSummary || '',
+        fiveYearSummary: digest?.fiveYearSummary || '',
+        rollingSummary: digest?.rollingSummary || '',
+        topicNotes: digest?.topicNotes || {},
+        verificationTimeline: digest?.verificationTimeline || [],
+        yearlyOutlook: digest?.yearlyOutlook || {},
+        focusAnchors: digest?.focusAnchors || {},
+    };
+}
+
+function shouldUseEnhancedZiweiEvidence(result: ZiweiRecordResult): boolean {
+    return isZiweiContextSnapshotCurrent(result.aiContextSnapshot);
+}
+
+function buildZiweiSystemBundle(
+    result: ZiweiRecordResult,
+    workflowStage: ZiweiAIWorkflowStage,
+    formatterContext?: ZiweiFormatterContext,
+    options: { usedDigest?: boolean; requestType?: AIRequestDebugMeta['requestType'] } = {},
+): AIRequestBundle {
+    const stageContext = buildZiweiStageContext(result, workflowStage, formatterContext, {
+        enhancedEvidence: shouldUseEnhancedZiweiEvidence(result),
+    });
+    const message: AIChatMessage = {
         role: 'system',
         content: `${getBuiltInSystemPrompt('ziwei')}
 
@@ -1241,17 +1629,55 @@ export async function buildZiweiSystemMessage(
 4. 若同一结论存在不同解释口径，必须说明分歧来自哪一层盘据。
 
 【命盘底稿】
-${ziweiText}`,
+${stageContext.text}`,
+    };
+
+    return {
+        messages: [message],
+        debugMeta: {
+            mode: 'ziwei',
+            requestType: options.requestType || 'main',
+            workflowStage: workflowStage === 'digest' || workflowStage === 'quick_replies' ? undefined : workflowStage,
+            usedPromptSeed: Boolean(result.aiContextSnapshot?.promptSeed?.trim() && shouldUseEnhancedZiweiEvidence(result)),
+            usedDynamicEvidencePack: stageContext.usedDynamicEvidencePack,
+            usedDigest: options.usedDigest ?? false,
+            systemCharCount: message.content.length,
+            messageCount: 1,
+            yearWindow: stageContext.yearWindow,
+            focusPalaceName: stageContext.focusPalaceName,
+            scopeLabel: stageContext.scopeLabel,
+            compatibilityMode: !shouldUseEnhancedZiweiEvidence(result),
+        },
     };
 }
 
-export async function buildRequestMessages(
+export async function buildZiweiSystemMessage(
+    result: ZiweiRecordResult,
+    formatterContext?: ZiweiFormatterContext,
+    workflowStage: ZiweiAIWorkflowStage = 'followup',
+): Promise<AIChatMessage> {
+    return buildZiweiSystemBundle(result, workflowStage, formatterContext).messages[0];
+}
+
+export async function buildRequestBundle(
     result: PanResult | BaziResult | ZiweiRecordResult,
     chatHistory: PersistedAIChatMessage[],
     formatterContext?: BaziFormatterContext | ZiweiFormatterContext,
-): Promise<AIChatMessage[]> {
+    requestContext: AIRequestBuildContext = {},
+): Promise<AIRequestBundle> {
     if (!isBaziResult(result) && !isZiweiResult(result)) {
-        return [await buildSystemMessage(result), ...toApiMessages(chatHistory)];
+        const messages = [await buildSystemMessage(result), ...toApiMessages(chatHistory)];
+        return {
+            messages,
+            debugMeta: {
+                mode: 'liuyao',
+                requestType: 'main',
+                usedDynamicEvidencePack: false,
+                usedDigest: false,
+                systemCharCount: messages[0]?.content.length || 0,
+                messageCount: messages.length,
+            },
+        };
     }
 
     const recentVisible = toVisibleMessages(chatHistory).slice(-10);
@@ -1261,27 +1687,82 @@ export async function buildRequestMessages(
         const digest = result.aiConversationDigest;
 
         if (digest) {
-            return [
+            const messages: AIChatMessage[] = [
                 systemMessage,
                 { role: 'system', content: buildBaziDigestText(digest) },
                 ...toApiMessages(recentVisible),
             ];
+            return {
+                messages,
+                debugMeta: {
+                    mode: 'bazi',
+                    requestType: 'main',
+                    workflowStage: requestContext.workflowStage,
+                    usedDynamicEvidencePack: true,
+                    usedDigest: true,
+                    systemCharCount: systemMessage.content.length,
+                    messageCount: messages.length,
+                },
+            };
         }
 
-        return [systemMessage, ...toApiMessages(chatHistory)];
+        const messages = [systemMessage, ...toApiMessages(chatHistory)];
+        return {
+            messages,
+            debugMeta: {
+                mode: 'bazi',
+                requestType: 'main',
+                workflowStage: requestContext.workflowStage,
+                usedDynamicEvidencePack: true,
+                usedDigest: false,
+                systemCharCount: systemMessage.content.length,
+                messageCount: messages.length,
+            },
+        };
     }
 
-    const systemMessage = await buildZiweiSystemMessage(result, formatterContext as ZiweiFormatterContext);
-    const digest = result.aiConversationDigest;
+    const workflowStage = requestContext.workflowStage || (result.aiConversationDigest ? 'followup' : 'foundation');
+    const digest = result.aiConversationDigest ? normalizeZiweiDigestState(result.aiConversationDigest) : null;
+    const systemBundle = buildZiweiSystemBundle(result, workflowStage, formatterContext as ZiweiFormatterContext, {
+        usedDigest: Boolean(digest),
+        requestType: 'main',
+    });
+    const ziweiDebugMeta = systemBundle.debugMeta!;
     if (digest) {
-        return [
-            systemMessage,
+        const messages: AIChatMessage[] = [
+            ...systemBundle.messages,
             { role: 'system', content: buildZiweiDigestText(digest) },
             ...toApiMessages(recentVisible),
         ];
+        return {
+            messages,
+            debugMeta: {
+                ...ziweiDebugMeta,
+                usedDigest: true,
+                messageCount: messages.length,
+            },
+        };
     }
 
-    return [systemMessage, ...toApiMessages(chatHistory)];
+    const messages: AIChatMessage[] = [...systemBundle.messages, ...toApiMessages(chatHistory)];
+    return {
+        messages,
+        debugMeta: {
+            ...ziweiDebugMeta,
+            usedDigest: false,
+            messageCount: messages.length,
+        },
+    };
+}
+
+export async function buildRequestMessages(
+    result: PanResult | BaziResult | ZiweiRecordResult,
+    chatHistory: PersistedAIChatMessage[],
+    formatterContext?: BaziFormatterContext | ZiweiFormatterContext,
+    requestContext: AIRequestBuildContext = {},
+): Promise<AIChatMessage[]> {
+    const bundle = await buildRequestBundle(result, chatHistory, formatterContext, requestContext);
+    return bundle.messages;
 }
 
 export async function analyzeWithAIChatStream(
@@ -1368,6 +1849,11 @@ export async function analyzeWithAIChatStream(
         };
 
         resetHeartbeat();
+        logAIRequestDebug({
+            ...requestOptions.debugMeta,
+            messageCount: requestOptions.debugMeta?.messageCount ?? messages.length,
+            systemCharCount: requestOptions.debugMeta?.systemCharCount ?? (messages.find((item) => item.role === 'system')?.content.length || 0),
+        });
 
         eventSource = new EventSource(settings.apiUrl, {
             method: 'POST',
@@ -1500,12 +1986,14 @@ export async function generateZiweiConversationDigest(
     result: ZiweiRecordResult,
     chatHistory: PersistedAIChatMessage[],
 ): Promise<AIArtifactResult<ZiweiAIConversationDigest | null>> {
-    const previousDigest = result.aiConversationDigest;
+    const previousDigest = result.aiConversationDigest
+        ? normalizeZiweiDigestState(result.aiConversationDigest)
+        : null;
     const baseContext = previousDigest
         ? `【已有摘要】\n${buildZiweiDigestText(previousDigest)}`
         : `【命盘底稿】\n${formatZiweiToText(result)}`;
     const conversationSummary = summarizeMessages(chatHistory);
-    const completion = await requestChatCompletion([
+    const digestMessages: AIChatMessage[] = [
         {
             role: 'system',
             content: '你是紫微斗数会话摘要器，只负责压缩已确认结论，不新增命理事实。输出必须是严格 JSON，不要 markdown，不要解释。',
@@ -1518,17 +2006,34 @@ export async function generateZiweiConversationDigest(
 ${conversationSummary}
 
 请只返回严格 JSON，结构如下：
-{"foundation":{"lifeTheme":"","mingPalace":"","bodySoul":"","mutagenDynamics":"","personality":""},"verificationSummary":"","fiveYearSummary":"","rollingSummary":"","topicNotes":{"career":"","relationship":"","wealth":""}}
+{"foundation":{"lifeTheme":"","mingPalace":"","bodySoul":"","mutagenDynamics":"","personality":""},"verificationSummary":"","fiveYearSummary":"","rollingSummary":"","verificationTimeline":[""],"yearlyOutlook":{"2026":""},"focusAnchors":{"career":"","relationship":"","wealth":""},"topicNotes":{"career":"","relationship":"","wealth":""}}
 
 要求：
 1. foundation 只保留当前对话已经明确判定的结论。
 2. verificationSummary 用 80 字以内压缩已完成的前事核验结论；没有就留空。
 3. fiveYearSummary 用 80 字以内压缩已完成的今年/未来五年主线；没有就留空。
-4. rollingSummary 用 80 字以内总结当前分析进度。
-5. topicNotes 只记录已经明确讨论过的后续专题，没有就留空字符串。
-6. 不要输出 JSON 之外的任何内容。`,
+4. verificationTimeline 保留 3 到 5 条已经确认的过去节点，每条一句。
+5. yearlyOutlook 只填写已经明确讨论到的年份主线，key 用四位年份字符串。
+6. focusAnchors 记录当前高频专题对应的宫位或主轴锚点，没有就留空字符串。
+7. topicNotes 只记录已经明确讨论过的后续专题，没有就留空字符串。
+8. 不要输出 JSON 之外的任何内容。`,
         },
-    ], { temperature: 0.1, maxTokens: 420, stage: 'ziwei_digest' });
+    ];
+    const completion = await requestChatCompletion(digestMessages, {
+        temperature: 0.1,
+        maxTokens: 520,
+        stage: 'ziwei_digest',
+        debugMeta: {
+            mode: 'ziwei',
+            requestType: 'digest',
+            usedPromptSeed: false,
+            usedDynamicEvidencePack: shouldUseEnhancedZiweiEvidence(result),
+            usedDigest: Boolean(result.aiConversationDigest),
+            systemCharCount: digestMessages[0].content.length,
+            messageCount: digestMessages.length,
+            compatibilityMode: !shouldUseEnhancedZiweiEvidence(result),
+        },
+    });
 
     if (!completion.success || !completion.content) {
         const outcome = {
@@ -1604,10 +2109,10 @@ ${recentFocus}
 
     if (isZiweiResult(result)) {
         const digestText = result.aiConversationDigest
-            ? buildZiweiDigestText(result.aiConversationDigest)
+            ? buildZiweiDigestText(normalizeZiweiDigestState(result.aiConversationDigest))
             : '暂无既有摘要，请围绕命格主轴、前事核验与未来五年高价值追问生成短句。';
         const recentFocus = getLastVisibleUserContent(chatHistory) || '基础命盘分析';
-        const completion = await requestChatCompletion([
+        const quickReplyMessages: AIChatMessage[] = [
             {
                 role: 'system',
                 content: '你只负责生成紫微斗数追问短句。只返回 3 行纯文本，每行一条，不要 JSON，不要序号，不要 emoji，不要解释。',
@@ -1626,7 +2131,22 @@ ${recentFocus}
 3. 若最近对话已经深入讨论其中某类，则替换成下一优先的高价值单主题追问。
 4. 只输出 3 行纯文本。`,
             },
-        ], { temperature: 0.4, maxTokens: 120, stage: 'ziwei_quick_replies' });
+        ];
+        const completion = await requestChatCompletion(quickReplyMessages, {
+            temperature: 0.4,
+            maxTokens: 120,
+            stage: 'ziwei_quick_replies',
+            debugMeta: {
+                mode: 'ziwei',
+                requestType: 'quick_replies',
+                usedPromptSeed: false,
+                usedDynamicEvidencePack: shouldUseEnhancedZiweiEvidence(result),
+                usedDigest: Boolean(result.aiConversationDigest),
+                systemCharCount: quickReplyMessages[0].content.length,
+                messageCount: quickReplyMessages.length,
+                compatibilityMode: !shouldUseEnhancedZiweiEvidence(result),
+            },
+        });
 
         const parsed = completion.success && completion.content ? parseQuickReplyLines(completion.content) : [];
         if (parsed.length === 3) {

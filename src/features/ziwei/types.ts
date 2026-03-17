@@ -57,6 +57,8 @@ export interface ZiweiRouteParams {
     name?: string;
     timeIndex?: string;
     recordId?: string;
+    recordCreatedAt?: string;
+    routeDraft?: string;
 }
 
 export interface ZiweiInputPayload {
@@ -404,6 +406,14 @@ export interface ZiweiPalaceRenderModel extends ZiweiPalaceSelectionRenderModel 
     footerText: string;
 }
 
+export interface ZiweiPalaceScopeRenderModel {
+    palaceName: string;
+    scopeTags: ZiweiScopeTagView[];
+    isAgePalace: boolean;
+    scopeOverlayText: string;
+    footerText: string;
+}
+
 export interface ZiweiCenterMutagenBadgeView {
     key: 'lu' | 'quan' | 'ke' | 'ji';
     label: '禄' | '权' | '科' | '忌';
@@ -423,6 +433,13 @@ export interface ZiweiBoardRenderModel {
     byPalaceName: Record<string, ZiweiPalaceRenderModel>;
     currentScopeSummary: string;
     centerPanel: ZiweiBoardCenterPanelState;
+}
+
+export interface ZiweiBoardScopeModel {
+    activeScope: ZiweiActiveScope;
+    currentScopeSummary: string;
+    selectedDirectScope: ZiweiDirectHoroscopeScopeView | null;
+    byPalaceName: Record<string, ZiweiPalaceScopeRenderModel>;
 }
 
 export interface ZiweiBoardSnapshotModel {

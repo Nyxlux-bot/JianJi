@@ -101,6 +101,7 @@ function isZiweiLunarInput(value: unknown): boolean {
 function isZiweiAIContextSnapshot(value: unknown): boolean {
     return !value || (
         isObject(value)
+        && (value.contextVersion === undefined || isFiniteNumber(value.contextVersion))
         && typeof value.inputSummary === 'string'
         && typeof value.trueSolarSummary === 'string'
         && typeof value.chartSummary === 'string'
@@ -176,7 +177,20 @@ function isZiweiConversationDigest(value: unknown): value is ZiweiAIConversation
         && typeof value.fiveYearSummary === 'string'
         && typeof value.rollingSummary === 'string'
         && isObject(value.topicNotes)
-        && Object.values(value.topicNotes).every((item) => typeof item === 'string');
+        && Object.values(value.topicNotes).every((item) => typeof item === 'string')
+        && (value.verificationTimeline === undefined || isStringArray(value.verificationTimeline))
+        && (
+            value.yearlyOutlook === undefined
+            || (isObject(value.yearlyOutlook) && Object.values(value.yearlyOutlook).every((item) => typeof item === 'string'))
+        )
+        && (
+            value.focusAnchors === undefined
+            || (isObject(value.focusAnchors) && Object.values(value.focusAnchors).every((item) => typeof item === 'string'))
+        );
+}
+
+function isIsoLikeString(value: unknown): boolean {
+    return typeof value === 'string';
 }
 
 export function isDivinationMethod(value: unknown): value is DivinationMethod {
@@ -293,6 +307,8 @@ export function isZiweiRecordResult(value: unknown): value is ZiweiRecordResult 
         && (candidate.aiConversationDigest === undefined || isZiweiConversationDigest(candidate.aiConversationDigest))
         && (candidate.aiConversationStage === undefined || isAIConversationStage(candidate.aiConversationStage))
         && (candidate.aiVerificationSummary === undefined || typeof candidate.aiVerificationSummary === 'string')
+        && (candidate.aiConfigSignature === undefined || typeof candidate.aiConfigSignature === 'string')
+        && (candidate.aiInvalidatedAt === undefined || isIsoLikeString(candidate.aiInvalidatedAt))
         && isZiweiAIContextSnapshot(candidate.aiContextSnapshot)
         && isZiweiChartSnapshot(candidate.chartSnapshot)
         && (

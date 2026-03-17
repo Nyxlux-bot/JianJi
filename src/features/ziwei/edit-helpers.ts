@@ -9,6 +9,7 @@ import { ZiweiRecordResult } from './record';
 export interface ZiweiEditFormState {
     name: string;
     gender: ZiweiRecordResult['gender'];
+    createdAt: string;
     birthDate: Date;
     birthSelection: {
         calendarType: ZiweiRecordResult['calendarType'];
@@ -42,6 +43,7 @@ export function buildZiweiEditFormState(record: ZiweiRecordResult): ZiweiEditFor
     return {
         name: record.name || '',
         gender: record.gender,
+        createdAt: record.createdAt,
         birthDate,
         birthSelection: {
             calendarType: record.calendarType,

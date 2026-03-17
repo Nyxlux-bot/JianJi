@@ -145,7 +145,7 @@
 6. 数据持久化层：`src/db/`
 7. 服务层：`src/services/`
 8. 主题 / Hook / 工具 / Polyfill 层：`src/theme/`、`src/hooks/`、`src/utils/`、`src/polyfills/`
-9. 静态数据与测试资源层：`src/data/`、`src/__localtests__/`
+9. 静态数据层：`src/data/`
 
 ```mermaid
 flowchart LR
@@ -368,7 +368,7 @@ AI 层职责包括：
 - 三引擎 AI 会话 Markdown 导出
 - 基于不同引擎生成差异化文件名与头部摘要
 
-## 9. 测试与文档
+## 9. 文档与开发辅助
 
 ### 9.1 常用命令
 
@@ -379,19 +379,9 @@ npm run android
 npm run ios
 npm run web
 npm run typecheck
-npm test
-npm run test:ziwei
 ```
 
-### 9.2 当前测试覆盖重点
-
-- 紫微视图模型：`src/features/ziwei/view-model.test.ts`
-- 紫微亮度基线：`src/features/ziwei/brightness/ziwei-brightness-baseline.test.ts`
-- 紫微缩放与瓦片布局：`src/features/ziwei/brightness/tile-layout.test.ts`、`src/features/ziwei/brightness/zoom-layout.test.ts`
-- AI 服务与生命周期：`src/services/ai.test.ts`、`src/components/ai-chat-lifecycle.test.ts`
-- 本地回归：`src/__localtests__/`
-
-### 9.3 文档入口
+### 9.2 文档入口
 
 - 项目首页文档：`README.md`
 - 架构文档：当前文件 `PROJECT_ARCHITECTURE.md`

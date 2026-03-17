@@ -38,12 +38,14 @@ import {
     ZiweiDayDivide,
     ZiweiYearDivide,
 } from './types';
+import { measureZiweiAsyncPerf, measureZiweiPerf } from './perf';
 
 export const ZIWEI_STANDARD_TIMEZONE_OFFSET_MINUTES = ZIWEI_SUPPORTED_TIMEZONE_OFFSET_MINUTES;
 export const ZIWEI_LANGUAGE = 'zh-CN' as const;
 export const ZIWEI_FIX_LEAP = true;
 const ZIWEI_STATIC_CACHE_LIMIT = 8;
 const ziweiStaticChartCache = new Map<string, ZiweiStaticChartResult>();
+const ziweiStaticChartInFlight = new Map<string, Promise<ZiweiStaticChartResult>>();
 const ZIWEI_DYNAMIC_CACHE_LIMIT = 36;
 const ziweiDynamicHoroscopeCache = new Map<string, ZiweiDynamicHoroscopeResult>();
 export const ZIWEI_DEFAULT_CONFIG: ZiweiConfigOptions = {
@@ -322,27 +324,75 @@ function rememberZiweiStaticChart(cacheKey: string, chart: ZiweiStaticChartResul
     return chart;
 }
 
+function hasStaticChartMetadataMismatch(
+    chart: ZiweiStaticChartResult,
+    computed: ZiweiComputedInput,
+): boolean {
+    return chart.input.name !== computed.name
+        || chart.input.cityLabel !== computed.cityLabel;
+}
+
+function normalizeCachedZiweiStaticChart(
+    chart: ZiweiStaticChartResult,
+    computed: ZiweiComputedInput,
+): ZiweiStaticChartResult {
+    if (!hasStaticChartMetadataMismatch(chart, computed)) {
+        return chart;
+    }
+
+    return {
+        ...chart,
+        input: computed,
+    };
+}
+
 export function computeZiweiStaticChart(payload: ZiweiInputPayload): ZiweiStaticChartResult {
+    const computed = computeZiweiDerivedInput(payload);
     const cacheKey = buildZiweiStaticCacheKey(payload);
     const cached = ziweiStaticChartCache.get(cacheKey);
 
     if (cached) {
-        return cached;
+        return normalizeCachedZiweiStaticChart(cached, computed);
     }
 
-    const computed = computeZiweiDerivedInput(payload);
-    const astrolabe = buildAstrolabe(computed);
-    const palaces = buildZiweiStaticPalaceAnalysisViews(astrolabe, computed.config.algorithm);
+    return measureZiweiPerf('computeZiweiStaticChart', () => {
+        const astrolabe = buildAstrolabe(computed);
+        const palaces = buildZiweiStaticPalaceAnalysisViews(astrolabe, computed.config.algorithm);
 
-    return rememberZiweiStaticChart(cacheKey, {
-        cacheKey,
-        input: computed,
-        astrolabe,
-        workbenchLayout: buildZiweiBoardLayout(astrolabe),
-        palaces,
-        palaceByName: Object.fromEntries(palaces.map((item) => [item.name, item])),
-        lazy: {},
+        return rememberZiweiStaticChart(cacheKey, {
+            cacheKey,
+            input: computed,
+            astrolabe,
+            workbenchLayout: buildZiweiBoardLayout(astrolabe),
+            palaces,
+            palaceByName: Object.fromEntries(palaces.map((item) => [item.name, item])),
+            lazy: {},
+        });
     });
+}
+
+export async function loadZiweiStaticChartAsync(payload: ZiweiInputPayload): Promise<ZiweiStaticChartResult> {
+    const computed = computeZiweiDerivedInput(payload);
+    const cacheKey = buildZiweiStaticCacheKey(payload);
+    const cached = ziweiStaticChartCache.get(cacheKey);
+
+    if (cached) {
+        return normalizeCachedZiweiStaticChart(cached, computed);
+    }
+
+    const inFlight = ziweiStaticChartInFlight.get(cacheKey);
+    if (inFlight) {
+        const chart = await inFlight;
+        return normalizeCachedZiweiStaticChart(chart, computed);
+    }
+
+    const nextPromise = measureZiweiAsyncPerf('loadZiweiStaticChartAsync', async () => Promise.resolve().then(() => computeZiweiStaticChart(payload)))
+        .finally(() => {
+            ziweiStaticChartInFlight.delete(cacheKey);
+        });
+    ziweiStaticChartInFlight.set(cacheKey, nextPromise);
+    const chart = await nextPromise;
+    return normalizeCachedZiweiStaticChart(chart, computed);
 }
 
 function buildZiweiDynamicCacheKey(staticChart: ZiweiStaticChartResult, cursorDate: Date): string {
@@ -377,17 +427,19 @@ export function computeZiweiDynamicHoroscope(
         return cached;
     }
 
-    // Keep one dedicated dynamic astrolabe per static chart so repeated horoscope snapshots
-    // can reuse iztro's runtime without sharing state across different rule configurations.
-    if (!staticChart.lazy.dynamicAstrolabe) {
-        staticChart.lazy.dynamicAstrolabe = buildAstrolabe(staticChart.input);
-    }
-    const horoscopeNow = buildCurrentHoroscope(staticChart.lazy.dynamicAstrolabe, cursorDate);
+    return measureZiweiPerf('computeZiweiDynamicHoroscope', () => {
+        // Keep one dedicated dynamic astrolabe per static chart so repeated horoscope snapshots
+        // can reuse iztro's runtime without sharing state across different rule configurations.
+        if (!staticChart.lazy.dynamicAstrolabe) {
+            staticChart.lazy.dynamicAstrolabe = buildAstrolabe(staticChart.input);
+        }
+        const horoscopeNow = buildCurrentHoroscope(staticChart.lazy.dynamicAstrolabe, cursorDate);
 
-    return rememberZiweiDynamicHoroscope(cacheKey, {
-        cursorDate,
-        horoscopeNow,
-        horoscopeSummary: buildZiweiHoroscopeSummary(staticChart.astrolabe, horoscopeNow),
+        return rememberZiweiDynamicHoroscope(cacheKey, {
+            cursorDate,
+            horoscopeNow,
+            horoscopeSummary: buildZiweiHoroscopeSummary(staticChart.astrolabe, horoscopeNow),
+        });
     });
 }
 

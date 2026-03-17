@@ -6,12 +6,14 @@ import type { IFunctionalSurpalaces } from 'iztro/lib/astro/FunctionalSurpalaces
 import type { IFunctionalStar } from 'iztro/lib/star/FunctionalStar';
 import { formatLocalDateTime } from '../../core/bazi-local-time';
 import { getSolarTermDate, solarToLunar } from '../../core/lunar';
+import { measureZiweiPerf } from './perf';
 import {
     ZiweiActiveScope,
     ZiweiAlgorithm,
     ZiweiBrightness,
     ZiweiBoardLayout,
     ZiweiBoardCenterPanelState,
+    ZiweiBoardScopeModel,
     ZiweiBoardSnapshotModel,
     ZiweiBoardMetrics,
     ZiweiBoardRenderModel,
@@ -37,6 +39,7 @@ import {
     ZiweiPalaceSelectionRenderModel,
     ZiweiPalaceYearAssignmentView,
     ZiweiPalaceRenderModel,
+    ZiweiPalaceScopeRenderModel,
     ZiweiChartSnapshotV1,
     ZiweiConfigOptions,
     ZiweiScopeTagView,
@@ -839,31 +842,35 @@ function buildDecadalYearAssignments(
         return cached;
     }
 
-    const assignments = Object.fromEntries(
-        staticChart.palaces.map((palace) => [palace.name, [] as ZiweiPalaceYearAssignmentView[]]),
-    ) as Record<string, ZiweiPalaceYearAssignmentView[]>;
-    const [startAge, endAge] = staticChart.astrolabe.palaces[dynamic.horoscopeNow.decadal.index]?.decadal.range || [0, -1];
-    const birthYear = staticChart.input.birthLocalDate.getFullYear();
-    const horoscopeDivide = staticChart.input.config.horoscopeDivide;
+    const assignments = measureZiweiPerf('buildDecadalYearAssignments', () => {
+        const nextAssignments = Object.fromEntries(
+            staticChart.palaces.map((palace) => [palace.name, [] as ZiweiPalaceYearAssignmentView[]]),
+        ) as Record<string, ZiweiPalaceYearAssignmentView[]>;
+        const [startAge, endAge] = staticChart.astrolabe.palaces[dynamic.horoscopeNow.decadal.index]?.decadal.range || [0, -1];
+        const birthYear = staticChart.input.birthLocalDate.getFullYear();
+        const horoscopeDivide = staticChart.input.config.horoscopeDivide;
 
-    for (let nominalAge = startAge; nominalAge <= endAge; nominalAge += 1) {
-        const year = birthYear + nominalAge - 1;
-        const cursorDate = buildNominalAgeCursorDate(birthYear, nominalAge, horoscopeDivide);
-        const yearlyDynamic = resolveDynamicHoroscope(staticChart, cursorDate);
-        const yearlyPalace = staticChart.astrolabe.palaces[yearlyDynamic.horoscopeNow.yearly.index];
+        for (let nominalAge = startAge; nominalAge <= endAge; nominalAge += 1) {
+            const year = birthYear + nominalAge - 1;
+            const cursorDate = buildNominalAgeCursorDate(birthYear, nominalAge, horoscopeDivide);
+            const yearlyDynamic = resolveDynamicHoroscope(staticChart, cursorDate);
+            const yearlyPalace = staticChart.astrolabe.palaces[yearlyDynamic.horoscopeNow.yearly.index];
 
-        if (!yearlyPalace) {
-            continue;
+            if (!yearlyPalace) {
+                continue;
+            }
+
+            nextAssignments[yearlyPalace.name]?.push({
+                key: `age-${year}-${nominalAge}`,
+                label: `${year}年${nominalAge}岁`,
+                year,
+                nominalAge,
+                active: false,
+            });
         }
 
-        assignments[yearlyPalace.name]?.push({
-            key: `age-${year}-${nominalAge}`,
-            label: `${year}年${nominalAge}岁`,
-            year,
-            nominalAge,
-            active: false,
-        });
-    }
+        return nextAssignments;
+    });
 
     ziweiDecadalAssignmentsCache.set(cacheKey, assignments);
     trimOldestCacheEntry(ziweiDecadalAssignmentsCache, ZIWEI_DECADAL_ASSIGNMENT_CACHE_LIMIT);
@@ -923,7 +930,7 @@ export function buildZiweiBoardDecorations(
     return nextDecorationModel;
 }
 
-function getCurrentScopeSummary(dynamic: ZiweiDynamicHoroscopeResult, activeScope: ZiweiActiveScope): string {
+export function getCurrentScopeSummary(dynamic: ZiweiDynamicHoroscopeResult, activeScope: ZiweiActiveScope): string {
     switch (activeScope) {
         case 'decadal':
             return dynamic.horoscopeSummary.decadal;
@@ -1087,6 +1094,104 @@ export function buildZiweiCenterOverviewState(params: {
     };
 }
 
+function buildZiweiScopeRenderByPalaceName(
+    staticChart: ZiweiStaticChartResult,
+    dynamic: ZiweiDynamicHoroscopeResult,
+    activeScope: ZiweiActiveScope,
+): Record<string, ZiweiPalaceScopeRenderModel> {
+    return Object.fromEntries(staticChart.palaces.map((palace) => {
+        const scopeOverlayText = activeScope === 'age'
+            ? (dynamic.horoscopeNow.agePalace()?.name === palace.name ? `${dynamic.horoscopeNow.age.nominalAge}虚岁` : '')
+            : dynamic.horoscopeNow[activeScope].palaceNames[palace.palaceIndex];
+
+        return [
+            palace.name,
+            {
+                palaceName: palace.name,
+                scopeTags: buildPalaceScopeTags(palace, dynamic, activeScope),
+                isAgePalace: dynamic.horoscopeNow.agePalace()?.name === palace.name,
+                scopeOverlayText: scopeOverlayText || '',
+                footerText: buildZiweiPalaceFooterText(palace, scopeOverlayText || ''),
+            },
+        ];
+    })) as Record<string, ZiweiPalaceScopeRenderModel>;
+}
+
+export function buildZiweiBoardScopeModel(
+    staticChart: ZiweiStaticChartResult,
+    dynamic: ZiweiDynamicHoroscopeResult,
+    activeScope: ZiweiActiveScope,
+    selectedDirectScopeArg?: ZiweiDirectHoroscopeScopeView | null,
+): ZiweiBoardScopeModel {
+    const currentScopeSummary = getCurrentScopeSummary(dynamic, activeScope);
+    const selectedDirectScope = selectedDirectScopeArg !== undefined
+        ? selectedDirectScopeArg
+        : activeScope !== 'age'
+            ? buildZiweiDirectHoroscopeScopeViewByScope(
+                staticChart.astrolabe,
+                dynamic.horoscopeNow,
+                activeScope,
+                staticChart.input.config.algorithm,
+            )
+            : null;
+
+    return {
+        activeScope,
+        currentScopeSummary,
+        selectedDirectScope,
+        byPalaceName: buildZiweiScopeRenderByPalaceName(staticChart, dynamic, activeScope),
+    };
+}
+
+export function buildZiweiBoardRenderModelFromScopeModel(params: {
+    staticChart: ZiweiStaticChartResult;
+    dynamic: ZiweiDynamicHoroscopeResult;
+    scopeModel: ZiweiBoardScopeModel;
+    selectedPalaceName: string;
+}): ZiweiBoardRenderModel {
+    const { staticChart, dynamic, scopeModel, selectedPalaceName } = params;
+    const selectedPalace = staticChart.palaceByName[selectedPalaceName] || staticChart.palaceByName.命宫;
+    const highlightSurrounded = selectedPalace.surrounded;
+    const selectedScopePalace = scopeModel.activeScope === 'age'
+        ? null
+        : buildZiweiHoroscopePalaceView(
+            staticChart.astrolabe,
+            dynamic.horoscopeNow,
+            selectedPalace.name,
+            scopeModel.activeScope,
+            scopeModel.selectedDirectScope,
+        );
+    const centerMutagenStars = selectedScopePalace?.mutagenStars || resolveScopeMutagenStars(dynamic, scopeModel.activeScope);
+    const byPalaceName = Object.fromEntries(staticChart.palaces.map((palace) => {
+        const baseModel = scopeModel.byPalaceName[palace.name];
+        return [
+            palace.name,
+            {
+                ...baseModel,
+                selected: selectedPalaceName === palace.name,
+                highlightKind: getPalaceHighlightKind(palace.name, highlightSurrounded),
+            },
+        ];
+    })) as Record<string, ZiweiPalaceRenderModel>;
+
+    return {
+        byPalaceName,
+        currentScopeSummary: scopeModel.currentScopeSummary,
+        centerPanel: buildZiweiCenterOverviewState({
+            soul: staticChart.astrolabe.soul,
+            body: staticChart.astrolabe.body,
+            activeScope: scopeModel.activeScope,
+            selectedPalace,
+            currentScopeSummary: scopeModel.currentScopeSummary,
+            mutagenStars: centerMutagenStars,
+            selectedScopePalace,
+            ageSummary: scopeModel.activeScope === 'age'
+                ? `小限 · ${dynamic.horoscopeNow.agePalace()?.name || selectedPalace.name} · 虚岁 ${dynamic.horoscopeNow.age.nominalAge}`
+                : undefined,
+        }),
+    };
+}
+
 function getPalaceHighlightKind(
     palaceName: string,
     surrounded: ZiweiSurroundedPalacesView,
@@ -1220,64 +1325,17 @@ export function buildZiweiBoardRenderModel(
     selectedPalaceName: string,
     selectedDirectScopeArg?: ZiweiDirectHoroscopeScopeView | null,
 ): ZiweiBoardRenderModel {
-    const selectedPalace = staticChart.palaceByName[selectedPalaceName] || staticChart.palaceByName.命宫;
-    const highlightSurrounded = selectedPalace.surrounded;
-    const currentScopeSummary = getCurrentScopeSummary(dynamic, activeScope);
-    const selectedDirectScope = selectedDirectScopeArg !== undefined
-        ? selectedDirectScopeArg
-        : activeScope !== 'age'
-            ? buildZiweiDirectHoroscopeScopeViewByScope(
-                staticChart.astrolabe,
-                dynamic.horoscopeNow,
-                activeScope,
-                staticChart.input.config.algorithm,
-            )
-            : null;
-    const selectedScopePalace = activeScope === 'age'
-        ? null
-        : buildZiweiHoroscopePalaceView(
-            staticChart.astrolabe,
-            dynamic.horoscopeNow,
-            selectedPalace.name,
+    return buildZiweiBoardRenderModelFromScopeModel({
+        staticChart,
+        dynamic,
+        scopeModel: buildZiweiBoardScopeModel(
+            staticChart,
+            dynamic,
             activeScope,
-            selectedDirectScope,
-        );
-    const centerMutagenStars = selectedScopePalace?.mutagenStars || resolveScopeMutagenStars(dynamic, activeScope);
-    const byPalaceName = Object.fromEntries(staticChart.palaces.map((palace) => {
-        const scopeOverlayText = activeScope === 'age'
-            ? (dynamic.horoscopeNow.agePalace()?.name === palace.name ? `${dynamic.horoscopeNow.age.nominalAge}虚岁` : '')
-            : dynamic.horoscopeNow[activeScope].palaceNames[palace.palaceIndex];
-
-        return [
-            palace.name,
-            {
-                palaceName: palace.name,
-                scopeTags: buildPalaceScopeTags(palace, dynamic, activeScope),
-                isAgePalace: dynamic.horoscopeNow.agePalace()?.name === palace.name,
-                selected: selectedPalaceName === palace.name,
-                highlightKind: getPalaceHighlightKind(palace.name, highlightSurrounded),
-                scopeOverlayText: scopeOverlayText || '',
-                footerText: buildZiweiPalaceFooterText(palace, scopeOverlayText || ''),
-            },
-        ];
-    })) as Record<string, ZiweiPalaceRenderModel>;
-
-    return {
-        byPalaceName,
-        currentScopeSummary,
-        centerPanel: buildZiweiCenterOverviewState({
-            soul: staticChart.astrolabe.soul,
-            body: staticChart.astrolabe.body,
-            activeScope,
-            selectedPalace,
-            currentScopeSummary,
-            mutagenStars: centerMutagenStars,
-            selectedScopePalace,
-            ageSummary: activeScope === 'age'
-                ? `小限 · ${dynamic.horoscopeNow.agePalace()?.name || selectedPalace.name} · 虚岁 ${dynamic.horoscopeNow.age.nominalAge}`
-                : undefined,
-        }),
-    };
+            selectedDirectScopeArg,
+        ),
+        selectedPalaceName,
+    });
 }
 
 function buildOrbitCursorDate(baseDate: Date, patch: {

@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    ActivityIndicator,
     ScrollView,
     StyleSheet,
     Text,
@@ -9,7 +8,7 @@ import {
     View,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { BackIcon, ChevronRightIcon, SparklesIcon } from '../../src/components/Icons';
+import { BackIcon, ChevronRightIcon } from '../../src/components/Icons';
 import StatusBarDecor from '../../src/components/StatusBarDecor';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { BorderRadius, FontSize, Spacing } from '../../src/theme/colors';
@@ -20,28 +19,21 @@ import CityPicker from '../../src/components/CityPicker';
 import DateTimePicker, { DateTimePickerSelection } from '../../src/components/DateTimePicker';
 import { formatLocalDateTime } from '../../src/core/bazi-local-time';
 import { formatLunarDateLabel } from '../../src/core/lunar';
-import { formatTimeDiff } from '../../src/core/true-solar-time';
-import { getRecord, replaceRecord, saveRecord } from '../../src/db/database';
+import { getRecord } from '../../src/db/database';
 import {
     buildZiweiInputPayload,
-    computeZiweiDynamicHoroscope,
-    computeZiweiDerivedInput,
-    computeZiweiStaticChart,
     ZIWEI_DEFAULT_CONFIG,
     ZIWEI_STANDARD_TIMEZONE_OFFSET_MINUTES,
 } from '../../src/features/ziwei/iztro-adapter';
 import { buildZiweiEditFormState } from '../../src/features/ziwei/edit-helpers';
-import { buildZiweiRecordResult, buildZiweiSummary } from '../../src/features/ziwei/record';
+import { getPendingZiweiRecord } from '../../src/features/ziwei/pending-result-cache';
+import { createZiweiRecordId } from '../../src/features/ziwei/record';
 import { buildZiweiResultRoute } from '../../src/features/ziwei/result-route';
 import {
-    ZiweiAlgorithm,
-    ZiweiAstroType,
     ZiweiConfigOptions,
-    ZiweiDayDivide,
     ZiweiGender,
     ZiweiInputPayload,
     ZiweiLunarDateInput,
-    ZiweiYearDivide,
 } from '../../src/features/ziwei/types';
 
 function formatDateTime(date: Date): string {
@@ -72,49 +64,7 @@ function formatLunarInputLabel(lunar?: ZiweiLunarDateInput): string {
     });
 }
 
-const ALGORITHM_OPTIONS: Array<{ value: ZiweiAlgorithm; label: string }> = [
-    { value: 'default', label: '通行' },
-    { value: 'zhongzhou', label: '中州' },
-];
-
-const YEAR_DIVIDE_OPTIONS: Array<{ value: ZiweiYearDivide; label: string }> = [
-    { value: 'normal', label: '农历正月' },
-    { value: 'exact', label: '立春' },
-];
-
-const DAY_DIVIDE_OPTIONS: Array<{ value: ZiweiDayDivide; label: string }> = [
-    { value: 'forward', label: '晚子算次日' },
-    { value: 'current', label: '晚子算当日' },
-];
-
-const ASTRO_TYPE_OPTIONS: Array<{ value: ZiweiAstroType; label: string }> = [
-    { value: 'heaven', label: '天盘' },
-    { value: 'earth', label: '地盘' },
-    { value: 'human', label: '人盘' },
-];
-
-const WARM_STATUS_COPY = {
-    idle: '填写完成后会自动预热排盘引擎。',
-    warming: '参数刚更新，正在后台预热命盘计算。',
-    ready: '命盘引擎已预热，开始排盘会直接命中缓存。',
-} as const;
-
-const SUBMIT_PHASE_COPY = {
-    calibrating: {
-        title: '正在校准真太阳时',
-        body: '先按出生地经度、时区与夏令时修正出生时刻。',
-    },
-    charting: {
-        title: '正在生成紫微命盘',
-        body: '正在计算十二宫位、主星辅曜、生年四化与当前运限。',
-    },
-    saving: {
-        title: '正在写入命盘',
-        body: '马上进入结果页，结果会写入历史记录供后续 AI 继续使用。',
-    },
-} as const;
-
-function waitForNextPaint(): Promise<void> {
+function yieldToNextFrame(): Promise<void> {
     return new Promise((resolve) => {
         requestAnimationFrame(() => resolve());
     });
@@ -138,9 +88,9 @@ export default function ZiweiInputPage() {
     const [location, setLocation] = useState<RegionSelection | null>(null);
     const [locationFallbackLabel, setLocationFallbackLabel] = useState('');
     const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
+    const [editingCreatedAt, setEditingCreatedAt] = useState<string | null>(null);
     const [initializing, setInitializing] = useState(Boolean(editId));
-    const [warmState, setWarmState] = useState<keyof typeof WARM_STATUS_COPY>('idle');
-    const [submitPhase, setSubmitPhase] = useState<keyof typeof SUBMIT_PHASE_COPY | null>(null);
+    const [loading, setLoading] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -152,6 +102,22 @@ export default function ZiweiInputPage() {
             }
 
             try {
+                const pending = getPendingZiweiRecord(editId);
+                if (pending && pending.status !== 'saved') {
+                    const form = buildZiweiEditFormState(pending.result);
+                    setName(form.name);
+                    setGender(form.gender);
+                    setBirthDate(form.birthDate);
+                    setBirthSelection(form.birthSelection);
+                    setConfig(form.config);
+                    setDaylightSavingEnabled(form.daylightSavingEnabled);
+                    setLocation(form.location);
+                    setLocationFallbackLabel(form.locationFallbackLabel);
+                    setEditingRecordId(form.editingRecordId);
+                    setEditingCreatedAt(form.createdAt);
+                    return;
+                }
+
                 const detail = await getRecord(editId);
                 if (cancelled) {
                     return;
@@ -173,6 +139,7 @@ export default function ZiweiInputPage() {
                 setLocation(form.location);
                 setLocationFallbackLabel(form.locationFallbackLabel);
                 setEditingRecordId(form.editingRecordId);
+                setEditingCreatedAt(form.createdAt);
             } catch (error: unknown) {
                 if (!cancelled) {
                     const message = error instanceof Error ? error.message : '加载紫微记录失败';
@@ -193,70 +160,8 @@ export default function ZiweiInputPage() {
         };
     }, [editId]);
 
-    const preview = useMemo(() => {
-        if (!location) {
-            return null;
-        }
-
-        try {
-            const payload = buildZiweiInputPayload({
-                birthDate,
-                longitude: location.longitude,
-                gender,
-                daylightSavingEnabled,
-                calendarType: birthSelection.calendarType,
-                lunar: birthSelection.lunar,
-                config,
-                cityLabel: buildRegionDisplayName(location),
-                name,
-                tzOffsetMinutes: ZIWEI_STANDARD_TIMEZONE_OFFSET_MINUTES,
-            });
-
-            return {
-                payload,
-                computed: computeZiweiDerivedInput(payload),
-            };
-        } catch {
-            return null;
-        }
-    }, [birthDate, birthSelection.calendarType, birthSelection.lunar, config, daylightSavingEnabled, gender, location, name]);
-
-    useEffect(() => {
-        let cancelled = false;
-
-        if (!preview) {
-            setWarmState('idle');
-            return;
-        }
-
-        setWarmState('warming');
-        const timer = setTimeout(() => {
-            requestAnimationFrame(() => {
-                if (cancelled) {
-                    return;
-                }
-
-                try {
-                    computeZiweiStaticChart(preview.payload);
-                    if (!cancelled) {
-                        setWarmState('ready');
-                    }
-                } catch {
-                    if (!cancelled) {
-                        setWarmState('idle');
-                    }
-                }
-            });
-        }, 90);
-
-        return () => {
-            cancelled = true;
-            clearTimeout(timer);
-        };
-    }, [preview]);
-
     const handleStart = async () => {
-        if (submitPhase) {
+        if (loading) {
             return;
         }
 
@@ -285,51 +190,26 @@ export default function ZiweiInputPage() {
             return;
         }
 
-        let navigated = false;
         try {
-            setSubmitPhase('calibrating');
-            await waitForNextPaint();
-            await waitForNextPaint();
+            setLoading(true);
+            await yieldToNextFrame();
+            const nextRecordId = editingRecordId || createZiweiRecordId();
+            const nextCreatedAt = editingCreatedAt || new Date().toISOString();
 
-            setSubmitPhase('charting');
-            const staticChart = computeZiweiStaticChart(payload);
-            await waitForNextPaint();
-            const dynamic = computeZiweiDynamicHoroscope(staticChart, new Date());
-            const record = buildZiweiRecordResult({ staticChart, dynamic });
-
-            const envelope = {
-                engineType: 'ziwei' as const,
-                result: record,
-                summary: buildZiweiSummary(record),
-            };
-
-            setSubmitPhase('saving');
-            await waitForNextPaint();
-
-            if (editingRecordId) {
-                await replaceRecord(editingRecordId, envelope);
-            } else {
-                await saveRecord(envelope);
-            }
-
-            navigated = true;
             router.push(buildZiweiResultRoute({
                 payload,
-                computed: staticChart.input,
-                recordId: record.id,
+                recordId: nextRecordId,
+                recordCreatedAt: nextCreatedAt,
+                routeDraft: true,
             }));
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : '紫微命盘保存失败';
             CustomAlert.alert('错误', message);
         } finally {
-            if (!navigated) {
-                setSubmitPhase(null);
-            }
+            setLoading(false);
         }
     };
-
-    const submitCopy = submitPhase ? SUBMIT_PHASE_COPY[submitPhase] : null;
-    const isSubmitting = submitPhase !== null;
+    const isSubmitting = loading;
     const handleLocationSelect = useCallback((selectedRegion: RegionSelection | null) => {
         setLocation(selectedRegion);
         setLocationFallbackLabel('');
@@ -372,7 +252,7 @@ export default function ZiweiInputPage() {
             ) : (
                 <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
                 <Text style={styles.hint}>
-                    本链路固定使用真太阳时。输入出生地区后，会先按中国标准时区 UTC+8 与经度、时差方程换算出真太阳时，再交给 `iztro` 排盘。
+                    紫微斗数固定按真太阳时排盘。这里不再做预演，只有点击进入紫微盘时才会按出生地区与时间完成一次校时并直接出盘。
                 </Text>
 
                 <LocationBar
@@ -460,115 +340,6 @@ export default function ZiweiInputPage() {
                     </Text>
                 </View>
 
-                <View style={styles.previewCard}>
-                    <Text style={styles.previewTitle}>高级排盘配置</Text>
-                    <Text style={styles.advancedHint}>
-                        这里会直接影响 `iztro` 的排盘算法、分界口径和盘型，不再固定死在默认值。
-                    </Text>
-
-                    <View style={styles.optionSection}>
-                        <Text style={styles.optionSectionLabel}>安星算法</Text>
-                        <OptionGroup
-                            styles={styles}
-                            options={ALGORITHM_OPTIONS}
-                            value={config.algorithm}
-                            onChange={(value) => setConfig((prev) => ({ ...prev, algorithm: value }))}
-                        />
-                    </View>
-
-                    <View style={styles.optionSection}>
-                        <Text style={styles.optionSectionLabel}>年界 / 运限界</Text>
-                        <Text style={styles.optionSubLabel}>年界</Text>
-                        <OptionGroup
-                            styles={styles}
-                            options={YEAR_DIVIDE_OPTIONS}
-                            value={config.yearDivide}
-                            onChange={(value) => setConfig((prev) => ({ ...prev, yearDivide: value }))}
-                        />
-                        <View style={styles.optionSpacer} />
-                        <Text style={styles.optionSubLabel}>运限界</Text>
-                        <OptionGroup
-                            styles={styles}
-                            options={YEAR_DIVIDE_OPTIONS}
-                            value={config.horoscopeDivide}
-                            onChange={(value) => setConfig((prev) => ({ ...prev, horoscopeDivide: value }))}
-                        />
-                    </View>
-
-                    <View style={styles.optionSection}>
-                        <Text style={styles.optionSectionLabel}>晚子时口径</Text>
-                        <OptionGroup
-                            styles={styles}
-                            options={DAY_DIVIDE_OPTIONS}
-                            value={config.dayDivide}
-                            onChange={(value) => setConfig((prev) => ({ ...prev, dayDivide: value }))}
-                        />
-                    </View>
-
-                    <View style={styles.optionSection}>
-                        <Text style={styles.optionSectionLabel}>盘型</Text>
-                        <OptionGroup
-                            styles={styles}
-                            options={ASTRO_TYPE_OPTIONS}
-                            value={config.astroType}
-                            onChange={(value) => setConfig((prev) => ({ ...prev, astroType: value }))}
-                        />
-                    </View>
-                </View>
-
-                <View style={styles.previewCard}>
-                    <View style={styles.previewTitleRow}>
-                        <View style={styles.previewIcon}>
-                            <SparklesIcon size={20} color={Colors.accent.gold} />
-                        </View>
-                        <View style={styles.previewTitleWrap}>
-                            <Text style={styles.previewTitle}>真太阳时预演</Text>
-                            <Text style={[styles.previewStatusText, warmState === 'ready' && styles.previewStatusTextReady]}>
-                                {WARM_STATUS_COPY[warmState]}
-                            </Text>
-                        </View>
-                    </View>
-                    {preview ? (
-                        <>
-                            <PreviewItem
-                                label="输入语义"
-                                value={preview.payload.calendarType === 'lunar'
-                                    ? `农历 · ${formatLunarInputLabel(preview.payload.lunar)}`
-                                    : '公历'}
-                                styles={styles}
-                            />
-                            <PreviewItem label="原始时间" value={formatDateTime(preview.computed.birthLocalDate)} styles={styles} />
-                            <PreviewItem label="真太阳时" value={formatDateTime(preview.computed.trueSolarDate)} styles={styles} />
-                            <PreviewItem label="修正差值" value={formatTimeDiff(preview.computed.birthLocalDate, preview.computed.trueSolarDate)} styles={styles} />
-                            {preview.payload.calendarType === 'lunar' ? (
-                                <PreviewItem
-                                    label="校正后农历"
-                                    value={formatLunarInputLabel(preview.computed.trueSolarLunar)}
-                                    styles={styles}
-                                />
-                            ) : (
-                                <PreviewItem label="排盘日期" value={preview.computed.solarDate} styles={styles} />
-                            )}
-                            <PreviewItem
-                                label="排盘调用"
-                                value={preview.payload.calendarType === 'lunar'
-                                    ? `byLunar · ${formatLunarInputLabel(preview.computed.trueSolarLunar)}`
-                                    : `bySolar · ${preview.computed.solarDate}`}
-                                styles={styles}
-                            />
-                            <PreviewItem
-                                label="落入时辰"
-                                value={`${preview.computed.timeLabel} · ${preview.computed.timeRange}`}
-                                styles={styles}
-                            />
-                        </>
-                    ) : (
-                        <Text style={styles.previewPlaceholder}>
-                            选择出生地区后，这里会显示真太阳时校正结果与最终落入的时辰。
-                        </Text>
-                    )}
-                </View>
-
                 <TouchableOpacity
                     style={[styles.calcBtn, isSubmitting && styles.calcBtnDisabled]}
                     onPress={handleStart}
@@ -576,7 +347,7 @@ export default function ZiweiInputPage() {
                     disabled={isSubmitting}
                 >
                     <Text style={styles.calcBtnText}>
-                        {isSubmitting ? '排盘中...' : (editingRecordId ? '保存修改并排盘' : '进入紫微盘')}
+                        {isSubmitting ? '排盘中...' : (editingRecordId ? '保存修改并进入紫微盘' : '进入紫微盘')}
                     </Text>
                 </TouchableOpacity>
                 </ScrollView>
@@ -596,64 +367,6 @@ export default function ZiweiInputPage() {
                 onConfirm={handleBirthConfirm}
                 onConfirmDetail={handleBirthConfirmDetail}
             />
-
-            {submitCopy ? (
-                <View style={styles.processingOverlay}>
-                    <View style={styles.processingCard}>
-                        <ActivityIndicator size="large" color={Colors.accent.gold} />
-                        <Text style={styles.processingTitle}>{submitCopy.title}</Text>
-                        <Text style={styles.processingBody}>{submitCopy.body}</Text>
-                    </View>
-                </View>
-            ) : null}
-        </View>
-    );
-}
-
-function PreviewItem({
-    label,
-    value,
-    styles,
-}: {
-    label: string;
-    value: string;
-    styles: ReturnType<typeof makeStyles>;
-}) {
-    return (
-        <View style={styles.previewItem}>
-            <Text style={styles.previewLabel}>{label}</Text>
-            <Text style={styles.previewValue}>{value}</Text>
-        </View>
-    );
-}
-
-function OptionGroup<T extends string>({
-    styles,
-    options,
-    value,
-    onChange,
-}: {
-    styles: ReturnType<typeof makeStyles>;
-    options: Array<{ value: T; label: string }>;
-    value: T;
-    onChange: (value: T) => void;
-}) {
-    return (
-        <View style={styles.optionGrid}>
-            {options.map((option) => {
-                const active = option.value === value;
-                return (
-                    <TouchableOpacity
-                        key={option.value}
-                        style={[styles.optionBtn, styles.optionGridBtn, active && styles.optionBtnActive]}
-                        onPress={() => onChange(option.value)}
-                    >
-                        <Text style={[styles.optionText, active && styles.optionTextActive]}>
-                            {option.label}
-                        </Text>
-                    </TouchableOpacity>
-                );
-            })}
         </View>
     );
 }

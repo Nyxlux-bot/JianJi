@@ -24,10 +24,11 @@ export function resolveZiweiResultBootstrapPlan(params: {
     parsed: ZiweiRouteParseResult;
     recordId?: string;
     recordDetail?: BootstrapRecordDetail | null;
+    preferRoutePayload?: boolean;
 }): ZiweiResultBootstrapPlan {
-    const { parsed, recordId, recordDetail } = params;
+    const { parsed, recordId, recordDetail, preferRoutePayload = false } = params;
 
-    if (parsed.ok) {
+    if (parsed.ok && (!recordId || preferRoutePayload || !recordDetail || recordDetail.engineType !== 'ziwei')) {
         return {
             kind: 'live',
             source: 'route',
@@ -41,7 +42,7 @@ export function resolveZiweiResultBootstrapPlan(params: {
     if (!recordId) {
         return {
             kind: 'error',
-            message: parsed.message,
+            message: parsed.ok ? '缺少出生时间参数。' : parsed.message,
         };
     }
 

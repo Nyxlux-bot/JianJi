@@ -84,7 +84,6 @@ src/hooks/                   页面级状态 Hook
 src/theme/                   主题、配色与语义色 token
 src/utils/                   历史筛选等轻量工具
 src/polyfills/               运行时 polyfill
-src/__localtests__/          本地回归测试用例
 src/data/                    卦象、卦辞与静态资料
 docs/images/                 README 展示截图
 ```
@@ -120,15 +119,6 @@ npm run web
 
 ```bash
 npm run typecheck
-```
-
-### Jest
-
-仓库已提供通用测试与紫微专项测试入口：
-
-```bash
-npm test
-npm run test:ziwei
 ```
 
 ## 数据与兼容

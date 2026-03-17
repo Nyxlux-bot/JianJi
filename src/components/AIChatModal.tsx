@@ -22,15 +22,20 @@ import { BaziResult } from '../core/bazi-types';
 import { PanResult } from '../core/liuyao-calc';
 import { saveRecord } from '../db/database';
 import { cloneZiweiFormatterContext, ZiweiFormatterContext } from '../features/ziwei/ai-context';
-import { ZiweiRecordResult } from '../features/ziwei/record';
 import {
+    buildZiweiAIConfigSignature,
+    isZiweiAIConfigStale,
+    ZiweiRecordResult,
+} from '../features/ziwei/record';
+import {
+    AIRequestDebugMeta,
     AIWorkflowResponseKind,
     AIRequestOptions,
     analyzeWithAIChatStream,
     buildBaziFiveYearPrompt,
     buildBaziFollowUpPrompt,
     buildBaziVerificationPrompt,
-    buildRequestMessages,
+    buildRequestBundle,
     BaziVerificationAction,
     buildZiweiFiveYearPrompt,
     buildZiweiFollowUpPrompt,
@@ -65,6 +70,7 @@ import {
     buildBaziVerificationRetryPlan,
     buildRetryPlan,
     getLastAssistantContent,
+    shouldRollbackFailedWorkflowResponse,
     shouldShowBaziFoundationRetryAction,
     trimWorkflowMessages,
 } from './ai-chat-actions';
@@ -180,6 +186,51 @@ function buildHeaderMeta(result: PanResult | BaziResult | ZiweiRecordResult): { 
     return {
         title: result.benGua.fullName,
         subtitle: result.bianGua?.fullName || '无变卦',
+    };
+}
+
+function resolveRequestWorkflowStage(
+    mode: 'liuyao' | 'bazi' | 'ziwei',
+    options: {
+        isAutoInitial?: boolean;
+        expectedCompletion?: AIWorkflowResponseKind;
+    },
+): 'foundation' | 'verification' | 'five_year' | 'followup' | undefined {
+    if (mode === 'liuyao') {
+        return undefined;
+    }
+
+    if (options.expectedCompletion) {
+        return options.expectedCompletion;
+    }
+
+    return options.isAutoInitial ? 'foundation' : 'followup';
+}
+
+function formatRequestEvidenceNotice(meta: AIRequestDebugMeta | null): string | null {
+    if (!meta || meta.mode !== 'ziwei') {
+        return null;
+    }
+
+    const parts = [
+        meta.workflowStage ? `阶段 ${meta.workflowStage}` : '',
+        meta.scopeLabel ? `当前 ${meta.scopeLabel}` : '',
+        meta.focusPalaceName ? `焦点 ${meta.focusPalaceName}` : '',
+        meta.yearWindow ? `六年包 ${meta.yearWindow}` : '',
+        meta.compatibilityMode ? '兼容模式' : '增强证据',
+    ].filter(Boolean);
+
+    return parts.length > 0 ? `本轮依据：${parts.join(' · ')}` : null;
+}
+
+function buildZiweiStaleNotice(isStale: boolean): { title: string; body: string } | null {
+    if (!isStale) {
+        return null;
+    }
+
+    return {
+        title: 'AI 分析已失效',
+        body: '当前 AI 结论基于旧排盘口径，旧内容仍可查看，但不能继续沿用。请按当前配置重新开始 AI 分析。',
     };
 }
 
@@ -319,6 +370,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     const [isLoading, setIsLoading] = useState(false);
     const [quickReplies, setQuickReplies] = useState<string[]>([]);
     const [artifactNotice, setArtifactNotice] = useState<string | null>(null);
+    const [requestDebugMeta, setRequestDebugMeta] = useState<AIRequestDebugMeta | null>(null);
     const [menuVisible, setMenuVisible] = useState(false);
     const [hasFoundationAttempted, setHasFoundationAttempted] = useState(false);
     const [presentationState, setPresentationState] = useState<ChatPresentationState>('idle');
@@ -327,6 +379,9 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         : (isZiweiResult(result) ? 'ziwei' : 'liuyao');
     const stagedMode = workflowMode !== 'liuyao';
     const isAnalyzingPhase = presentationState === 'preparing_request' || presentationState === 'streaming';
+    const ziweiAnalysisStale = workflowMode === 'ziwei'
+        && isZiweiResult(result)
+        && isZiweiAIConfigStale(result);
     const [workflowStage, setWorkflowStage] = useState<AIConversationStage | null>(
         workflowMode === 'bazi'
             ? getBaziConversationStage(result as BaziResult)
@@ -336,6 +391,10 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     const workflowNotice = useMemo(
         () => buildWorkflowNotice(workflowMode, workflowStage, isAnalyzingPhase),
         [isAnalyzingPhase, workflowMode, workflowStage],
+    );
+    const ziweiStaleNotice = useMemo(
+        () => buildZiweiStaleNotice(ziweiAnalysisStale),
+        [ziweiAnalysisStale],
     );
 
     const cancelScheduledAutoStart = () => {
@@ -394,6 +453,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             setMenuVisible(false);
             setHasFoundationAttempted(false);
             setPresentationState('idle');
+            setRequestDebugMeta(null);
         }
     }, [visible]);
 
@@ -416,17 +476,20 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             autoStartPendingRef.current = hydrated.length === 0;
             modalShownRef.current = false;
             setPresentationState('presenting');
+            setRequestDebugMeta(null);
             setQuickReplies(
                 stagedMode && workflowMode === 'bazi' && getBaziConversationStage(result as BaziResult) !== 'followup_ready'
                     ? []
-                    : (stagedMode && workflowMode === 'ziwei' && getZiweiConversationStage(result as ZiweiRecordResult) !== 'followup_ready'
-                    ? []
-                    : (result.quickReplies && result.quickReplies.length > 0 ? result.quickReplies : [])),
+                    : stagedMode && workflowMode === 'ziwei' && getZiweiConversationStage(result as ZiweiRecordResult) !== 'followup_ready'
+                        ? []
+                        : ziweiAnalysisStale
+                            ? []
+                            : (result.quickReplies && result.quickReplies.length > 0 ? result.quickReplies : []),
             );
         } else {
             setInputText('');
         }
-    }, [visible, result.id]);
+    }, [visible, result.id, stagedMode, workflowMode, result, ziweiAnalysisStale]);
 
     const saveAndSync = async (
         nextMessages: UIChatMessage[],
@@ -436,6 +499,8 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             aiConversationStage?: AIConversationStage | null;
             aiVerificationSummary?: string | null;
             aiContextSnapshot?: BaziResult['aiContextSnapshot'] | null;
+            aiConfigSignature?: string | null;
+            aiInvalidatedAt?: string | null;
         } = {},
     ): Promise<PanResult | BaziResult | ZiweiRecordResult> => {
         const persistedMessages = toPersistedMessages(nextMessages);
@@ -445,6 +510,13 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         const hasStageOverride = Object.prototype.hasOwnProperty.call(overrides, 'aiConversationStage');
         const hasVerificationOverride = Object.prototype.hasOwnProperty.call(overrides, 'aiVerificationSummary');
         const hasContextSnapshotOverride = Object.prototype.hasOwnProperty.call(overrides, 'aiContextSnapshot');
+        const hasConfigSignatureOverride = Object.prototype.hasOwnProperty.call(overrides, 'aiConfigSignature');
+        const hasInvalidatedAtOverride = Object.prototype.hasOwnProperty.call(overrides, 'aiInvalidatedAt');
+        const shouldRefreshZiweiAISignature = persistedMessages.length > 0
+            || Boolean(lastAssistant)
+            || hasDigestOverride
+            || hasStageOverride
+            || hasVerificationOverride;
 
         const updatedResult: PanResult | BaziResult | ZiweiRecordResult = isBaziResult(baseResult)
             ? {
@@ -470,6 +542,12 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                         : baseResult.aiConversationDigest,
                     aiConversationStage: hasStageOverride ? (overrides.aiConversationStage ?? undefined) : baseResult.aiConversationStage,
                     aiVerificationSummary: hasVerificationOverride ? (overrides.aiVerificationSummary ?? undefined) : baseResult.aiVerificationSummary,
+                    aiConfigSignature: hasConfigSignatureOverride
+                        ? (overrides.aiConfigSignature ?? undefined)
+                        : (shouldRefreshZiweiAISignature ? buildZiweiAIConfigSignature(baseResult.config) : baseResult.aiConfigSignature),
+                    aiInvalidatedAt: hasInvalidatedAtOverride
+                        ? (overrides.aiInvalidatedAt ?? undefined)
+                        : (shouldRefreshZiweiAISignature ? undefined : baseResult.aiInvalidatedAt),
                 }
                 : {
                     ...baseResult,
@@ -614,6 +692,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             : (workflowMode === 'ziwei'
                 ? getZiweiConversationStage(latestResultRef.current as ZiweiRecordResult)
                 : null);
+        const requestWorkflowStage = resolveRequestWorkflowStage(workflowMode, options);
         const nextMessages: UIChatMessage[] = [
             ...baseMessages,
             {
@@ -637,6 +716,9 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         setInputText('');
         setQuickReplies([]);
         setArtifactNotice(null);
+        if (workflowMode !== 'ziwei') {
+            setRequestDebugMeta(null);
+        }
         if (stagedMode && options.expectedCompletion === 'foundation') {
             setWorkflowStage('foundation_pending');
             setHasFoundationAttempted(true);
@@ -651,13 +733,21 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             const streamRequest = async (requestHistory: PersistedAIChatMessage[]) => {
                 let rawAssistantText = '';
                 let hasReceivedChunk = false;
-                const messagesForAPI = await buildRequestMessages(
+                const requestBundle = await buildRequestBundle(
                     latestResultRef.current,
                     requestHistory,
                     workflowMode === 'bazi'
                         ? (lockedBaziContext ?? latestBaziContextRef.current)
                         : (workflowMode === 'ziwei' ? latestZiweiContextRef.current : undefined),
+                    {
+                        workflowStage: requestWorkflowStage,
+                    },
                 );
+                const messagesForAPI = requestBundle.messages;
+                requestOptions.debugMeta = requestBundle.debugMeta;
+                if (workflowMode === 'ziwei') {
+                    setRequestDebugMeta(requestBundle.debugMeta || null);
+                }
 
                 if (requestId !== activeRequestSeqRef.current || abortController.signal.aborted) {
                     return {
@@ -751,8 +841,14 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                         : validateZiweiWorkflowResponse(
                             options.expectedCompletion as 'foundation' | 'verification' | 'five_year',
                             rawAssistantContent,
+                            latestResultRef.current as ZiweiRecordResult,
                         );
                     stageSuccess = validation.success;
+                    const shouldRollbackFailedStage = shouldRollbackFailedWorkflowResponse(
+                        workflowMode,
+                        options.expectedCompletion as 'foundation' | 'verification' | 'five_year',
+                        stageSuccess,
+                    );
                     if (getLastAssistantContent(finalMessages) !== validation.cleanContent) {
                         finalMessages = replaceLastAssistantContent(finalMessages, validation.cleanContent);
                         setMessages(finalMessages);
@@ -760,9 +856,31 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                     }
 
                     if (!validation.success) {
+                        if (workflowMode === 'ziwei' && (options.expectedCompletion === 'verification' || options.expectedCompletion === 'five_year')) {
+                            const ziweiValidation = validation as ReturnType<typeof validateZiweiWorkflowResponse>;
+                            console.warn('[AIChatModal] Ziwei staged validation failed', {
+                                expectedCompletion: options.expectedCompletion,
+                                marker: ziweiValidation.marker,
+                                hasExpectedMarker: ziweiValidation.marker === options.expectedCompletion,
+                                issues: ziweiValidation.issues,
+                                parsedYearBuckets: ziweiValidation.debug?.parsedYearBuckets || [],
+                                parsedVerificationBlockCount: ziweiValidation.debug?.parsedVerificationBlockCount || 0,
+                                parsedVerificationHeaders: ziweiValidation.debug?.parsedVerificationHeaders || [],
+                            });
+                        }
+                        if (shouldRollbackFailedStage) {
+                            finalMessages = baseMessages;
+                            setMessages(baseMessages);
+                            latestMessagesRef.current = baseMessages;
+                        }
+                        const failedStageLabel = options.expectedCompletion === 'verification'
+                            ? '前事核验阶段'
+                            : (options.expectedCompletion === 'five_year' ? '未来五年阶段' : '当前阶段');
                         CustomAlert.alert(
                             '阶段未完成',
-                            `本阶段未完整结束，请重试本阶段。${validation.issues.join('；')}`,
+                            shouldRollbackFailedStage
+                                ? `已生成内容未通过结构校验，未写入会话，请重试${failedStageLabel}。${validation.issues.join('；')}`
+                                : `本阶段未完整结束，请重试本阶段。${validation.issues.join('；')}`,
                         );
                     }
                 }
@@ -897,6 +1015,10 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             aiConversationDigest: null,
             aiConversationStage: 'foundation_pending',
             aiVerificationSummary: null,
+            aiConfigSignature: workflowMode === 'ziwei' && isZiweiResult(latestResultRef.current)
+                ? buildZiweiAIConfigSignature(latestResultRef.current.config)
+                : undefined,
+            aiInvalidatedAt: workflowMode === 'ziwei' ? null : undefined,
         });
 
         await handleSend(workflowMode === 'bazi' ? getBaziFoundationPrompt() : getZiweiFoundationPrompt(), {
@@ -1000,13 +1122,15 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
 
     const menuItems: OverflowMenuItem[] = [
         { key: 'copy', label: '复制回复', onPress: handleCopyLatestAssistant, disabled: isLoading },
-        { key: 'retry', label: '重试上一问', onPress: handleRetryLastQuestion, disabled: isLoading || (stagedMode && workflowStage !== 'followup_ready') },
+        { key: 'retry', label: '重试上一问', onPress: handleRetryLastQuestion, disabled: isLoading || ziweiAnalysisStale || (stagedMode && workflowStage !== 'followup_ready') },
         { key: 'export', label: '导出会话', onPress: handleExportChat, disabled: isLoading },
     ];
     const showFoundationAction = stagedMode
+        && !ziweiAnalysisStale
         && workflowStage === 'foundation_ready'
         && !isLoading;
     const showVerificationActions = stagedMode
+        && !ziweiAnalysisStale
         && workflowStage === 'verification_ready'
         && !isLoading
         && Boolean(getLastAssistantContent(messages));
@@ -1015,8 +1139,8 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         isLoading,
         messages.length,
         hasFoundationAttempted,
-    );
-    const inputLocked = stagedMode && workflowStage !== 'followup_ready';
+    ) && !ziweiAnalysisStale;
+    const inputLocked = (stagedMode && workflowStage !== 'followup_ready') || ziweiAnalysisStale;
 
     const renderMessage = ({ item }: { item: UIChatMessage }) => {
         if (item.role === 'system' || item.hidden) {
@@ -1105,7 +1229,21 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                     />
 
                     <View style={styles.inputSection}>
-                        {stagedMode && workflowNotice ? (
+                        {ziweiStaleNotice ? (
+                            <View style={[styles.workflowCard, styles.workflowCardReady]}>
+                                <Text style={styles.workflowCardTitle}>{ziweiStaleNotice.title}</Text>
+                                <Text style={styles.workflowCardBody}>{ziweiStaleNotice.body}</Text>
+                                <TouchableOpacity
+                                    style={styles.workflowCardActionBtn}
+                                    onPress={() => {
+                                        void restartBaziWorkflow();
+                                    }}
+                                >
+                                    <Text style={styles.workflowCardActionText}>按当前配置重新开始 AI 分析</Text>
+                                </TouchableOpacity>
+                            </View>
+                        ) : null}
+                        {stagedMode && workflowNotice && !ziweiStaleNotice ? (
                             <View
                                 style={[
                                     styles.workflowCard,
@@ -1116,7 +1254,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                             >
                                 <Text style={styles.workflowCardTitle}>{workflowNotice.title}</Text>
                                 <Text style={styles.workflowCardBody}>{workflowNotice.body}</Text>
-                                {showInitialResetAction ? (
+                                {showInitialResetAction && !ziweiStaleNotice ? (
                                     <TouchableOpacity
                                         style={styles.workflowCardActionBtn}
                                         onPress={() => {
@@ -1129,6 +1267,10 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                                     </TouchableOpacity>
                                 ) : null}
                             </View>
+                        ) : null}
+
+                        {formatRequestEvidenceNotice(requestDebugMeta) ? (
+                            <Text style={styles.requestEvidenceText}>{formatRequestEvidenceNotice(requestDebugMeta)}</Text>
                         ) : null}
 
                         {showFoundationAction ? (
@@ -1196,7 +1338,9 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                             <TextInput
                                 style={styles.textInput}
                                 placeholder={stagedMode
-                                    ? (workflowStage === 'foundation_pending'
+                                    ? (ziweiAnalysisStale
+                                        ? '当前 AI 基于旧配置失效，请先重新开始分析...'
+                                        : (workflowStage === 'foundation_pending'
                                         ? (workflowMode === 'ziwei' ? '基础命盘分析完成前，暂不开放追问...' : '基础定局完成前，暂不开放追问...')
                                         : (workflowStage === 'foundation_ready'
                                             ? '点击“开始前事核验”后再继续...'
@@ -1204,7 +1348,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                                                 ? '先确认前事核验，再进入未来五年...'
                                                 : (workflowMode === 'ziwei'
                                                     ? '继续细问未来五年的事业、感情或关键年份...'
-                                                    : '继续细问未来五年里的财运、婚恋或事业...'))))
+                                                    : '继续细问未来五年里的财运、婚恋或事业...')))))
                                     : '向 AI 追问更多细节...'}
                                 placeholderTextColor={Colors.text.tertiary}
                                 value={inputText}
@@ -1406,6 +1550,13 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         fontSize: FontSize.sm,
         fontWeight: '600',
         color: Colors.accent.gold,
+    },
+    requestEvidenceText: {
+        paddingHorizontal: Spacing.md,
+        paddingTop: Spacing.xs,
+        fontSize: FontSize.xs,
+        color: Colors.text.tertiary,
+        lineHeight: 18,
     },
     artifactNoticeText: {
         paddingHorizontal: Spacing.md,

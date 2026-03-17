@@ -13,6 +13,16 @@ export interface RetryPlan<T extends BasicChatMessage> {
     retryText: string;
 }
 
+export function shouldRollbackFailedWorkflowResponse(
+    mode: 'liuyao' | 'bazi' | 'ziwei',
+    expectedCompletion?: 'foundation' | 'verification' | 'five_year',
+    stageSuccess: boolean = true,
+): boolean {
+    return mode === 'ziwei'
+        && (expectedCompletion === 'verification' || expectedCompletion === 'five_year')
+        && !stageSuccess;
+}
+
 export function shouldShowBaziFoundationRetryAction(
     stage: 'foundation_pending' | 'foundation_ready' | 'verification_ready' | 'followup_ready' | null,
     isLoading: boolean,

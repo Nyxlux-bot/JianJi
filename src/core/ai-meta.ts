@@ -43,4 +43,7 @@ export interface ZiweiAIConversationDigest {
     fiveYearSummary: string;
     rollingSummary: string;
     topicNotes: Record<string, string>;
+    verificationTimeline?: string[];
+    yearlyOutlook?: Record<string, string>;
+    focusAnchors?: Record<string, string>;
 }
