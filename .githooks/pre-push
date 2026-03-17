@@ -1,0 +1,28 @@
+#!/bin/sh
+set -eu
+
+tmp_file=$(mktemp)
+trap 'rm -f "$tmp_file"' EXIT INT TERM
+
+zero_sha="0000000000000000000000000000000000000000"
+
+while IFS=' ' read -r local_ref local_sha remote_ref remote_sha; do
+    [ -n "${local_sha:-}" ] || continue
+
+    if [ "$local_sha" = "$zero_sha" ]; then
+        continue
+    fi
+
+    if [ "${remote_sha:-$zero_sha}" = "$zero_sha" ]; then
+        git rev-list "$local_sha" --not --remotes
+    else
+        git rev-list "$remote_sha..$local_sha"
+    fi
+done | while IFS= read -r commit_sha; do
+    [ -n "$commit_sha" ] || continue
+    git diff-tree --no-commit-id --name-only --diff-filter=ACMR -r "$commit_sha"
+done | sort -u > "$tmp_file"
+
+if [ -s "$tmp_file" ]; then
+    sh scripts/guard-no-test-files.sh --stdin < "$tmp_file"
+fi

@@ -121,6 +121,16 @@ npm run web
 npm run typecheck
 ```
 
+### Git 防误传
+
+首次克隆后执行：
+
+```bash
+npm run setup:hooks
+```
+
+仓库会在提交前和推送前阻止 `*.test.*`、`*.spec.*`、`__tests__`、`__localtests__` 以及常见测试配置文件进入版本库。临时本地实验建议放在仓库外，或放在未跟踪目录中。
+
 ## 数据与兼容
 
 - 六爻、八字、紫微记录统一使用同一套 record envelope 存储
