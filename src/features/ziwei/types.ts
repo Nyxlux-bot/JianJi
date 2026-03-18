@@ -430,6 +430,8 @@ export interface ZiweiBoardCenterPanelState {
 }
 
 export interface ZiweiBoardRenderModel {
+    selectedPalaceName: string;
+    selectedScopePalace: ZiweiHoroscopePalaceView | null;
     byPalaceName: Record<string, ZiweiPalaceRenderModel>;
     currentScopeSummary: string;
     centerPanel: ZiweiBoardCenterPanelState;

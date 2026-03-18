@@ -29,11 +29,14 @@ interface IdleDeadlineLike {
 type IdleTaskHandle = number | ReturnType<typeof setTimeout>;
 
 const ZIWEI_DYNAMIC_CACHE_LIMIT = 36;
-const ZIWEI_CURSOR_BUNDLE_CACHE_LIMIT = 24;
+const ZIWEI_CURSOR_BUNDLE_CACHE_LIMIT = 48;
 const ZIWEI_ACTIVE_SCOPES: ZiweiActiveScope[] = ['decadal', 'age', 'yearly', 'monthly', 'daily', 'hourly'];
+const ZIWEI_SCOPE_BUNDLE_CACHE_LIMIT = ZIWEI_CURSOR_BUNDLE_CACHE_LIMIT * ZIWEI_ACTIVE_SCOPES.length;
 
 const dynamicSnapshotCache = new Map<string, ZiweiDynamicHoroscopeResult>();
 const dynamicSnapshotInFlight = new Map<string, Promise<ZiweiDynamicHoroscopeResult>>();
+const scopeBundleCache = new Map<string, ZiweiPreparedScopeBundle>();
+const scopeBundleInFlight = new Map<string, Promise<ZiweiPreparedScopeBundle>>();
 const cursorBundleCache = new Map<string, ZiweiCursorBundle>();
 const cursorBundleInFlight = new Map<string, Promise<ZiweiCursorBundle>>();
 
@@ -112,7 +115,22 @@ function buildDynamicSnapshotKey(staticChart: ZiweiStaticChartResult, cursorDate
 }
 
 function buildCursorBundleKey(staticChart: ZiweiStaticChartResult, cursorDate: Date): string {
-    return buildDynamicSnapshotKey(staticChart, cursorDate);
+    const hourKey = [
+        cursorDate.getFullYear(),
+        cursorDate.getMonth() + 1,
+        cursorDate.getDate(),
+        cursorDate.getHours(),
+    ].join('-');
+
+    return `${staticChart.cacheKey}|${hourKey}`;
+}
+
+function buildScopeBundleKey(
+    staticChart: ZiweiStaticChartResult,
+    cursorDate: Date,
+    scope: ZiweiActiveScope,
+): string {
+    return `${buildCursorBundleKey(staticChart, cursorDate)}|${scope}`;
 }
 
 async function resolveCachedAsync<T>(params: {
@@ -156,6 +174,15 @@ export interface ZiweiCursorBundle {
     byScopeSelectedDirectScope: Record<ZiweiActiveScope, ZiweiDirectHoroscopeScopeView | null>;
 }
 
+export interface ZiweiPreparedScopeBundle {
+    cacheKey: string;
+    scope: ZiweiActiveScope;
+    boardScopeModel: ZiweiBoardScopeModel;
+    boardDecorations: ZiweiBoardDecorationModel;
+    orbitDrawerState: ZiweiOrbitDrawerState;
+    selectedDirectScope: ZiweiDirectHoroscopeScopeView | null;
+}
+
 async function prepareDynamicSnapshot(
     staticChart: ZiweiStaticChartResult,
     cursorDate: Date,
@@ -167,25 +194,87 @@ async function prepareDynamicSnapshot(
         inFlight: dynamicSnapshotInFlight,
         cacheKey,
         cacheLimit: ZIWEI_DYNAMIC_CACHE_LIMIT,
-        factory: () => measureZiweiAsyncPerf(
-            'prepareDynamicSnapshot',
-            () => runIdleTask(
-                () => computeZiweiDynamicHoroscope(staticChart, cursorDate),
-                120,
-            ),
+        factory: () => runIdleTask(
+            () => computeZiweiDynamicHoroscope(staticChart, cursorDate),
+            120,
         ),
     });
 }
 
+function buildPreparedScopeBundle(
+    staticChart: ZiweiStaticChartResult,
+    dynamic: ZiweiDynamicHoroscopeResult,
+    scope: ZiweiActiveScope,
+): ZiweiPreparedScopeBundle {
+    const selectedDirectScope = scope === 'age'
+        ? null
+        : buildZiweiDirectHoroscopeScopeViewByScope(
+            staticChart.astrolabe,
+            dynamic.horoscopeNow,
+            scope,
+            staticChart.input.config.algorithm,
+        );
+
+    return {
+        cacheKey: buildScopeBundleKey(staticChart, dynamic.cursorDate, scope),
+        scope,
+        boardScopeModel: buildZiweiBoardScopeModel(
+            staticChart,
+            dynamic,
+            scope,
+            selectedDirectScope,
+        ),
+        boardDecorations: buildZiweiBoardDecorations(
+            staticChart,
+            dynamic,
+            scope,
+            computeZiweiDynamicHoroscope,
+        ),
+        orbitDrawerState: buildZiweiOrbitDrawerState(
+            staticChart,
+            dynamic,
+            scope,
+        ),
+        selectedDirectScope,
+    };
+}
+
 export const ZiweiChartEngine = {
     async prepareStaticChart(payload: ZiweiInputPayload): Promise<ZiweiStaticChartResult> {
-        return loadZiweiStaticChartAsync(payload);
+        return measureZiweiAsyncPerf('prepareStaticChart', () => loadZiweiStaticChartAsync(payload));
     },
 
     async prewarmStaticChart(payload: ZiweiInputPayload): Promise<ZiweiStaticChartResult> {
         return runIdleTask(() => loadZiweiStaticChartAsync(payload), 180).then((result) => result);
     },
 
+    async prepareDynamicSnapshot(
+        staticChart: ZiweiStaticChartResult,
+        cursorDate: Date,
+    ): Promise<ZiweiDynamicHoroscopeResult> {
+        return prepareDynamicSnapshot(staticChart, cursorDate);
+    },
+
+    async prepareScopeBundle(
+        staticChart: ZiweiStaticChartResult,
+        cursorDate: Date,
+        scope: ZiweiActiveScope,
+    ): Promise<ZiweiPreparedScopeBundle> {
+        const cacheKey = buildScopeBundleKey(staticChart, cursorDate, scope);
+
+        return resolveCachedAsync({
+            cache: scopeBundleCache,
+            inFlight: scopeBundleInFlight,
+            cacheKey,
+            cacheLimit: ZIWEI_SCOPE_BUNDLE_CACHE_LIMIT,
+            factory: () => measureZiweiAsyncPerf('prepareScopeBundle', async () => {
+                const dynamic = await prepareDynamicSnapshot(staticChart, cursorDate);
+                return runIdleTask(() => buildPreparedScopeBundle(staticChart, dynamic, scope), 120);
+            }),
+        });
+    },
+
+    // Non-hot-path only. Result-page rendering must use prepareDynamicSnapshot + prepareScopeBundle.
     async prepareCursorBundle(
         staticChart: ZiweiStaticChartResult,
         cursorDate: Date,
@@ -197,61 +286,38 @@ export const ZiweiChartEngine = {
             inFlight: cursorBundleInFlight,
             cacheKey,
             cacheLimit: ZIWEI_CURSOR_BUNDLE_CACHE_LIMIT,
-            factory: async () => {
+            factory: () => measureZiweiAsyncPerf('prepareCursorBundle', async () => {
                 const dynamic = await prepareDynamicSnapshot(staticChart, cursorDate);
+                const scopeBundles = await Promise.all(
+                    ZIWEI_ACTIVE_SCOPES.map((scope) => ZiweiChartEngine.prepareScopeBundle(staticChart, cursorDate, scope)),
+                );
 
-                return measureZiweiAsyncPerf('prepareCursorBundle', () => runIdleTask(() => {
-                    const byScopeSelectedDirectScope = Object.fromEntries(ZIWEI_ACTIVE_SCOPES.map((scope) => {
-                        const selectedDirectScope = scope === 'age'
-                            ? null
-                            : buildZiweiDirectHoroscopeScopeViewByScope(
-                                staticChart.astrolabe,
-                                dynamic.horoscopeNow,
-                                scope,
-                                staticChart.input.config.algorithm,
-                            );
-                        return [scope, selectedDirectScope];
-                    })) as Record<ZiweiActiveScope, ZiweiDirectHoroscopeScopeView | null>;
+                const byScopeBoardScopeModel = Object.fromEntries(scopeBundles.map((scopeBundle) => [
+                    scopeBundle.scope,
+                    scopeBundle.boardScopeModel,
+                ])) as Record<ZiweiActiveScope, ZiweiBoardScopeModel>;
+                const byScopeBoardDecorations = Object.fromEntries(scopeBundles.map((scopeBundle) => [
+                    scopeBundle.scope,
+                    scopeBundle.boardDecorations,
+                ])) as Record<ZiweiActiveScope, ZiweiBoardDecorationModel>;
+                const byScopeOrbitDrawerState = Object.fromEntries(scopeBundles.map((scopeBundle) => [
+                    scopeBundle.scope,
+                    scopeBundle.orbitDrawerState,
+                ])) as Record<ZiweiActiveScope, ZiweiOrbitDrawerState>;
+                const byScopeSelectedDirectScope = Object.fromEntries(scopeBundles.map((scopeBundle) => [
+                    scopeBundle.scope,
+                    scopeBundle.selectedDirectScope,
+                ])) as Record<ZiweiActiveScope, ZiweiDirectHoroscopeScopeView | null>;
 
-                    const byScopeBoardScopeModel = Object.fromEntries(ZIWEI_ACTIVE_SCOPES.map((scope) => [
-                        scope,
-                        buildZiweiBoardScopeModel(
-                            staticChart,
-                            dynamic,
-                            scope,
-                            byScopeSelectedDirectScope[scope],
-                        ),
-                    ])) as Record<ZiweiActiveScope, ZiweiBoardScopeModel>;
-
-                    const byScopeBoardDecorations = Object.fromEntries(ZIWEI_ACTIVE_SCOPES.map((scope) => [
-                        scope,
-                        buildZiweiBoardDecorations(
-                            staticChart,
-                            dynamic,
-                            scope,
-                            computeZiweiDynamicHoroscope,
-                        ),
-                    ])) as Record<ZiweiActiveScope, ZiweiBoardDecorationModel>;
-
-                    const byScopeOrbitDrawerState = Object.fromEntries(ZIWEI_ACTIVE_SCOPES.map((scope) => [
-                        scope,
-                        buildZiweiOrbitDrawerState(
-                            staticChart,
-                            dynamic,
-                            scope,
-                        ),
-                    ])) as Record<ZiweiActiveScope, ZiweiOrbitDrawerState>;
-
-                    return {
-                        cacheKey,
-                        dynamic,
-                        byScopeBoardScopeModel,
-                        byScopeBoardDecorations,
-                        byScopeOrbitDrawerState,
-                        byScopeSelectedDirectScope,
-                    };
-                }, 120));
-            },
+                return {
+                    cacheKey,
+                    dynamic,
+                    byScopeBoardScopeModel,
+                    byScopeBoardDecorations,
+                    byScopeOrbitDrawerState,
+                    byScopeSelectedDirectScope,
+                };
+            }),
         });
     },
 };

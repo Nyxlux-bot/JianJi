@@ -2,7 +2,6 @@ import React, {
     memo,
     startTransition,
     useCallback,
-    useDeferredValue,
     useEffect,
     useLayoutEffect,
     useMemo,
@@ -10,7 +9,6 @@ import React, {
     useState,
 } from 'react';
 import {
-    ActivityIndicator,
     FlatList,
     LayoutChangeEvent,
     Modal,
@@ -76,6 +74,7 @@ import { isAIConfigured } from '../../src/services/settings';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { BorderRadius, FontSize, Spacing } from '../../src/theme/colors';
 import { formatLocalDateTime } from '../../src/core/bazi-local-time';
+import { useDebounce } from '../../src/hooks/useDebounce';
 import {
     buildZiweiStaticCacheKey,
     getZiweiStaticStarInsights,
@@ -84,12 +83,14 @@ import {
 } from '../../src/features/ziwei/iztro-adapter';
 import {
     ZiweiChartEngine,
-    type ZiweiCursorBundle,
+    type ZiweiPreparedScopeBundle,
 } from '../../src/features/ziwei/chart-engine';
 import {
     buildZiweiBoardMetrics,
     buildZiweiBoardRenderModelFromScopeModel,
+    buildZiweiChartSnapshot,
     buildZiweiHoroscopePalaceView,
+    getCurrentScopeSummary,
     hydrateZiweiBoardSnapshotModel,
     buildZiweiZoomMotion,
 } from '../../src/features/ziwei/view-model';
@@ -98,6 +99,7 @@ import type {
     ZiweiBoardDecorationModel,
     ZiweiBoardMetrics,
     ZiweiBoardRenderModel,
+    ZiweiBoardScopeModel,
     ZiweiBoardSnapshotModel,
     ZiweiBranchSlotCell,
     ZiweiChartSnapshotV1,
@@ -163,6 +165,20 @@ interface ZiweiZoomRuntimeState {
     phase: ZiweiZoomPhase;
     target: ZiweiZoomTarget | null;
     motion: ReturnType<typeof buildZiweiZoomMotion> | null;
+}
+
+interface ZiweiDynamicSnapshotState {
+    status: 'idle' | 'loading' | 'ready' | 'error';
+    chartKey: string | null;
+    snapshot: ZiweiDynamicHoroscopeResult | null;
+    error: string;
+}
+
+interface ZiweiScopeBundleState {
+    status: 'idle' | 'loading' | 'ready' | 'error';
+    chartKey: string | null;
+    bundle: ZiweiPreparedScopeBundle | null;
+    error: string;
 }
 
 const ZIWEI_DOUBLE_TAP_DELAY = 250;
@@ -282,7 +298,7 @@ function buildZoomRectFromFrame(
 }
 
 function getZiweiPalaceCardStyles(
-    styles: ReturnType<typeof makeStyles>,
+    styles: ZiweiPalaceCardStyles,
     renderModel?: ZiweiTileRenderModel,
     options?: { showCardTint?: boolean },
 ) {
@@ -314,25 +330,6 @@ function getOverlayToneColor(overlay: ZiweiPalaceOverlayView, Colors: any) {
             return '#C98DFF';
         default:
             return Colors.text.secondary;
-    }
-}
-
-function buildCurrentScopeSummary(dynamic: ZiweiDynamicHoroscopeResult, activeScope: ZiweiActiveScope): string {
-    switch (activeScope) {
-        case 'decadal':
-            return dynamic.horoscopeSummary.decadal;
-        case 'age':
-            return dynamic.horoscopeSummary.age;
-        case 'yearly':
-            return dynamic.horoscopeSummary.yearly;
-        case 'monthly':
-            return dynamic.horoscopeSummary.monthly;
-        case 'daily':
-            return dynamic.horoscopeSummary.daily;
-        case 'hourly':
-            return dynamic.horoscopeSummary.hourly;
-        default:
-            return dynamic.horoscopeSummary.yearly;
     }
 }
 
@@ -423,14 +420,15 @@ function buildChartStatusLine(
     ].join(' · ');
 }
 
-function buildSnapshotStatusLine(
+function buildStaticShellStatusLine(
     snapshot: ZiweiChartSnapshotV1,
     selectedPalace: ZiweiPalaceAnalysisView,
+    stageLabel: string = '静态盘',
 ): string {
     return [
         snapshot.staticMeta.fiveElementsClass,
         `命主${snapshot.staticMeta.soul} / 身主${snapshot.staticMeta.body}`,
-        '静态快照',
+        stageLabel,
         `焦点${selectedPalace.name}`,
     ].join(' · ');
 }
@@ -567,23 +565,28 @@ export default function ZiweiResultPage() {
         chart: null,
         error: '',
     });
-    const [cursorBundleState, setCursorBundleState] = useState<{
-        status: 'idle' | 'loading' | 'ready' | 'error';
-        bundle: ZiweiCursorBundle | null;
-        error: string;
-    }>({
+    const [dynamicState, setDynamicState] = useState<ZiweiDynamicSnapshotState>({
         status: 'idle',
+        chartKey: null,
+        snapshot: null,
+        error: '',
+    });
+    const [scopeBundleState, setScopeBundleState] = useState<ZiweiScopeBundleState>({
+        status: 'idle',
+        chartKey: null,
         bundle: null,
         error: '',
     });
 
-    const deferredCursorDate = useDeferredValue(cursorDate);
+    const deferredCursorDate = useDebounce(cursorDate, 300);
     const isPersisting = persistStatus === 'saving';
     const hasPersistedRecord = persistStatus === null || persistStatus === 'saved';
     const zoomProgress = useSharedValue(0);
     const chartScrollOffsetRef = useRef(0);
     const zoomCardTapRef = useRef(0);
     const zoomStateRef = useRef<ZiweiZoomRuntimeState>(ZIWEI_ZOOM_CLOSED_STATE);
+    const lastValidScopeBundleRef = useRef<ZiweiPreparedScopeBundle | null>(null);
+    const lastValidDynamicRef = useRef<ZiweiDynamicHoroscopeResult | null>(null);
 
     const parsed = useMemo(() => parseZiweiRouteParams({
         birthLocal: params.birthLocal,
@@ -739,7 +742,6 @@ export default function ZiweiResultPage() {
         preferRoutePayload: routeDraftRequested,
     }), [parsed, recordDetail, recordId, routeDraftRequested]);
     const seedPayload = bootstrapPlan.kind === 'live' ? bootstrapPlan.payload : null;
-    const liveSource = bootstrapPlan.kind === 'live' ? bootstrapPlan.source : null;
     const snapshotChart = bootstrapPlan.kind === 'live' ? bootstrapPlan.snapshot : null;
     const seedPayloadKey = useMemo(() => (
         seedPayload ? buildZiweiStaticCacheKey(seedPayload) : null
@@ -747,9 +749,21 @@ export default function ZiweiResultPage() {
     const activePayloadKey = useMemo(() => (
         activePayload ? buildZiweiStaticCacheKey(activePayload) : null
     ), [activePayload]);
-    const staticChart = staticState.chart;
-    const cursorBundle = cursorBundleState.bundle;
-    const dynamic = cursorBundle?.dynamic || null;
+    const staticChart = useMemo(() => (
+        staticState.chart && activePayloadKey && staticState.chart.cacheKey === activePayloadKey
+            ? staticState.chart
+            : null
+    ), [activePayloadKey, staticState.chart]);
+    const dynamic = useMemo(() => (
+        dynamicState.snapshot && activePayloadKey && dynamicState.chartKey === activePayloadKey
+            ? dynamicState.snapshot
+            : null
+    ), [activePayloadKey, dynamicState.chartKey, dynamicState.snapshot]);
+    const currentScopeBundle = useMemo(() => (
+        scopeBundleState.bundle && activePayloadKey && scopeBundleState.chartKey === activePayloadKey
+            ? scopeBundleState.bundle
+            : null
+    ), [activePayloadKey, scopeBundleState.bundle, scopeBundleState.chartKey]);
 
     useEffect(() => {
         if (bootstrapPlan.kind !== 'redirect') {
@@ -771,6 +785,11 @@ export default function ZiweiResultPage() {
     }, [bootstrapPlan.kind, recordId, seedPayload, seedPayloadKey]);
 
     useEffect(() => {
+        lastValidScopeBundleRef.current = null;
+        lastValidDynamicRef.current = null;
+    }, [activePayloadKey, recordId, staticChart?.cacheKey]);
+
+    useEffect(() => {
         let cancelled = false;
 
         if (bootstrapPlan.kind === 'load-record') {
@@ -779,8 +798,15 @@ export default function ZiweiResultPage() {
                 chart: null,
                 error: '',
             });
-            setCursorBundleState({
+            setDynamicState({
                 status: 'idle',
+                chartKey: null,
+                snapshot: null,
+                error: '',
+            });
+            setScopeBundleState({
+                status: 'idle',
+                chartKey: null,
                 bundle: null,
                 error: '',
             });
@@ -793,8 +819,15 @@ export default function ZiweiResultPage() {
                 chart: null,
                 error: bootstrapPlan.message,
             });
-            setCursorBundleState({
+            setDynamicState({
                 status: 'idle',
+                chartKey: null,
+                snapshot: null,
+                error: '',
+            });
+            setScopeBundleState({
+                status: 'idle',
+                chartKey: null,
                 bundle: null,
                 error: '',
             });
@@ -802,8 +835,15 @@ export default function ZiweiResultPage() {
         }
 
         if (bootstrapPlan.kind !== 'live' || !activePayload) {
-            setCursorBundleState({
+            setDynamicState({
                 status: 'idle',
+                chartKey: null,
+                snapshot: null,
+                error: '',
+            });
+            setScopeBundleState({
+                status: 'idle',
+                chartKey: null,
                 bundle: null,
                 error: '',
             });
@@ -825,8 +865,15 @@ export default function ZiweiResultPage() {
             chart: null,
             error: '',
         });
-        setCursorBundleState({
+        setDynamicState({
             status: 'idle',
+            chartKey: null,
+            snapshot: null,
+            error: '',
+        });
+        setScopeBundleState({
+            status: 'idle',
+            chartKey: null,
             bundle: null,
             error: '',
         });
@@ -866,135 +913,238 @@ export default function ZiweiResultPage() {
         return () => {
             cancelled = true;
         };
-    }, [activePayload, activePayloadKey, bootstrapPlan.kind, liveSource, snapshotChart, staticState.chart, staticState.status]);
+    }, [activePayload, activePayloadKey, bootstrapPlan.kind, snapshotChart, staticState.chart, staticState.status]);
 
     useEffect(() => {
         let cancelled = false;
 
-        if (!staticState.chart) {
-            setCursorBundleState({
+        if (!staticChart) {
+            setDynamicState({
                 status: 'idle',
-                bundle: null,
+                chartKey: null,
+                snapshot: null,
                 error: '',
             });
             return;
         }
 
-        setCursorBundleState({
+        setDynamicState((prev) => ({
             status: 'loading',
-            bundle: null,
+            chartKey: staticChart.cacheKey,
+            snapshot: prev.chartKey === staticChart.cacheKey ? prev.snapshot : null,
             error: '',
-        });
-        void ZiweiChartEngine.prepareCursorBundle(staticState.chart, deferredCursorDate)
-            .then((nextCursorBundle) => {
+        }));
+        void ZiweiChartEngine.prepareDynamicSnapshot(staticChart, deferredCursorDate)
+            .then((nextDynamic) => {
                 if (!cancelled) {
-                    setCursorBundleState({
+                    setDynamicState({
                         status: 'ready',
-                        bundle: nextCursorBundle,
+                        chartKey: staticChart.cacheKey,
+                        snapshot: nextDynamic,
                         error: '',
                     });
                 }
             })
             .catch((error: unknown) => {
-                logZiweiRuntimeWarning('prepareCursorBundle', error);
+                logZiweiRuntimeWarning('prepareDynamicSnapshot', error);
                 if (!cancelled) {
-                    setCursorBundleState({
+                    setDynamicState((prev) => ({
                         status: 'error',
-                        bundle: null,
+                        chartKey: staticChart.cacheKey,
+                        snapshot: prev.chartKey === staticChart.cacheKey ? prev.snapshot : null,
                         error: error instanceof Error ? error.message : '动态运限快照计算失败。',
-                    });
+                    }));
                 }
             });
 
         return () => {
             cancelled = true;
         };
-    }, [deferredCursorDate, staticState.chart]);
+    }, [deferredCursorDate, staticChart]);
 
-    const starInsights = useMemo(() => {
-        if (!staticState.chart || (activeTopTab !== 'pattern' && activeTopTab !== 'palace')) {
+    useEffect(() => {
+        let cancelled = false;
+
+        if (!staticChart) {
+            setScopeBundleState({
+                status: 'idle',
+                chartKey: null,
+                bundle: null,
+                error: '',
+            });
+            return;
+        }
+
+        setScopeBundleState((prev) => ({
+            status: 'loading',
+            chartKey: staticChart.cacheKey,
+            bundle: prev.chartKey === staticChart.cacheKey && prev.bundle?.scope === activeScope ? prev.bundle : null,
+            error: '',
+        }));
+        void ZiweiChartEngine.prepareScopeBundle(staticChart, deferredCursorDate, activeScope)
+            .then((nextScopeBundle) => {
+                if (!cancelled) {
+                    setScopeBundleState({
+                        status: 'ready',
+                        chartKey: staticChart.cacheKey,
+                        bundle: nextScopeBundle,
+                        error: '',
+                    });
+                }
+            })
+            .catch((error: unknown) => {
+                logZiweiRuntimeWarning('prepareScopeBundle', error);
+                if (!cancelled) {
+                    setScopeBundleState((prev) => ({
+                        status: 'error',
+                        chartKey: staticChart.cacheKey,
+                        bundle: prev.chartKey === staticChart.cacheKey && prev.bundle?.scope === activeScope ? prev.bundle : null,
+                        error: error instanceof Error ? error.message : '当前运限视图计算失败。',
+                    }));
+                }
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [activeScope, deferredCursorDate, staticChart]);
+
+    useEffect(() => {
+        if (
+            !staticChart
+            || dynamicState.status !== 'ready'
+            || !dynamicState.snapshot
+            || dynamicState.chartKey !== staticChart.cacheKey
+            || scopeBundleState.status !== 'ready'
+            || !scopeBundleState.bundle
+            || scopeBundleState.chartKey !== staticChart.cacheKey
+        ) {
+            return;
+        }
+
+        lastValidDynamicRef.current = dynamicState.snapshot;
+        lastValidScopeBundleRef.current = scopeBundleState.bundle;
+    }, [
+        dynamicState.chartKey,
+        dynamicState.snapshot,
+        dynamicState.status,
+        scopeBundleState.bundle,
+        scopeBundleState.chartKey,
+        scopeBundleState.status,
+        staticChart,
+    ]);
+
+    const generatedShellSnapshot = useMemo(() => (
+        staticChart ? buildZiweiChartSnapshot(staticChart) : null
+    ), [staticChart]);
+    const shellSnapshot = snapshotChart || generatedShellSnapshot;
+    const effectiveScopeBundle = useMemo(() => {
+        if (currentScopeBundle) {
+            return currentScopeBundle;
+        }
+
+        const staleScopeBundle = lastValidScopeBundleRef.current;
+        if (!staticChart || !staleScopeBundle || !staleScopeBundle.cacheKey.startsWith(`${staticChart.cacheKey}|`)) {
             return null;
         }
 
-        return getZiweiStaticStarInsights(staticState.chart);
-    }, [activeTopTab, staticState.chart]);
+        return staleScopeBundle;
+    }, [activeScope, currentScopeBundle, scopeBundleState.status, staticChart]);
+    const renderedDynamic = useMemo(() => {
+        if (currentScopeBundle) {
+            return dynamic || lastValidDynamicRef.current || null;
+        }
+
+        return lastValidDynamicRef.current || dynamic;
+    }, [currentScopeBundle, dynamic, scopeBundleState.status]);
+    const currentScopeModel = useMemo<ZiweiBoardScopeModel | null>(() => (
+        effectiveScopeBundle?.boardScopeModel ?? null
+    ), [activeScope, effectiveScopeBundle]);
+    const currentBoardDecorations = useMemo<ZiweiBoardDecorationModel | null>(() => (
+        effectiveScopeBundle?.boardDecorations ?? null
+    ), [activeScope, effectiveScopeBundle]);
+    const currentOrbitDrawerState = useMemo<ZiweiOrbitDrawerState | null>(() => (
+        effectiveScopeBundle?.orbitDrawerState ?? null
+    ), [activeScope, effectiveScopeBundle]);
+    const currentSelectedDirectScope = useMemo(() => (
+        effectiveScopeBundle?.selectedDirectScope ?? null
+    ), [activeScope, effectiveScopeBundle]);
+    const renderedScope = currentScopeModel?.activeScope || activeScope;
+    const effectiveTopTab: ZiweiTopTab = staticChart && renderedDynamic ? activeTopTab : 'chart';
+    const starInsights = useMemo(() => {
+        if (!staticChart || (effectiveTopTab !== 'pattern' && effectiveTopTab !== 'palace')) {
+            return null;
+        }
+
+        return getZiweiStaticStarInsights(staticChart);
+    }, [effectiveTopTab, staticChart]);
 
     const starByName = useMemo(() => (
         starInsights?.starByName || {}
     ), [starInsights]);
 
-    const snapshotBoardModel = useMemo<ZiweiBoardSnapshotModel | null>(() => (
-        snapshotChart ? hydrateZiweiBoardSnapshotModel(snapshotChart, selectedPalaceName) : null
-    ), [selectedPalaceName, snapshotChart]);
-    const snapshotPalaceByName = useMemo<Record<string, ZiweiPalaceAnalysisView> | null>(() => (
-        snapshotChart
-            ? Object.fromEntries(snapshotChart.palaces.map((palace) => [palace.name, palace])) as Record<string, ZiweiPalaceAnalysisView>
+    const shellBoardModel = useMemo<ZiweiBoardSnapshotModel | null>(() => (
+        shellSnapshot ? hydrateZiweiBoardSnapshotModel(shellSnapshot, selectedPalaceName) : null
+    ), [selectedPalaceName, shellSnapshot]);
+    const shellPalaceByName = useMemo<Record<string, ZiweiPalaceAnalysisView> | null>(() => (
+        shellSnapshot
+            ? Object.fromEntries(shellSnapshot.palaces.map((palace) => [palace.name, palace])) as Record<string, ZiweiPalaceAnalysisView>
             : null
-    ), [snapshotChart]);
-    const displayPalaceByName = staticChart?.palaceByName || snapshotPalaceByName;
-    const snapshotBoardVisible = Boolean(snapshotChart)
-        && staticState.status !== 'ready'
-        && activePayloadKey === seedPayloadKey;
+    ), [shellSnapshot]);
+    const displayPalaceByName = staticChart?.palaceByName || shellPalaceByName;
     const zoomVisible = zoomState.phase !== 'closed';
     const zoomTarget = zoomState.target;
     const zoomMotion = zoomState.motion;
     const selectedPalace = displayPalaceByName?.[selectedPalaceName] || displayPalaceByName?.命宫 || null;
+    const shellSelectedPalace = shellPalaceByName?.[selectedPalaceName] || shellPalaceByName?.命宫 || null;
     const fallbackStarName = staticChart && selectedPalace ? firstStarName(selectedPalace) : null;
-    const selectedStar = !staticChart || activeTopTab === 'chart'
+    const selectedStar = !staticChart || effectiveTopTab === 'chart'
         ? null
         : (selectedStarName && starByName[selectedStarName]) || (fallbackStarName ? starByName[fallbackStarName] : null);
-    const activeScopeBundle = cursorBundle?.byScopeBoardScopeModel[activeScope] || null;
-    const selectedDirectScope = cursorBundle?.byScopeSelectedDirectScope[activeScope] || null;
     const boardRenderModel = useMemo(() => {
-        if (!staticChart || !dynamic || !activeScopeBundle) {
+        if (!staticChart || !renderedDynamic || !currentScopeModel) {
             return null;
         }
 
         return buildZiweiBoardRenderModelFromScopeModel({
             staticChart,
-            dynamic,
-            scopeModel: activeScopeBundle,
+            dynamic: renderedDynamic,
+            scopeModel: currentScopeModel,
             selectedPalaceName,
         });
-    }, [activeScopeBundle, dynamic, selectedPalaceName, staticChart]);
-    const activeBoardDecorations = cursorBundle?.byScopeBoardDecorations[activeScope] || null;
+    }, [currentScopeModel, renderedDynamic, selectedPalaceName, staticChart]);
     const selectedScopePalace = useMemo(() => {
-        if (!staticChart || !dynamic || !selectedPalace || activeTopTab === 'chart' || activeScope === 'age') {
+        if (!staticChart || !renderedDynamic || !selectedPalace || renderedScope === 'age') {
             return null;
         }
 
         return buildZiweiHoroscopePalaceView(
             staticChart.astrolabe,
-            dynamic.horoscopeNow,
+            renderedDynamic.horoscopeNow,
             selectedPalace.name,
-            activeScope,
-            selectedDirectScope,
+            renderedScope,
+            currentSelectedDirectScope,
         );
-    }, [activeScope, activeTopTab, dynamic, selectedDirectScope, selectedPalace, staticChart]);
-    const orbitDrawerState = cursorBundle?.byScopeOrbitDrawerState[activeScope] || null;
+    }, [currentSelectedDirectScope, renderedDynamic, renderedScope, selectedPalace, staticChart]);
     const analysisCards = useMemo(() => (
-        activeTopTab === 'pattern' && selectedPalace
+        effectiveTopTab === 'pattern' && selectedPalace
             ? buildAnalysisCards(selectedPalace, selectedStar, selectedScopePalace)
             : []
-    ), [activeTopTab, selectedPalace, selectedScopePalace, selectedStar]);
+    ), [effectiveTopTab, selectedPalace, selectedScopePalace, selectedStar]);
     const pillarColumns = useMemo(() => (
         staticChart
             ? buildPillarColumns(staticChart)
-            : snapshotChart
-                ? buildPillarColumnsFromChineseDate(snapshotChart.staticMeta.chineseDate)
+            : shellSnapshot
+                ? buildPillarColumnsFromChineseDate(shellSnapshot.staticMeta.chineseDate)
                 : []
-    ), [snapshotChart, staticChart]);
-    const snapshotGender = recordResult?.gender || staticChart?.input.gender || 'male';
-    const currentName = staticChart?.input.name?.trim() || recordResult?.name?.trim() || '匿名命盘';
+    ), [shellSnapshot, staticChart]);
+    const snapshotGender = recordResult?.gender || staticChart?.input.gender || seedPayload?.gender || 'male';
+    const currentName = staticChart?.input.name?.trim() || recordResult?.name?.trim() || seedPayload?.name?.trim() || '匿名命盘';
     const ruleDriftMessage = useMemo(() => (
         getZiweiRuleDriftMessage(recordResult, Boolean(snapshotChart))
     ), [recordResult, snapshotChart]);
     const persistNotice = useMemo(() => buildPersistStatusNotice(persistStatus, persistError), [persistError, persistStatus]);
     const aiConfigStale = useMemo(() => isZiweiAIConfigStale(recordResult), [recordResult]);
-    const chartLoading = staticState.status === 'loading' || (Boolean(staticChart) && cursorBundleState.status !== 'ready');
-    const chartRuntimeError = staticState.status === 'error'
-        ? staticState.error
-        : (cursorBundleState.status === 'error' ? cursorBundleState.error || '动态运限快照计算失败。' : '');
     const settingsDirty = useMemo(() => {
         const currentConfig = activePayload?.config || recordResult?.config || staticChart?.input.config || null;
         if (!settingsDraftConfig || !currentConfig) {
@@ -1010,6 +1160,7 @@ export default function ZiweiResultPage() {
         paddingBottom: insets.bottom + 24,
         paddingHorizontal: Spacing.lg,
     }), [insets.bottom, insets.top, screenHeight, screenWidth]);
+    const liveBoardReady = Boolean(staticChart && renderedDynamic && selectedPalace && boardRenderModel);
     const zoomDisplayLayout = useMemo(() => (
         zoomTarget ? buildZiweiZoomDisplayLayout(zoomTarget.rect, zoomViewport) : null
     ), [zoomTarget, zoomViewport]);
@@ -1018,16 +1169,35 @@ export default function ZiweiResultPage() {
     ), [selectedPalaceName, zoomTarget]);
     const zoomPalace = displayPalaceByName?.[zoomPalaceName] || null;
     const zoomPalaceRenderModel = zoomPalace
-        ? (staticChart ? boardRenderModel?.byPalaceName[zoomPalace.name] : snapshotBoardModel?.byPalaceName[zoomPalace.name])
+        ? (liveBoardReady ? boardRenderModel?.byPalaceName[zoomPalace.name] : shellBoardModel?.byPalaceName[zoomPalace.name])
         : undefined;
-    const zoomPalaceDecoration = staticChart && zoomPalace ? activeBoardDecorations?.byPalaceName[zoomPalace.name] : undefined;
+    const zoomPalaceDecoration = liveBoardReady && zoomPalace ? currentBoardDecorations?.byPalaceName[zoomPalace.name] : undefined;
     const ziweiFormatterContext = useMemo(() => cloneZiweiFormatterContext({
         cursorDateIso: cursorDate.toISOString(),
         activeScope,
         selectedPalaceName,
         selectedStarName,
-        activeTopTab,
-    }), [activeScope, activeTopTab, cursorDate, selectedPalaceName, selectedStarName]);
+        activeTopTab: effectiveTopTab,
+    }), [activeScope, cursorDate, effectiveTopTab, selectedPalaceName, selectedStarName]);
+    const showStaticShell = !liveBoardReady && Boolean(shellSnapshot && shellBoardModel && shellSelectedPalace);
+    const showPlaceholderShell = !liveBoardReady && !showStaticShell && staticState.status !== 'error';
+    const staticFatalError = staticState.status === 'error' && !showStaticShell;
+    const boardStageNotice = showStaticShell
+        ? (
+            staticState.status === 'error'
+                ? '静态命盘已保留，当前版本命盘恢复失败，已降级为静态展示。'
+                : dynamicState.status === 'error'
+                    ? '当前动态运限恢复失败，已降级为静态命盘。'
+                    : scopeBundleState.status === 'error'
+                        ? (effectiveScopeBundle
+                            ? '当前运限切换失败，页面保留上一份结果。'
+                            : '当前运限视图恢复失败，已降级为静态命盘。')
+                        : '静态命盘已先行打开，动态运限与增强信息会在后台完成后无缝接入。'
+        )
+        : null;
+    const liveBundleWarning = (dynamicState.status === 'error' || scopeBundleState.status === 'error') && liveBoardReady
+        ? '当前运限切换失败，页面保留上一份结果。'
+        : null;
 
     const zoomAnimatedStyle = useAnimatedStyle(() => {
         const progress = zoomProgress.value;
@@ -1137,21 +1307,47 @@ export default function ZiweiResultPage() {
     }, []);
 
     const handleSelectCursor = useCallback((item: ZiweiOrbitTrackItem, scope: ZiweiActiveScope) => {
-        if (scope !== activeScope) {
-            setActiveScope(scope);
-        }
         startTransition(() => {
+            if (scope !== activeScope) {
+                setActiveScope(scope);
+            }
             setCursorDate(item.cursorDate);
         });
     }, [activeScope]);
 
+    const handleScopeChange = useCallback((scope: ZiweiActiveScope) => {
+        startTransition(() => {
+            setActiveScope(scope);
+        });
+    }, []);
+
+    const handleToggleDrawer = useCallback(() => {
+        startTransition(() => {
+            setDrawerExpanded((value) => !value);
+        });
+    }, []);
+
+    const handleDrawerExpandedChange = useCallback((expanded: boolean) => {
+        startTransition(() => {
+            setDrawerExpanded(expanded);
+        });
+    }, []);
+
+    const handleTopTabChange = useCallback((tab: ZiweiTopTab) => {
+        startTransition(() => {
+            setActiveTopTab(tab);
+        });
+    }, []);
+
     const handleSelectPalace = useCallback((palaceName: string) => {
-        setSelectedPalaceName(palaceName);
-        if (!staticChart) {
-            setSelectedStarName(null);
-            return;
-        }
-        setSelectedStarName(firstStarName(staticChart.palaceByName[palaceName]));
+        startTransition(() => {
+            setSelectedPalaceName(palaceName);
+            if (!staticChart) {
+                setSelectedStarName(null);
+                return;
+            }
+            setSelectedStarName(firstStarName(staticChart.palaceByName[palaceName]));
+        });
     }, [staticChart]);
 
     useEffect(() => {
@@ -1316,8 +1512,8 @@ export default function ZiweiResultPage() {
                 config: settingsDraftConfig,
             };
             const nextStaticChart = await ZiweiChartEngine.prepareStaticChart(nextPayload);
-            const nextCursorBundle = await ZiweiChartEngine.prepareCursorBundle(nextStaticChart, cursorDate);
-            const nextDynamic = nextCursorBundle.dynamic;
+            const nextDynamic = await ZiweiChartEngine.prepareDynamicSnapshot(nextStaticChart, cursorDate);
+            const nextScopeBundle = await ZiweiChartEngine.prepareScopeBundle(nextStaticChart, cursorDate, activeScope);
             const nextRecord = buildUpdatedZiweiRecord({
                 baseRecord: recordResult,
                 staticChart: nextStaticChart,
@@ -1336,11 +1532,20 @@ export default function ZiweiResultPage() {
                 chart: nextStaticChart,
                 error: '',
             });
-            setCursorBundleState({
+            setDynamicState({
                 status: 'ready',
-                bundle: nextCursorBundle,
+                chartKey: nextStaticChart.cacheKey,
+                snapshot: nextDynamic,
                 error: '',
             });
+            setScopeBundleState({
+                status: 'ready',
+                chartKey: nextStaticChart.cacheKey,
+                bundle: nextScopeBundle,
+                error: '',
+            });
+            lastValidDynamicRef.current = nextDynamic;
+            lastValidScopeBundleRef.current = nextScopeBundle;
             setRecordResult(nextRecord);
             setRecordDetail({
                 engineType: 'ziwei',
@@ -1400,42 +1605,17 @@ export default function ZiweiResultPage() {
         { key: 'delete', label: '删除记录', onPress: () => setDeleteVisible(true), destructive: true, disabled: !recordId || !recordResult || !hasPersistedRecord },
     ];
     const hasEnabledMenuItems = menuItems.some((item) => !item.disabled);
-    const chartStatusLine = snapshotBoardVisible && snapshotChart && selectedPalace
-        ? buildSnapshotStatusLine(snapshotChart, selectedPalace)
-        : staticChart && selectedPalace
-            ? buildChartStatusLine(staticChart, activeScope, selectedPalace)
-            : '';
-    const snapshotRestoreMessage = snapshotBoardVisible
-        ? (staticState.status === 'error'
-            ? staticState.error || '当前运限恢复失败，请稍后重试。'
-            : '正在恢复当前运限与增强信息，静态命盘已先行打开。')
-        : null;
+    const chartStatusLine = liveBoardReady && staticChart && selectedPalace
+        ? buildChartStatusLine(staticChart, activeScope, selectedPalace)
+        : showStaticShell && shellSnapshot && shellSelectedPalace
+            ? buildStaticShellStatusLine(
+                shellSnapshot,
+                shellSelectedPalace,
+                snapshotChart ? '历史快照' : '静态盘',
+            )
+            : '紫微斗数';
 
-    if (chartLoading && !snapshotBoardVisible) {
-        return (
-            <View style={styles.container}>
-                <StatusBarDecor />
-                <View style={styles.header}>
-                    <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
-                        <BackIcon size={24} />
-                    </TouchableOpacity>
-                    <Text style={styles.headerTitle}>紫微斗数</Text>
-                    <View style={styles.headerBtn} />
-                </View>
-                <View style={styles.loadingWrap}>
-                    <ActivityIndicator size="large" color={Colors.accent.gold} />
-                    <Text style={styles.loadingTitle}>正在生成紫微命盘...</Text>
-                    <Text style={styles.loadingText}>
-                        {staticState.status === 'loading'
-                            ? '正在恢复静态盘、飞星结构与当前运限。若是刚从录入页进入，这一步通常会直接命中缓存。'
-                            : '静态命盘已恢复，正在计算当前运限与盘面衍生信息。'}
-                    </Text>
-                </View>
-            </View>
-        );
-    }
-
-    if (((!staticChart || !dynamic || !selectedPalace) && chartRuntimeError) && !snapshotBoardVisible) {
+    if (staticFatalError) {
         return (
             <View style={styles.container}>
                 <StatusBarDecor />
@@ -1448,7 +1628,7 @@ export default function ZiweiResultPage() {
                 </View>
                 <View style={styles.errorWrap}>
                     <Text style={styles.errorTitle}>命盘无法恢复</Text>
-                    <Text style={styles.errorText}>{chartRuntimeError}</Text>
+                    <Text style={styles.errorText}>{staticState.error || '静态命盘恢复失败。'}</Text>
                     <TouchableOpacity style={styles.errorAction} onPress={() => router.replace('/ziwei/input')} activeOpacity={0.84}>
                         <Text style={styles.errorActionText}>返回重新排盘</Text>
                     </TouchableOpacity>
@@ -1495,15 +1675,15 @@ export default function ZiweiResultPage() {
 
             <View style={styles.topTabsWrap}>
                 {TOP_TABS.map((tab) => {
-                    const active = activeTopTab === tab.key;
-                    const disabled = snapshotBoardVisible && tab.key !== 'chart';
+                    const active = effectiveTopTab === tab.key;
+                    const disabled = !liveBoardReady && tab.key !== 'chart';
                     return (
                         <TouchableOpacity
                             key={tab.key}
                             style={[styles.topTabBtn, active && styles.topTabBtnActive, disabled && styles.topTabBtnDisabled]}
                             onPress={() => {
                                 if (!disabled) {
-                                    setActiveTopTab(tab.key);
+                                    handleTopTabChange(tab.key);
                                 }
                             }}
                             activeOpacity={0.84}
@@ -1540,8 +1720,13 @@ export default function ZiweiResultPage() {
                     </Text>
                 </View>
             ) : null}
+            {liveBundleWarning ? (
+                <View style={[styles.ruleDriftCard, styles.persistWarningCard]}>
+                    <Text style={styles.ruleDriftText}>{liveBundleWarning}</Text>
+                </View>
+            ) : null}
 
-            {activeTopTab === 'chart' ? (
+            {effectiveTopTab === 'chart' ? (
                 <View style={styles.chartStage}>
                     <ScrollView
                         style={styles.chartScroll}
@@ -1553,11 +1738,11 @@ export default function ZiweiResultPage() {
                         scrollEventThrottle={16}
                         showsVerticalScrollIndicator={false}
                     >
-                        {snapshotBoardVisible && snapshotChart && snapshotBoardModel && selectedPalace ? (
+                        {showStaticShell && shellSnapshot && shellBoardModel && shellSelectedPalace ? (
                             <>
                                 <ZiweiSnapshotBoard
-                                    snapshot={snapshotChart}
-                                    snapshotBoardModel={snapshotBoardModel}
+                                    snapshot={shellSnapshot}
+                                    snapshotBoardModel={shellBoardModel}
                                     metrics={boardMetrics}
                                     currentName={currentName}
                                     gender={snapshotGender}
@@ -1565,21 +1750,26 @@ export default function ZiweiResultPage() {
                                     onSelectPalace={handleSelectPalace}
                                     onOpenZoom={handleOpenZoom}
                                 />
-                                {snapshotRestoreMessage ? (
+                                {boardStageNotice ? (
                                     <View style={styles.snapshotRestoreCard}>
-                                        <Text style={styles.snapshotRestoreText}>{snapshotRestoreMessage}</Text>
+                                        <Text style={styles.snapshotRestoreText}>{boardStageNotice}</Text>
                                     </View>
                                 ) : null}
                             </>
+                        ) : showPlaceholderShell ? (
+                            <ZiweiBoardPlaceholder
+                                metrics={boardMetrics}
+                                styles={styles}
+                            />
                         ) : (
                             <ZiweiBoard
                                 staticChart={staticChart!}
                                 boardRenderModel={boardRenderModel}
-                                boardDecorations={activeBoardDecorations}
+                                boardDecorations={currentBoardDecorations}
                                 metrics={boardMetrics}
                                 activeScope={activeScope}
                                 selectedPalaceName={selectedPalace!.name}
-                                currentHoroscope={dynamic!}
+                                currentHoroscope={renderedDynamic!}
                                 currentName={currentName}
                                 chartScrollOffsetRef={chartScrollOffsetRef}
                                 onSelectPalace={handleSelectPalace}
@@ -1588,14 +1778,14 @@ export default function ZiweiResultPage() {
                         )}
                     </ScrollView>
 
-                    {!snapshotBoardVisible && orbitDrawerState ? (
+                    {liveBoardReady && currentOrbitDrawerState ? (
                         <ZiweiOrbitDrawer
-                            orbitState={orbitDrawerState}
+                            orbitState={currentOrbitDrawerState}
                             activeScope={activeScope}
                             drawerExpanded={drawerExpanded}
-                            onToggleExpanded={() => setDrawerExpanded((value) => !value)}
-                            onExpandedChange={setDrawerExpanded}
-                            onScopeChange={(scope) => setActiveScope(scope)}
+                            onToggleExpanded={handleToggleDrawer}
+                            onExpandedChange={handleDrawerExpandedChange}
+                            onScopeChange={handleScopeChange}
                             onSelectItem={handleSelectCursor}
                             styles={styles}
                             screenHeight={screenHeight}
@@ -1605,7 +1795,7 @@ export default function ZiweiResultPage() {
                 </View>
             ) : null}
 
-            {activeTopTab === 'pattern' ? (
+            {effectiveTopTab === 'pattern' ? (
                 <ScrollView
                     style={styles.analysisScroll}
                     contentContainerStyle={{ paddingBottom: insets.bottom + Spacing.xl }}
@@ -1617,7 +1807,7 @@ export default function ZiweiResultPage() {
                 </ScrollView>
             ) : null}
 
-            {!snapshotBoardVisible && activeTopTab === 'palace' ? (
+            {liveBoardReady && effectiveTopTab === 'palace' ? (
                 <ScrollView
                     style={styles.analysisScroll}
                     contentContainerStyle={{ paddingBottom: insets.bottom + Spacing.xl }}
@@ -1636,7 +1826,7 @@ export default function ZiweiResultPage() {
                     />
                     {selectedScopePalace ? (
                         <AnalysisCard
-                            title={`${ACTIVE_SCOPE_LABELS[activeScope]}映射`}
+                            title={`${ACTIVE_SCOPE_LABELS[renderedScope]}映射`}
                             lines={[
                                 `${selectedScopePalace.requestedPalaceName} → ${selectedScopePalace.resolvedPalaceName}`,
                                 `四化：${formatHoroscopeMutagenStars(selectedScopePalace.mutagenStars)}`,
@@ -1660,7 +1850,7 @@ export default function ZiweiResultPage() {
                 </ScrollView>
             ) : null}
 
-            {!snapshotBoardVisible && activeTopTab === 'info' ? (
+            {liveBoardReady && effectiveTopTab === 'info' ? (
                 <ScrollView
                     style={styles.analysisScroll}
                     contentContainerStyle={{ paddingBottom: insets.bottom + Spacing.xl }}
@@ -1682,12 +1872,12 @@ export default function ZiweiResultPage() {
                     <AnalysisCard
                         title="当前运限摘要"
                         lines={[
-                            dynamic!.horoscopeSummary.decadal,
-                            dynamic!.horoscopeSummary.age,
-                            dynamic!.horoscopeSummary.yearly,
-                            dynamic!.horoscopeSummary.monthly,
-                            dynamic!.horoscopeSummary.daily,
-                            dynamic!.horoscopeSummary.hourly,
+                            renderedDynamic!.horoscopeSummary.decadal,
+                            renderedDynamic!.horoscopeSummary.age,
+                            renderedDynamic!.horoscopeSummary.yearly,
+                            renderedDynamic!.horoscopeSummary.monthly,
+                            renderedDynamic!.horoscopeSummary.daily,
+                            renderedDynamic!.horoscopeSummary.hourly,
                         ]}
                         styles={styles}
                     />
@@ -1723,9 +1913,10 @@ export default function ZiweiResultPage() {
                                 >
                                     <ZiweiPalaceTileFace
                                         palace={zoomPalace}
-                                        renderModel={zoomPalaceRenderModel}
+                                        scopeModel={zoomPalaceRenderModel}
                                         decoration={zoomPalaceDecoration}
-                                        styles={styles}
+                                        activeScope={activeScope}
+                                        selectedPalaceName={selectedPalaceName}
                                         size={{
                                             width: zoomTarget.rect.width,
                                             height: zoomTarget.rect.height,
@@ -1806,6 +1997,17 @@ export default function ZiweiResultPage() {
 
 type ZiweiTileRenderModel = ZiweiPalaceRenderModel | ZiweiPalaceSelectionRenderModel;
 type ZiweiTileStarsLayoutView = ReturnType<typeof computeZiweiTileStarsLayout>;
+type ZiweiPalaceCardStyles = Pick<
+    ReturnType<typeof makeStyles>,
+    'palaceCard' | 'palaceCellSelected' | 'palaceCellTarget' | 'palaceCellOpposite' | 'palaceCellWealth' | 'palaceCellCareer'
+>;
+type ZiweiPalaceTileStyles = ReturnType<typeof makeZiweiPalaceTileStyles>;
+
+const ZIWEI_PALACE_CELL_STYLE = StyleSheet.create({
+    palaceCell: {
+        position: 'absolute',
+    },
+}).palaceCell;
 
 const ZiweiSnapshotBoard = memo(function ZiweiSnapshotBoard({
     snapshot,
@@ -1894,8 +2096,8 @@ const ZiweiSnapshotBoard = memo(function ZiweiSnapshotBoard({
                     <ZiweiPalaceTile
                         key={`snapshot-${cell.row}-${cell.col}`}
                         palace={snapshotPalaceByName[cell.palaceName]}
-                        renderModel={snapshotBoardModel.byPalaceName[cell.palaceName]}
-                        styles={styles}
+                        scopeModel={snapshotBoardModel.byPalaceName[cell.palaceName]}
+                        selectedPalaceName={snapshotBoardModel.selectedPalaceName}
                         frame={getBoardCellFrame(cell, metrics)}
                         tilePadding={metrics.tilePadding}
                         compactBoard={compactBoard}
@@ -2008,9 +2210,10 @@ const ZiweiBoard = memo(function ZiweiBoard({
                     <ZiweiPalaceTile
                         key={`${cell.row}-${cell.col}`}
                         palace={staticChart.palaceByName[cell.palaceName]}
-                        renderModel={boardRenderModel?.byPalaceName[cell.palaceName]}
+                        scopeModel={boardRenderModel?.byPalaceName[cell.palaceName]}
                         decoration={boardDecorations?.byPalaceName[cell.palaceName]}
-                        styles={styles}
+                        activeScope={activeScope}
+                        selectedPalaceName={selectedPalaceName}
                         frame={getBoardCellFrame(cell, metrics)}
                         tilePadding={metrics.tilePadding}
                         compactBoard={compactBoard}
@@ -2034,11 +2237,109 @@ const ZiweiBoard = memo(function ZiweiBoard({
     );
 });
 
-const ZiweiPalaceTile = memo(function ZiweiPalaceTile({
-    palace,
-    renderModel,
-    decoration,
+const ZiweiBoardPlaceholder = memo(function ZiweiBoardPlaceholder({
+    metrics,
     styles,
+}: {
+    metrics: ZiweiBoardMetrics;
+    styles: ReturnType<typeof makeStyles>;
+}) {
+    const { Colors } = useTheme();
+    const placeholderFrames = useMemo(() => (
+        [
+            { row: 0, col: 0 },
+            { row: 0, col: 1 },
+            { row: 0, col: 2 },
+            { row: 0, col: 3 },
+            { row: 1, col: 0 },
+            { row: 1, col: 3 },
+            { row: 2, col: 0 },
+            { row: 2, col: 3 },
+            { row: 3, col: 0 },
+            { row: 3, col: 1 },
+            { row: 3, col: 2 },
+            { row: 3, col: 3 },
+        ].map((item) => ({
+            key: `${item.row}-${item.col}`,
+            left: metrics.boardInset + item.col * (metrics.cellWidth + metrics.gap),
+            top: metrics.boardInset + item.row * (metrics.cellHeight + metrics.gap),
+            width: metrics.cellWidth,
+            height: metrics.cellHeight,
+        }))
+    ), [metrics]);
+    const centerFrame = useMemo(() => getCenterPanelFrame(metrics), [metrics]);
+    const placeholderTone = Colors.border.subtle;
+
+    return (
+        <View style={styles.boardWrap}>
+            <View style={styles.boardShell}>
+                {placeholderFrames.map((frame) => (
+                    <View key={frame.key} style={[styles.palaceCell, frame]}>
+                        <View style={[styles.palaceCard, { opacity: 0.78 }]}>
+                            <View style={styles.tileInnerV2}>
+                                <View style={{ gap: 6 }}>
+                                    <View style={{ width: '52%', height: 10, borderRadius: 999, backgroundColor: placeholderTone }} />
+                                    <View style={{ width: '34%', height: 10, borderRadius: 999, backgroundColor: placeholderTone }} />
+                                    <View style={{ width: '58%', height: 10, borderRadius: 999, backgroundColor: placeholderTone }} />
+                                </View>
+                                <View style={{ alignItems: 'flex-end', gap: 6 }}>
+                                    <View style={{ width: 30, height: 14, borderRadius: 999, backgroundColor: placeholderTone }} />
+                                    <View style={{ width: 18, height: 18, borderRadius: 6, backgroundColor: placeholderTone }} />
+                                </View>
+                            </View>
+                        </View>
+                    </View>
+                ))}
+
+                <View style={[styles.centerCard, centerFrame, { opacity: 0.82 }]}>
+                    <View style={styles.centerCardTop}>
+                        <View style={{ width: '42%', height: 14, borderRadius: 999, backgroundColor: placeholderTone }} />
+                        <View style={{ width: '62%', height: 12, borderRadius: 999, backgroundColor: placeholderTone }} />
+                        <View style={{ width: '72%', height: 12, borderRadius: 999, backgroundColor: placeholderTone }} />
+                        <View style={{ width: '78%', height: 12, borderRadius: 999, backgroundColor: placeholderTone }} />
+                    </View>
+
+                    <View style={styles.centerCardMiddle}>
+                        <View style={{ width: '48%', height: 16, borderRadius: 999, backgroundColor: placeholderTone }} />
+                        <View style={{ width: '68%', height: 12, borderRadius: 999, backgroundColor: placeholderTone }} />
+                        <View style={{ width: '84%', height: 12, borderRadius: 999, backgroundColor: placeholderTone }} />
+                        <View style={styles.centerMutagenGrid}>
+                            {Array.from({ length: 4 }, (_, index) => (
+                                <View
+                                    key={index}
+                                    style={{
+                                        width: index % 2 === 0 ? '42%' : '36%',
+                                        height: 12,
+                                        borderRadius: 999,
+                                        backgroundColor: placeholderTone,
+                                    }}
+                                />
+                            ))}
+                        </View>
+                    </View>
+
+                    <View style={styles.centerCardBottom}>
+                        <View style={styles.centerPillarsRow}>
+                            {Array.from({ length: 4 }, (_, index) => (
+                                <View key={index} style={styles.pillarColumn}>
+                                    <View style={{ width: 18, height: 10, borderRadius: 999, backgroundColor: placeholderTone, marginBottom: 6 }} />
+                                    <View style={{ width: 20, height: 20, borderRadius: 8, backgroundColor: placeholderTone }} />
+                                </View>
+                            ))}
+                        </View>
+                    </View>
+                </View>
+            </View>
+        </View>
+    );
+});
+
+function ZiweiPalaceTile({
+    palace,
+    scopeModel,
+    decoration,
+    activeScope,
+    selectedPalaceName,
     frame,
     tilePadding,
     compactBoard,
@@ -2046,9 +2347,10 @@ const ZiweiPalaceTile = memo(function ZiweiPalaceTile({
     onDoubleTap,
 }: {
     palace: ZiweiPalaceAnalysisView;
-    renderModel?: ZiweiTileRenderModel;
+    scopeModel?: ZiweiTileRenderModel;
     decoration?: ZiweiPalaceDecorationView;
-    styles: ReturnType<typeof makeStyles>;
+    activeScope?: ZiweiActiveScope;
+    selectedPalaceName?: string;
     frame: ZiweiTileFrame;
     tilePadding: number;
     compactBoard: boolean;
@@ -2056,6 +2358,7 @@ const ZiweiPalaceTile = memo(function ZiweiPalaceTile({
     onDoubleTap: (palaceName: string, frame: ZiweiTileFrame) => void;
 }) {
     const tapRef = useRef(0);
+    const contentKey = `${frame.width}-${frame.height}-${compactBoard ? 'compact' : 'regular'}-${tilePadding}`;
 
     const handlePress = () => {
         const now = Date.now();
@@ -2073,95 +2376,48 @@ const ZiweiPalaceTile = memo(function ZiweiPalaceTile({
         <TouchableOpacity
             activeOpacity={0.88}
             onPress={handlePress}
-            style={[styles.palaceCell, frame]}
+            style={[ZIWEI_PALACE_CELL_STYLE, frame]}
         >
             <ZiweiPalaceTileFace
+                key={contentKey}
                 palace={palace}
-                renderModel={renderModel}
+                scopeModel={scopeModel}
                 decoration={decoration}
-                styles={styles}
+                activeScope={activeScope}
+                selectedPalaceName={selectedPalaceName}
                 size={frame}
                 tilePadding={tilePadding}
                 compactBoard={compactBoard}
             />
         </TouchableOpacity>
     );
-}, (prev, next) => {
-    const prevModel = prev.renderModel;
-    const nextModel = next.renderModel;
-
-    if (prev.palace !== next.palace) {
-        return false;
-    }
-    if (prev.styles !== next.styles) {
-        return false;
-    }
-    if (prev.decoration !== next.decoration) {
-        return false;
-    }
-    if (
-        prev.frame.left !== next.frame.left
-        || prev.frame.top !== next.frame.top
-        || prev.frame.width !== next.frame.width
-        || prev.frame.height !== next.frame.height
-    ) {
-        return false;
-    }
-    if (!prevModel || !nextModel) {
-        return prevModel === nextModel;
-    }
-    if (
-        prevModel.selected !== nextModel.selected
-        || prevModel.highlightKind !== nextModel.highlightKind
-    ) {
-        return false;
-    }
-
-    const prevHasScopeModel = 'scopeTags' in prevModel;
-    const nextHasScopeModel = 'scopeTags' in nextModel;
-    if (prevHasScopeModel !== nextHasScopeModel) {
-        return false;
-    }
-    if (!prevHasScopeModel || !nextHasScopeModel) {
-        return true;
-    }
-    if (
-        prevModel.scopeOverlayText !== nextModel.scopeOverlayText
-        || prevModel.scopeTags.length !== nextModel.scopeTags.length
-        || prevModel.footerText !== nextModel.footerText
-    ) {
-        return false;
-    }
-
-    return prevModel.scopeTags.every((tag, index) => {
-        const nextTag = nextModel.scopeTags[index];
-        return tag.key === nextTag.key
-            && tag.label === nextTag.label
-            && tag.active === nextTag.active
-            && tag.tone === nextTag.tone;
-    });
-});
+}
 
 const ZiweiPalaceTileFace = memo(function ZiweiPalaceTileFace({
     palace,
-    renderModel,
+    scopeModel,
     decoration,
-    styles,
+    activeScope,
+    selectedPalaceName,
     size,
     tilePadding,
     compactBoard,
     showCardTint = true,
 }: {
     palace: ZiweiPalaceAnalysisView;
-    renderModel?: ZiweiTileRenderModel;
+    scopeModel?: ZiweiTileRenderModel;
     decoration?: ZiweiPalaceDecorationView;
-    styles: ReturnType<typeof makeStyles>;
+    activeScope?: ZiweiActiveScope;
+    selectedPalaceName?: string;
     size: Pick<ZiweiTileFrame, 'width' | 'height'>;
     tilePadding: number;
     compactBoard: boolean;
     showCardTint?: boolean;
 }) {
     const { Colors } = useTheme();
+    const styles = useMemo(() => (
+        makeZiweiPalaceTileStyles(Colors, compactBoard, tilePadding)
+    ), [Colors, compactBoard, tilePadding]);
     const allStars = useMemo(() => [...palace.majorStars, ...palace.minorStars, ...palace.adjectiveStars], [palace.adjectiveStars, palace.majorStars, palace.minorStars]);
     const activeOverlay = decoration?.activeOverlay || null;
     const historyOverlayLabels = decoration?.historyOverlayLabels || [];
@@ -2201,12 +2457,12 @@ const ZiweiPalaceTileFace = memo(function ZiweiPalaceTileFace({
     }, [starsLayout]);
 
     return (
-        <View style={[getZiweiPalaceCardStyles(styles, renderModel, { showCardTint }), { width: size.width, height: size.height }]}>
+        <View style={[getZiweiPalaceCardStyles(styles, scopeModel, { showCardTint }), { width: size.width, height: size.height }]}>
             <View style={styles.tileInnerV2}>
                 {starsLayout.totalColumns > 0 ? (
                     <ZiweiPalaceTileStarsLayer
                         palace={palace}
-                        styles={styles}
+                        tileStyles={styles}
                         starsLayout={starsLayout}
                         starsScaleTransform={starsScaleTransform}
                     />
@@ -2307,7 +2563,7 @@ const ZiweiPalaceTileFace = memo(function ZiweiPalaceTileFace({
                         <View style={styles.palaceNameBlockV2}>
                             <Text style={[
                                 styles.palaceNameTextV2,
-                                renderModel?.selected && styles.palaceNameActiveV2,
+                                scopeModel?.selected && styles.palaceNameActiveV2,
                             ]}>{palace.name}</Text>
                         </View>
                         <View style={styles.branchBlockV2}>
@@ -2320,23 +2576,29 @@ const ZiweiPalaceTileFace = memo(function ZiweiPalaceTileFace({
             </View>
         </View>
     );
-});
+}, (prev, next) => (
+    prev.palace === next.palace
+    && prev.scopeModel === next.scopeModel
+    && prev.decoration === next.decoration
+    && prev.activeScope === next.activeScope
+    && prev.selectedPalaceName === next.selectedPalaceName
+));
 
 const ZiweiPalaceTileStarsLayer = memo(function ZiweiPalaceTileStarsLayer({
     palace,
-    styles,
+    tileStyles,
     starsLayout,
     starsScaleTransform,
 }: {
     palace: ZiweiPalaceAnalysisView;
-    styles: ReturnType<typeof makeStyles>;
+    tileStyles: ZiweiPalaceTileStyles;
     starsLayout: ZiweiTileStarsLayoutView;
     starsScaleTransform: NonNullable<ViewStyle['transform']>;
 }) {
     return (
         <View
             style={[
-                styles.starsScaleWrapV2,
+                tileStyles.starsScaleWrapV2,
                 {
                     height: starsLayout.scaledHeight,
                     width: starsLayout.scaledWidth,
@@ -2345,8 +2607,8 @@ const ZiweiPalaceTileStarsLayer = memo(function ZiweiPalaceTileStarsLayer({
         >
             <View
                 style={[
-                    styles.starsAreaV2,
-                    styles.starsAreaInnerV2,
+                    tileStyles.starsAreaV2,
+                    tileStyles.starsAreaInnerV2,
                     {
                         gap: starsLayout.gap,
                         width: starsLayout.innerWidth,
@@ -2358,7 +2620,7 @@ const ZiweiPalaceTileStarsLayer = memo(function ZiweiPalaceTileStarsLayer({
                     <ZiweiPalaceTileStarColumn
                         key={`${palace.name}-${star.name}`}
                         star={star}
-                        styles={styles}
+                        tileStyles={tileStyles}
                         starsLayout={starsLayout}
                         major={true}
                     />
@@ -2367,7 +2629,7 @@ const ZiweiPalaceTileStarsLayer = memo(function ZiweiPalaceTileStarsLayer({
                     <ZiweiPalaceTileStarColumn
                         key={`${palace.name}-${star.name}`}
                         star={star}
-                        styles={styles}
+                        tileStyles={tileStyles}
                         starsLayout={starsLayout}
                         major={false}
                     />
@@ -2379,31 +2641,31 @@ const ZiweiPalaceTileStarsLayer = memo(function ZiweiPalaceTileStarsLayer({
 
 function ZiweiPalaceTileStarColumn({
     star,
-    styles,
+    tileStyles,
     starsLayout,
     major,
 }: {
     star: ZiweiStarViewModel;
-    styles: ReturnType<typeof makeStyles>;
+    tileStyles: ZiweiPalaceTileStyles;
     starsLayout: ZiweiTileStarsLayoutView;
     major: boolean;
 }) {
     return (
         <View
             style={[
-                styles.starColV2,
+                tileStyles.starColV2,
                 {
                     height: starsLayout.rawColumnHeight,
                     width: starsLayout.colWidth,
                 },
             ]}
         >
-            <View style={[styles.starNameSlotV2, { height: starsLayout.nameSlotHeight }]}>
+            <View style={[tileStyles.starNameSlotV2, { height: starsLayout.nameSlotHeight }]}>
                 {star.name.split('').map((char, idx) => (
                     <Text
                         key={idx}
                         style={[
-                            major ? styles.starTextMajorV2 : styles.starTextMinorV2,
+                            major ? tileStyles.starTextMajorV2 : tileStyles.starTextMinorV2,
                             {
                                 fontSize: major ? starsLayout.majorFontSize : starsLayout.minorFontSize,
                                 lineHeight: major ? starsLayout.majorLineHeight : starsLayout.minorLineHeight,
@@ -2414,18 +2676,18 @@ function ZiweiPalaceTileStarColumn({
                     </Text>
                 ))}
             </View>
-            <View style={[styles.starMetaSlotV2, { height: starsLayout.brightnessSlotHeight }]}>
+            <View style={[tileStyles.starMetaSlotV2, { height: starsLayout.brightnessSlotHeight }]}>
                 <Text
                     style={[
-                        styles.starBrightnessV2,
-                        !star.brightness && styles.starBrightnessPlaceholderV2,
+                        tileStyles.starBrightnessV2,
+                        !star.brightness && tileStyles.starBrightnessPlaceholderV2,
                     ]}
                 >
                     {star.brightness || '·'}
                 </Text>
             </View>
-            <View style={[styles.starMetaSlotV2, { height: starsLayout.mutagenSlotHeight }]}>
-                <Text style={[styles.starMutagenV2, !star.mutagen && styles.starMetaHiddenV2]}>
+            <View style={[tileStyles.starMetaSlotV2, { height: starsLayout.mutagenSlotHeight }]}>
+                <Text style={[tileStyles.starMutagenV2, !star.mutagen && tileStyles.starMetaHiddenV2]}>
                     {formatTileMutagen(star.mutagen)}
                 </Text>
             </View>
@@ -2538,7 +2800,7 @@ const ZiweiCenterCard = memo(function ZiweiCenterCard({
     const pillarColumns = buildPillarColumns(chart);
     const focusTitle = centerPanel?.focusTitle || `${selectedPalace.name} · ${selectedPalace.heavenlyStem}${selectedPalace.earthlyBranch}`;
     const scopeState = centerPanel?.scopeState || `当前 ${ACTIVE_SCOPE_LABELS[activeScope]}`;
-    const scopeSummary = centerPanel?.scopeSummary || buildCurrentScopeSummary(dynamic, activeScope);
+    const scopeSummary = centerPanel?.scopeSummary || getCurrentScopeSummary(dynamic, activeScope);
     const mutagenBadges = centerPanel?.mutagenBadges || [];
     const duplicateScopeSummary = scopeState === scopeSummary;
 
@@ -2852,6 +3114,220 @@ function AnalysisCard({
             ))}
         </View>
     );
+}
+
+function makeZiweiPalaceTileStyles(Colors: any, compactBoard: boolean, tilePadding: number) {
+    return StyleSheet.create({
+        palaceCard: {
+            flex: 1,
+            backgroundColor: Colors.bg.card,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: Colors.border.subtle,
+            padding: tilePadding,
+            overflow: 'hidden',
+        },
+        palaceCellSelected: {
+            backgroundColor: 'rgba(194, 171, 102, 0.08)',
+            borderColor: 'rgba(194, 171, 102, 0.6)',
+        },
+        palaceCellTarget: {
+            backgroundColor: 'rgba(82, 180, 93, 0.05)',
+            borderColor: 'rgba(82, 180, 93, 0.4)',
+        },
+        palaceCellOpposite: {
+            backgroundColor: 'rgba(47, 143, 232, 0.05)',
+            borderColor: 'rgba(47, 143, 232, 0.4)',
+        },
+        palaceCellWealth: {
+            backgroundColor: 'rgba(211, 165, 22, 0.05)',
+            borderColor: 'rgba(211, 165, 22, 0.4)',
+        },
+        palaceCellCareer: {
+            backgroundColor: 'rgba(221, 61, 118, 0.05)',
+            borderColor: 'rgba(221, 61, 118, 0.4)',
+        },
+        tileInnerV2: {
+            flex: 1,
+            position: 'relative',
+        },
+        starsAreaV2: {
+            flexDirection: 'row',
+            alignItems: 'flex-start',
+            gap: compactBoard ? 2 : 4,
+            paddingTop: 0,
+        },
+        starsAreaInnerV2: {
+            alignSelf: 'flex-start',
+        },
+        starsScaleWrapV2: {
+            alignSelf: 'flex-start',
+            overflow: 'hidden',
+        },
+        starColV2: {
+            alignItems: 'center',
+            justifyContent: 'flex-start',
+            width: compactBoard ? 13 : 15,
+        },
+        starNameSlotV2: {
+            alignItems: 'center',
+            justifyContent: 'flex-start',
+        },
+        starMetaSlotV2: {
+            alignItems: 'center',
+            justifyContent: 'flex-start',
+            width: '100%',
+        },
+        starMetaHiddenV2: {
+            opacity: 0,
+        },
+        starTextMajorV2: {
+            fontSize: compactBoard ? 13 : 15,
+            fontWeight: '700',
+            color: Colors.text.heading,
+            lineHeight: compactBoard ? 14 : 16,
+        },
+        starMutagenV2: {
+            fontSize: compactBoard ? 9 : 10,
+            lineHeight: compactBoard ? 10 : 12,
+            color: Colors.accent.red,
+            fontWeight: '600',
+            textAlign: 'center',
+            includeFontPadding: false,
+        },
+        starBrightnessV2: {
+            fontSize: compactBoard ? 8 : 10,
+            lineHeight: compactBoard ? 10 : 12,
+            color: Colors.text.tertiary,
+            textAlign: 'center',
+            includeFontPadding: false,
+        },
+        starBrightnessPlaceholderV2: {
+            opacity: 0.55,
+        },
+        starTextMinorV2: {
+            fontSize: compactBoard ? 12 : 14,
+            color: Colors.text.secondary,
+            lineHeight: compactBoard ? 13 : 15,
+        },
+        scopeOverlayAreaV2: {
+            position: 'absolute',
+            left: 2,
+            right: compactBoard ? 32 : 40,
+            bottom: compactBoard ? 48 : 58,
+            justifyContent: 'flex-end',
+        },
+        scopeOverlayItemV2: {
+            marginBottom: compactBoard ? 1 : 2,
+        },
+        scopeOverlayHistoryV2: {
+            fontSize: compactBoard ? 9 : 10,
+            lineHeight: compactBoard ? 10 : 12,
+            color: Colors.text.secondary,
+            marginBottom: 2,
+        },
+        scopeOverlayLabelRowV2: {
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: compactBoard ? 2 : 3,
+        },
+        scopeOverlayLabelV2: {
+            fontSize: compactBoard ? 11 : 12,
+            fontWeight: '700',
+            lineHeight: compactBoard ? 12 : 14,
+        },
+        scopeOverlayLabelActiveV2: {
+            textDecorationLine: 'underline',
+        },
+        scopeOverlayMutagenRowV2: {
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 1,
+        },
+        scopeOverlayMutagenV2: {
+            fontSize: compactBoard ? 8 : 9,
+            fontWeight: '700',
+            lineHeight: compactBoard ? 9 : 10,
+        },
+        scopeOverlayStarsV2: {
+            marginTop: 1,
+            fontSize: compactBoard ? 8 : 9,
+            lineHeight: compactBoard ? 9 : 10,
+        },
+        tileBottomAreaV2: {
+            position: 'absolute',
+            bottom: 2,
+            left: 2,
+            right: 2,
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'flex-end',
+        },
+        bottomLeftV2: {
+            flex: 1,
+            justifyContent: 'flex-end',
+        },
+        bottomCenterV2: {
+            position: 'absolute',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+            pointerEvents: 'none',
+            zIndex: 2,
+        },
+        shenshaColV2: {
+            flexDirection: 'column',
+        },
+        shenshaTextV2: {
+            fontSize: compactBoard ? 9 : 10,
+            color: Colors.text.tertiary,
+            lineHeight: compactBoard ? 11 : 12,
+        },
+        decadalRangeActiveV2: {
+            color: Colors.accent.gold,
+            fontWeight: '700',
+        },
+        bottomCenterYearV2: {
+            fontSize: compactBoard ? 7 : 8,
+            lineHeight: compactBoard ? 8 : 9,
+            color: Colors.text.secondary,
+            textAlign: 'center',
+        },
+        bottomCenterAgeV2: {
+            fontSize: compactBoard ? 8 : 9,
+            lineHeight: compactBoard ? 9 : 10,
+            color: Colors.text.primary,
+            textAlign: 'center',
+            fontWeight: '600',
+        },
+        bottomRightV2: {
+            alignItems: 'flex-end',
+            flexShrink: 0,
+        },
+        palaceNameBlockV2: {
+            marginBottom: compactBoard ? 0 : 2,
+        },
+        palaceNameTextV2: {
+            fontSize: compactBoard ? 12 : 14,
+            fontWeight: '700',
+            color: Colors.text.heading,
+        },
+        palaceNameActiveV2: {
+            color: Colors.accent.gold,
+        },
+        branchBlockV2: {
+            alignItems: 'center',
+        },
+        zhangshengTextV2: {
+            fontSize: compactBoard ? 10 : 12,
+            color: Colors.text.primary,
+            marginBottom: 2,
+        },
+        stemBranchBigV2: {
+            fontSize: compactBoard ? 13 : 16,
+            fontWeight: '700',
+            color: Colors.text.heading,
+            lineHeight: compactBoard ? 14 : 17,
+        },
+    });
 }
 
 const makeStyles = (Colors: any, metrics: ZiweiBoardMetrics) => {
@@ -3613,26 +4089,6 @@ const makeStyles = (Colors: any, metrics: ZiweiBoardMetrics) => {
             alignItems: 'center',
             justifyContent: 'center',
             paddingHorizontal: Spacing.xl,
-        },
-        loadingWrap: {
-            flex: 1,
-            alignItems: 'center',
-            justifyContent: 'center',
-            paddingHorizontal: Spacing.xl,
-        },
-        loadingTitle: {
-            marginTop: Spacing.lg,
-            fontSize: FontSize.xl,
-            color: Colors.text.heading,
-            fontWeight: '700',
-            textAlign: 'center',
-        },
-        loadingText: {
-            marginTop: Spacing.md,
-            fontSize: FontSize.sm,
-            color: Colors.text.secondary,
-            lineHeight: 22,
-            textAlign: 'center',
         },
         errorTitle: {
             fontSize: FontSize.xl,

@@ -1,3 +1,4 @@
+import '../../polyfills/intl';
 import { star } from 'iztro';
 import type { IFunctionalAstrolabe } from 'iztro/lib/astro/FunctionalAstrolabe';
 import type { IFunctionalHoroscope } from 'iztro/lib/astro/FunctionalHoroscope';
@@ -1175,6 +1176,8 @@ export function buildZiweiBoardRenderModelFromScopeModel(params: {
     })) as Record<string, ZiweiPalaceRenderModel>;
 
     return {
+        selectedPalaceName,
+        selectedScopePalace,
         byPalaceName,
         currentScopeSummary: scopeModel.currentScopeSummary,
         centerPanel: buildZiweiCenterOverviewState({

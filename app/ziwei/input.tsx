@@ -29,6 +29,7 @@ import { buildZiweiEditFormState } from '../../src/features/ziwei/edit-helpers';
 import { getPendingZiweiRecord } from '../../src/features/ziwei/pending-result-cache';
 import { createZiweiRecordId } from '../../src/features/ziwei/record';
 import { buildZiweiResultRoute } from '../../src/features/ziwei/result-route';
+import { ZiweiChartEngine } from '../../src/features/ziwei/chart-engine';
 import {
     ZiweiConfigOptions,
     ZiweiGender,
@@ -192,6 +193,7 @@ export default function ZiweiInputPage() {
 
         try {
             setLoading(true);
+            void ZiweiChartEngine.prewarmStaticChart(payload).catch(() => undefined);
             await yieldToNextFrame();
             const nextRecordId = editingRecordId || createZiweiRecordId();
             const nextCreatedAt = editingCreatedAt || new Date().toISOString();
