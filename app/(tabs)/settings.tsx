@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
     View,
     Text,
     StyleSheet,
     TouchableOpacity,
+    Pressable,
     ScrollView,
     ActivityIndicator,
     TextInput,
@@ -31,6 +32,7 @@ import {
     mergeImportedSettings,
     saveSettings,
 } from '../../src/services/settings';
+import { fetchAvailableModels } from '../../src/services/ai-models';
 
 function buildBackupSettings(settings: AISettings): AISettings {
     return {
@@ -49,10 +51,21 @@ export default function SettingsPage() {
     const [isRestoring, setIsRestoring] = useState(false);
     const [savingAI, setSavingAI] = useState(false);
     const [fetchingModels, setFetchingModels] = useState(false);
+    const [availableModels, setAvailableModels] = useState<string[]>([]);
+    const [modelDropdownVisible, setModelDropdownVisible] = useState(false);
     const [previewVisible, setPreviewVisible] = useState(false);
     const [pendingRecords, setPendingRecords] = useState<DivinationRecordEnvelope[]>([]);
     const [pendingSettingsRaw, setPendingSettingsRaw] = useState<unknown>(null);
     const [pendingDuplicateCount, setPendingDuplicateCount] = useState(0);
+
+    const filteredModels = useMemo(() => {
+        const keyword = settings.model.trim().toLowerCase();
+        if (!keyword) {
+            return availableModels;
+        }
+
+        return availableModels.filter((item) => item.toLowerCase().includes(keyword));
+    }, [availableModels, settings.model]);
 
     useEffect(() => {
         getSettings().then((nextSettings) => {
@@ -60,6 +73,11 @@ export default function SettingsPage() {
             setIsInitializing(false);
         });
     }, []);
+
+    useEffect(() => {
+        setAvailableModels([]);
+        setModelDropdownVisible(false);
+    }, [settings.apiKey, settings.apiUrl]);
 
     const handleSaveAISettings = async () => {
         setSavingAI(true);
@@ -82,52 +100,23 @@ export default function SettingsPage() {
 
         setFetchingModels(true);
         try {
-            let url = settings.apiUrl;
-            if (url.endsWith('/chat/completions')) {
-                url = url.replace('/chat/completions', '/models');
-            } else if (url.endsWith('/v1')) {
-                url = `${url}/models`;
-            } else {
-                try {
-                    const urlObj = new URL(settings.apiUrl);
-                    urlObj.pathname = urlObj.pathname.replace(/\/chat\/completions\/?$/, '/models');
-                    url = urlObj.toString();
-                } catch {
-                    // keep original url if parsing fails
-                }
-            }
-
-            const response = await fetch(url, {
-                method: 'GET',
-                headers: {
-                    Authorization: `Bearer ${settings.apiKey.trim()}`,
-                    'Content-Type': 'application/json',
-                },
+            const models = await fetchAvailableModels({
+                apiUrl: settings.apiUrl,
+                apiKey: settings.apiKey,
             });
 
-            if (!response.ok) {
-                const text = await response.text();
-                throw new Error(`连接失败 ${response.status}: ${text}`);
-            }
-
-            const data = await response.json();
-            if (!data || !Array.isArray(data.data) || data.data.length === 0) {
-                CustomAlert.alert('提示', '接口调用成功，但未返回可用的模型列表。');
-                return;
-            }
-
-            const models = data.data
-                .map((item: { id?: string }) => item.id)
-                .filter((item: unknown): item is string => typeof item === 'string')
-                .sort();
-
             if (models.length === 0) {
+                setAvailableModels([]);
+                setModelDropdownVisible(false);
                 CustomAlert.alert('提示', '接口调用成功，但未返回可用的模型列表。');
                 return;
             }
 
-            CustomAlert.alert('模型列表', models.join('\n'));
+            setAvailableModels(models);
+            setModelDropdownVisible(true);
         } catch (error: unknown) {
+            setAvailableModels([]);
+            setModelDropdownVisible(false);
             const message = error instanceof Error ? error.message : '获取模型失败';
             CustomAlert.alert('获取模型失败', message);
         } finally {
@@ -242,6 +231,26 @@ export default function SettingsPage() {
         }
     };
 
+    const handleApiUrlChange = (value: string) => {
+        setSettings((prev) => ({ ...prev, apiUrl: value }));
+    };
+
+    const handleApiKeyChange = (value: string) => {
+        setSettings((prev) => ({ ...prev, apiKey: value }));
+    };
+
+    const handleModelChange = (value: string) => {
+        setSettings((prev) => ({ ...prev, model: value }));
+        if (availableModels.length > 0) {
+            setModelDropdownVisible(true);
+        }
+    };
+
+    const handleSelectModel = (value: string) => {
+        setSettings((prev) => ({ ...prev, model: value }));
+        setModelDropdownVisible(false);
+    };
+
     if (isInitializing) {
         return (
             <View style={styles.container}>
@@ -298,7 +307,7 @@ export default function SettingsPage() {
                         <TextInput
                             style={styles.input}
                             value={settings.apiUrl}
-                            onChangeText={(value) => setSettings((prev) => ({ ...prev, apiUrl: value }))}
+                            onChangeText={handleApiUrlChange}
                             placeholder="https://api.openai.com/v1/chat/completions"
                             placeholderTextColor={Colors.text.tertiary}
                             autoCapitalize="none"
@@ -311,7 +320,7 @@ export default function SettingsPage() {
                         <TextInput
                             style={styles.input}
                             value={settings.apiKey}
-                            onChangeText={(value) => setSettings((prev) => ({ ...prev, apiKey: value }))}
+                            onChangeText={handleApiKeyChange}
                             placeholder="sk-..."
                             placeholderTextColor={Colors.text.tertiary}
                             secureTextEntry
@@ -334,12 +343,51 @@ export default function SettingsPage() {
                         <TextInput
                             style={styles.input}
                             value={settings.model}
-                            onChangeText={(value) => setSettings((prev) => ({ ...prev, model: value }))}
+                            onChangeText={handleModelChange}
+                            onFocus={() => {
+                                if (availableModels.length > 0) {
+                                    setModelDropdownVisible(true);
+                                }
+                            }}
                             placeholder="gpt-4o"
                             placeholderTextColor={Colors.text.tertiary}
                             autoCapitalize="none"
                             autoCorrect={false}
                         />
+                        {modelDropdownVisible && availableModels.length > 0 && (
+                            <View style={styles.modelDropdown}>
+                                <ScrollView
+                                    nestedScrollEnabled
+                                    keyboardShouldPersistTaps="handled"
+                                    showsVerticalScrollIndicator={false}
+                                >
+                                    {filteredModels.length > 0 ? (
+                                        filteredModels.map((item) => {
+                                            const isActive = item === settings.model;
+                                            return (
+                                                <Pressable
+                                                    key={item}
+                                                    style={({ pressed }) => [
+                                                        styles.modelOption,
+                                                        isActive && styles.modelOptionActive,
+                                                        pressed && styles.modelOptionPressed,
+                                                    ]}
+                                                    onPress={() => handleSelectModel(item)}
+                                                >
+                                                    <Text style={[styles.modelOptionText, isActive && styles.modelOptionTextActive]}>
+                                                        {item}
+                                                    </Text>
+                                                </Pressable>
+                                            );
+                                        })
+                                    ) : (
+                                        <Text style={styles.modelDropdownHint}>
+                                            未命中线上模型，可继续手动输入。
+                                        </Text>
+                                    )}
+                                </ScrollView>
+                            </View>
+                        )}
                     </View>
                 </View>
 
@@ -498,6 +546,41 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         borderRadius: BorderRadius.md,
         borderWidth: 0.5,
         borderColor: Colors.border.subtle,
+    },
+    modelDropdown: {
+        maxHeight: 220,
+        backgroundColor: Colors.bg.elevated,
+        borderRadius: BorderRadius.md,
+        borderWidth: 0.5,
+        borderColor: Colors.border.subtle,
+        overflow: 'hidden',
+    },
+    modelOption: {
+        paddingHorizontal: Spacing.md,
+        paddingVertical: Spacing.md,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: Colors.border.subtle,
+    },
+    modelOptionActive: {
+        backgroundColor: Colors.bg.card,
+    },
+    modelOptionPressed: {
+        opacity: 0.85,
+    },
+    modelOptionText: {
+        fontSize: FontSize.sm,
+        color: Colors.text.primary,
+    },
+    modelOptionTextActive: {
+        color: Colors.accent.gold,
+        fontWeight: '600',
+    },
+    modelDropdownHint: {
+        paddingHorizontal: Spacing.md,
+        paddingVertical: Spacing.md,
+        fontSize: FontSize.sm,
+        color: Colors.text.tertiary,
+        lineHeight: 20,
     },
     modelLabelRow: {
         flexDirection: 'row',
