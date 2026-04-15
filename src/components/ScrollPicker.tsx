@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
-import { View, Text, StyleSheet, Animated, NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
+import { View, StyleSheet, Animated, NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
 import { FontSize, BorderRadius } from '../theme/colors';
 import { useTheme } from "../theme/ThemeContext";
 
@@ -21,7 +21,6 @@ export default function ScrollPicker({
     itemHeight = 44,
     visibleItems = 5,
     activeTextColor,
-    inactiveTextColor,
     Colors: PropColors
 }: ScrollPickerProps) {
     const { Colors: ContextColors } = useTheme();
@@ -29,7 +28,6 @@ export default function ScrollPicker({
     const styles = useMemo(() => makeStyles(Colors), [Colors]);
 
     const resolvedActiveTextColor = activeTextColor || Colors.text.primary;
-    const resolvedInactiveTextColor = inactiveTextColor || Colors.text.tertiary;
 
     const scrollY = useRef(new Animated.Value(0)).current;
     const scrollViewRef = useRef<any>(null);

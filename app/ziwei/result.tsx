@@ -59,39 +59,28 @@ import {
     hasZiweiAIArtifacts,
     isZiweiAIConfigStale,
     isZiweiRuleSignatureCurrent,
+    toZiweiInputPayload,
     ZiweiRecordResult,
 } from '../../src/features/ziwei/record';
-import {
-    clearPendingZiweiRecord,
-    getPendingZiweiRecord,
-    primePendingZiweiRecord,
-    retryPendingZiweiPersist,
-    subscribePendingZiweiRecord,
-} from '../../src/features/ziwei/pending-result-cache';
-import { resolveZiweiResultBootstrapPlan } from '../../src/features/ziwei/result-bootstrap';
-import { buildZiweiResultRoute } from '../../src/features/ziwei/result-route';
+import { consumeZiweiSession, primeZiweiSession } from '../../src/features/ziwei/result-session';
 import { isAIConfigured } from '../../src/services/settings';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { BorderRadius, FontSize, Spacing } from '../../src/theme/colors';
 import { formatLocalDateTime } from '../../src/core/bazi-local-time';
 import { useDebounce } from '../../src/hooks/useDebounce';
 import {
-    buildZiweiStaticCacheKey,
     getZiweiStaticStarInsights,
-    parseZiweiRouteParams,
     ZIWEI_DEFAULT_CONFIG,
 } from '../../src/features/ziwei/iztro-adapter';
 import {
     ZiweiChartEngine,
-    type ZiweiPreparedScopeBundle,
+    type ZiweiRuntimeBundle,
 } from '../../src/features/ziwei/chart-engine';
 import {
     buildZiweiBoardMetrics,
     buildZiweiBoardRenderModelFromScopeModel,
-    buildZiweiChartSnapshot,
     buildZiweiHoroscopePalaceView,
     getCurrentScopeSummary,
-    hydrateZiweiBoardSnapshotModel,
     buildZiweiZoomMotion,
 } from '../../src/features/ziwei/view-model';
 import type {
@@ -100,9 +89,7 @@ import type {
     ZiweiBoardMetrics,
     ZiweiBoardRenderModel,
     ZiweiBoardScopeModel,
-    ZiweiBoardSnapshotModel,
     ZiweiBranchSlotCell,
-    ZiweiChartSnapshotV1,
     ZiweiDynamicHoroscopeResult,
     ZiweiHoroscopePalaceView,
     ZiweiHoroscopeMutagenStars,
@@ -167,17 +154,10 @@ interface ZiweiZoomRuntimeState {
     motion: ReturnType<typeof buildZiweiZoomMotion> | null;
 }
 
-interface ZiweiDynamicSnapshotState {
+interface ZiweiRuntimeState {
     status: 'idle' | 'loading' | 'ready' | 'error';
     chartKey: string | null;
-    snapshot: ZiweiDynamicHoroscopeResult | null;
-    error: string;
-}
-
-interface ZiweiScopeBundleState {
-    status: 'idle' | 'loading' | 'ready' | 'error';
-    chartKey: string | null;
-    bundle: ZiweiPreparedScopeBundle | null;
+    bundle: ZiweiRuntimeBundle | null;
     error: string;
 }
 
@@ -189,12 +169,6 @@ const ZIWEI_ZOOM_CLOSED_STATE: ZiweiZoomRuntimeState = {
     target: null,
     motion: null,
 };
-
-function waitForNextPaint(): Promise<void> {
-    return new Promise((resolve) => {
-        requestAnimationFrame(() => resolve());
-    });
-}
 
 function formatDateTime(date: Date): string {
     return formatLocalDateTime(date).replace('T', ' ');
@@ -420,19 +394,6 @@ function buildChartStatusLine(
     ].join(' · ');
 }
 
-function buildStaticShellStatusLine(
-    snapshot: ZiweiChartSnapshotV1,
-    selectedPalace: ZiweiPalaceAnalysisView,
-    stageLabel: string = '静态盘',
-): string {
-    return [
-        snapshot.staticMeta.fiveElementsClass,
-        `命主${snapshot.staticMeta.soul} / 身主${snapshot.staticMeta.body}`,
-        stageLabel,
-        `焦点${selectedPalace.name}`,
-    ].join(' · ');
-}
-
 function getZiweiRuleDriftMessage(record: ZiweiRecordResult | null, hasSnapshot: boolean): string | null {
     if (!record) {
         return null;
@@ -483,14 +444,14 @@ function buildPersistStatusNotice(status: 'saving' | 'saved' | 'error' | null, e
     if (status === 'saving') {
         return {
             tone: 'neutral',
-            text: '命盘正在后台写入记录，当前页面可继续查看；写入完成后会自动切换为正式记录。',
+            text: '正在按新配置重算并保存命盘，当前页面会在完成后直接更新。',
         };
     }
 
     if (status === 'error') {
         return {
             tone: 'warning',
-            text: errorMessage || '命盘保存失败，请重试写入。',
+            text: errorMessage || '命盘保存失败，请重试。',
         };
     }
 
@@ -505,37 +466,11 @@ export default function ZiweiResultPage() {
     const styles = useMemo(() => makeStyles(Colors, boardMetrics), [Colors, boardMetrics]);
     const compactBoard = boardMetrics.cellWidth < 88;
     const params = useLocalSearchParams<{
-        birthLocal?: string | string[];
-        longitude?: string | string[];
-        gender?: string | string[];
-        tzOffsetMinutes?: string | string[];
-        dst?: string | string[];
-        calendarType?: string | string[];
-        lunarYear?: string | string[];
-        lunarMonth?: string | string[];
-        lunarDay?: string | string[];
-        isLeapMonth?: string | string[];
-        algorithm?: string | string[];
-        yearDivide?: string | string[];
-        horoscopeDivide?: string | string[];
-        dayDivide?: string | string[];
-        astroType?: string | string[];
-        cityLabel?: string | string[];
-        name?: string | string[];
-        timeIndex?: string | string[];
         recordId?: string | string[];
-        recordCreatedAt?: string | string[];
-        routeDraft?: string | string[];
     }>();
     const recordId = useMemo(() => (
         Array.isArray(params.recordId) ? params.recordId[0] : params.recordId
     ), [params.recordId]);
-    const recordCreatedAt = useMemo(() => (
-        Array.isArray(params.recordCreatedAt) ? params.recordCreatedAt[0] : params.recordCreatedAt
-    ), [params.recordCreatedAt]);
-    const routeDraftRequested = useMemo(() => (
-        (Array.isArray(params.routeDraft) ? params.routeDraft[0] : params.routeDraft) === '1'
-    ), [params.routeDraft]);
 
     const [activeTopTab, setActiveTopTab] = useState<ZiweiTopTab>('chart');
     const [activeScope, setActiveScope] = useState<ZiweiActiveScope>('yearly');
@@ -544,7 +479,6 @@ export default function ZiweiResultPage() {
     const [selectedPalaceName, setSelectedPalaceName] = useState('命宫');
     const [selectedStarName, setSelectedStarName] = useState<string | null>(null);
     const [zoomState, setZoomState] = useState<ZiweiZoomRuntimeState>(ZIWEI_ZOOM_CLOSED_STATE);
-    const [recordDetail, setRecordDetail] = useState<Awaited<ReturnType<typeof getRecord>> | null | undefined>(undefined);
     const [recordResult, setRecordResult] = useState<ZiweiRecordResult | null>(null);
     const [activePayload, setActivePayload] = useState<ZiweiInputPayload | null>(null);
     const [isFavorite, setIsFavorite] = useState(false);
@@ -565,13 +499,7 @@ export default function ZiweiResultPage() {
         chart: null,
         error: '',
     });
-    const [dynamicState, setDynamicState] = useState<ZiweiDynamicSnapshotState>({
-        status: 'idle',
-        chartKey: null,
-        snapshot: null,
-        error: '',
-    });
-    const [scopeBundleState, setScopeBundleState] = useState<ZiweiScopeBundleState>({
+    const [runtimeState, setRuntimeState] = useState<ZiweiRuntimeState>({
         status: 'idle',
         chartKey: null,
         bundle: null,
@@ -585,226 +513,117 @@ export default function ZiweiResultPage() {
     const chartScrollOffsetRef = useRef(0);
     const zoomCardTapRef = useRef(0);
     const zoomStateRef = useRef<ZiweiZoomRuntimeState>(ZIWEI_ZOOM_CLOSED_STATE);
-    const lastValidScopeBundleRef = useRef<ZiweiPreparedScopeBundle | null>(null);
-    const lastValidDynamicRef = useRef<ZiweiDynamicHoroscopeResult | null>(null);
-
-    const parsed = useMemo(() => parseZiweiRouteParams({
-        birthLocal: params.birthLocal,
-        longitude: params.longitude,
-        gender: params.gender,
-        tzOffsetMinutes: params.tzOffsetMinutes,
-        dst: params.dst,
-        calendarType: params.calendarType,
-        lunarYear: params.lunarYear,
-        lunarMonth: params.lunarMonth,
-        lunarDay: params.lunarDay,
-        isLeapMonth: params.isLeapMonth,
-        algorithm: params.algorithm,
-        yearDivide: params.yearDivide,
-        horoscopeDivide: params.horoscopeDivide,
-        dayDivide: params.dayDivide,
-        astroType: params.astroType,
-        cityLabel: params.cityLabel,
-        name: params.name,
-        timeIndex: params.timeIndex,
-    }), [
-        params.algorithm,
-        params.astroType,
-        params.birthLocal,
-        params.calendarType,
-        params.cityLabel,
-        params.dayDivide,
-        params.dst,
-        params.gender,
-        params.horoscopeDivide,
-        params.isLeapMonth,
-        params.lunarDay,
-        params.lunarMonth,
-        params.lunarYear,
-        params.longitude,
-        params.name,
-        params.timeIndex,
-        params.tzOffsetMinutes,
-        params.yearDivide,
-    ]);
 
     useEffect(() => {
         let cancelled = false;
 
-        const applyZiweiDetail = (detail: { result: ZiweiRecordResult; isFavorite: boolean } | null) => {
-            if (!detail) {
-                setRecordDetail(null);
-                setRecordResult(null);
-                setIsFavorite(false);
-                return;
-            }
-
-            setRecordDetail({
-                engineType: 'ziwei',
-                result: detail.result,
-                isFavorite: detail.isFavorite,
-            });
-            setRecordResult(detail.result);
-            setIsFavorite(detail.isFavorite);
-        };
-
-        const loadFromStorage = async (clearSavedPending: boolean = false) => {
-            if (!recordId) {
-                return;
-            }
-
-            const detail = await getRecord(recordId);
-            if (cancelled) {
-                return;
-            }
-
-            setRecordDetail(detail);
-            if (!detail || detail.engineType !== 'ziwei') {
-                setRecordResult(null);
-                setIsFavorite(detail?.isFavorite || false);
-                if (!detail && !getPendingZiweiRecord(recordId)) {
-                    setPersistStatus(null);
-                    setPersistError('');
-                }
-                return;
-            }
-
-            setRecordResult(detail.result);
-            setIsFavorite(detail.isFavorite);
-            setPersistStatus(null);
-            setPersistError('');
-            if (clearSavedPending && getPendingZiweiRecord(recordId)?.status === 'saved') {
-                clearPendingZiweiRecord(recordId);
-            }
-        };
-
-        if (!recordId) {
-            setRecordDetail(null);
+        const resetForMissingRecord = (message: string) => {
             setRecordResult(null);
             setIsFavorite(false);
             setActivePayload(null);
-            setPersistStatus(null);
-            setPersistError('');
-            return;
-        }
-
-        setRecordDetail(undefined);
-        const pending = getPendingZiweiRecord(recordId);
-        if (pending && pending.status !== 'saved') {
-            applyZiweiDetail({
-                result: pending.result,
-                isFavorite: pending.isFavorite,
+            setStaticState({
+                status: 'error',
+                chart: null,
+                error: message,
             });
-            setPersistStatus(pending.status);
-            setPersistError(pending.errorMessage);
-        } else if (routeDraftRequested) {
-            setPersistStatus(null);
-            setPersistError('');
-            setRecordDetail(null);
-            setRecordResult(null);
-        } else {
-            setPersistStatus(null);
-            setPersistError('');
-            void loadFromStorage(pending?.status === 'saved');
-        }
-
-        const unsubscribe = subscribePendingZiweiRecord(recordId, () => {
-            if (cancelled) {
-                return;
-            }
-            const latestPending = getPendingZiweiRecord(recordId);
-            if (!latestPending) {
-                return;
-            }
-            if (latestPending.status === 'saved') {
-                void loadFromStorage(true);
-                return;
-            }
-
-            applyZiweiDetail({
-                result: latestPending.result,
-                isFavorite: latestPending.isFavorite,
+            setRuntimeState({
+                status: 'idle',
+                chartKey: null,
+                bundle: null,
+                error: '',
             });
-            setPersistStatus(latestPending.status);
-            setPersistError(latestPending.errorMessage);
-        });
-
-        return () => {
-            cancelled = true;
-            unsubscribe();
         };
-    }, [recordId, routeDraftRequested]);
 
-    const bootstrapPlan = useMemo(() => resolveZiweiResultBootstrapPlan({
-        parsed,
-        recordId,
-        recordDetail,
-        preferRoutePayload: routeDraftRequested,
-    }), [parsed, recordDetail, recordId, routeDraftRequested]);
-    const seedPayload = bootstrapPlan.kind === 'live' ? bootstrapPlan.payload : null;
-    const snapshotChart = bootstrapPlan.kind === 'live' ? bootstrapPlan.snapshot : null;
-    const seedPayloadKey = useMemo(() => (
-        seedPayload ? buildZiweiStaticCacheKey(seedPayload) : null
-    ), [seedPayload]);
-    const activePayloadKey = useMemo(() => (
-        activePayload ? buildZiweiStaticCacheKey(activePayload) : null
-    ), [activePayload]);
-    const staticChart = useMemo(() => (
-        staticState.chart && activePayloadKey && staticState.chart.cacheKey === activePayloadKey
-            ? staticState.chart
-            : null
-    ), [activePayloadKey, staticState.chart]);
-    const dynamic = useMemo(() => (
-        dynamicState.snapshot && activePayloadKey && dynamicState.chartKey === activePayloadKey
-            ? dynamicState.snapshot
-            : null
-    ), [activePayloadKey, dynamicState.chartKey, dynamicState.snapshot]);
-    const currentScopeBundle = useMemo(() => (
-        scopeBundleState.bundle && activePayloadKey && scopeBundleState.chartKey === activePayloadKey
-            ? scopeBundleState.bundle
-            : null
-    ), [activePayloadKey, scopeBundleState.bundle, scopeBundleState.chartKey]);
-
-    useEffect(() => {
-        if (bootstrapPlan.kind !== 'redirect') {
+        if (!recordId) {
+            resetForMissingRecord('缺少紫微记录。');
             return;
         }
 
-        router.replace(bootstrapPlan.pathname);
-    }, [bootstrapPlan]);
-
-    useEffect(() => {
-        if (bootstrapPlan.kind !== 'live' || !seedPayload) {
+        setPersistStatus(null);
+        setPersistError('');
+        const session = consumeZiweiSession(recordId);
+        if (session) {
+            setRecordResult(session.record);
+            setIsFavorite(session.isFavorite);
+            setActivePayload(toZiweiInputPayload(session.record));
+            setActiveScope(session.activeScope);
+            setCursorDate(new Date(session.runtimeBundle.dynamic.cursorDate));
+            setStaticState({
+                status: 'ready',
+                chart: session.staticChart,
+                error: '',
+            });
+            setRuntimeState({
+                status: 'ready',
+                chartKey: session.staticChart.cacheKey,
+                bundle: session.runtimeBundle,
+                error: '',
+            });
+        } else {
+            setRecordResult(null);
+            setIsFavorite(false);
             setActivePayload(null);
-            setSettingsDraftConfig(null);
-            return;
-        }
-
-        setActivePayload(seedPayload);
-        setSettingsDraftConfig(null);
-    }, [bootstrapPlan.kind, recordId, seedPayload, seedPayloadKey]);
-
-    useEffect(() => {
-        lastValidScopeBundleRef.current = null;
-        lastValidDynamicRef.current = null;
-    }, [activePayloadKey, recordId, staticChart?.cacheKey]);
-
-    useEffect(() => {
-        let cancelled = false;
-
-        if (bootstrapPlan.kind === 'load-record') {
             setStaticState({
                 status: 'loading',
                 chart: null,
                 error: '',
             });
-            setDynamicState({
+            setRuntimeState({
                 status: 'idle',
                 chartKey: null,
-                snapshot: null,
+                bundle: null,
                 error: '',
             });
-            setScopeBundleState({
+        }
+
+        const loadRecord = async () => {
+            const detail = await getRecord(recordId);
+            if (cancelled) {
+                return;
+            }
+
+            if (!detail || detail.engineType !== 'ziwei') {
+                resetForMissingRecord('记录不存在、已被删除，或属于旧版紫微数据。');
+                return;
+            }
+
+            setRecordResult(detail.result);
+            setIsFavorite(detail.isFavorite);
+            setActivePayload(toZiweiInputPayload(detail.result));
+        };
+
+        void loadRecord();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [recordId]);
+
+    useEffect(() => {
+        if (!recordId) {
+            return;
+        }
+
+        setActiveTopTab('chart');
+        setDrawerExpanded(false);
+        setSelectedPalaceName('命宫');
+        setSelectedStarName(null);
+        setSettingsVisible(false);
+        setSettingsDraftConfig(null);
+    }, [recordId]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        if (!activePayload) {
+            if (staticState.status !== 'error') {
+                setStaticState({
+                    status: 'loading',
+                    chart: null,
+                    error: '',
+                });
+            }
+            setRuntimeState({
                 status: 'idle',
                 chartKey: null,
                 bundle: null,
@@ -813,49 +632,18 @@ export default function ZiweiResultPage() {
             return;
         }
 
-        if (bootstrapPlan.kind === 'error') {
-            setStaticState({
-                status: 'error',
-                chart: null,
-                error: bootstrapPlan.message,
-            });
-            setDynamicState({
-                status: 'idle',
-                chartKey: null,
-                snapshot: null,
-                error: '',
-            });
-            setScopeBundleState({
-                status: 'idle',
-                chartKey: null,
-                bundle: null,
-                error: '',
-            });
-            return;
-        }
-
-        if (bootstrapPlan.kind !== 'live' || !activePayload) {
-            setDynamicState({
-                status: 'idle',
-                chartKey: null,
-                snapshot: null,
-                error: '',
-            });
-            setScopeBundleState({
-                status: 'idle',
-                chartKey: null,
-                bundle: null,
-                error: '',
-            });
-            return;
-        }
-
+        const activeChart = staticState.chart;
         if (
             staticState.status === 'ready'
-            && staticState.chart
-            && staticState.chart.cacheKey === activePayloadKey
-            && staticState.chart.input.name === activePayload.name
-            && staticState.chart.input.cityLabel === activePayload.cityLabel
+            && activeChart
+            && activeChart.input.birthLocal === activePayload.birthLocal
+            && activeChart.input.longitude === activePayload.longitude
+            && activeChart.input.gender === activePayload.gender
+            && activeChart.input.daylightSavingEnabled === activePayload.daylightSavingEnabled
+            && activeChart.input.calendarType === activePayload.calendarType
+            && buildZiweiAIConfigSignature(activeChart.input.config) === buildZiweiAIConfigSignature(activePayload.config)
+            && activeChart.input.name === activePayload.name
+            && activeChart.input.cityLabel === activePayload.cityLabel
         ) {
             return;
         }
@@ -865,30 +653,15 @@ export default function ZiweiResultPage() {
             chart: null,
             error: '',
         });
-        setDynamicState({
-            status: 'idle',
-            chartKey: null,
-            snapshot: null,
-            error: '',
-        });
-        setScopeBundleState({
+        setRuntimeState({
             status: 'idle',
             chartKey: null,
             bundle: null,
             error: '',
         });
 
-        const restoreChart = async () => {
-            if (bootstrapPlan.source === 'history_snapshot' && bootstrapPlan.snapshot) {
-                await waitForNextPaint();
-            } else {
-                // Let the loading screen paint before we start a very heavy cold static compute.
-                await waitForNextPaint();
-                await waitForNextPaint();
-            }
-
-            try {
-                const chart = await ZiweiChartEngine.prepareStaticChart(activePayload);
+        void ZiweiChartEngine.prepareStaticChart(activePayload)
+            .then((chart) => {
                 if (!cancelled) {
                     setStaticState({
                         status: 'ready',
@@ -896,7 +669,8 @@ export default function ZiweiResultPage() {
                         error: '',
                     });
                 }
-            } catch (error: unknown) {
+            })
+            .catch((error: unknown) => {
                 logZiweiRuntimeWarning('prepareStaticChart', error);
                 if (!cancelled) {
                     setStaticState({
@@ -905,68 +679,20 @@ export default function ZiweiResultPage() {
                         error: error instanceof Error ? error.message : '命盘参数无效，无法恢复静态命盘。',
                     });
                 }
-            }
-        };
-
-        void restoreChart();
-
-        return () => {
-            cancelled = true;
-        };
-    }, [activePayload, activePayloadKey, bootstrapPlan.kind, snapshotChart, staticState.chart, staticState.status]);
-
-    useEffect(() => {
-        let cancelled = false;
-
-        if (!staticChart) {
-            setDynamicState({
-                status: 'idle',
-                chartKey: null,
-                snapshot: null,
-                error: '',
-            });
-            return;
-        }
-
-        setDynamicState((prev) => ({
-            status: 'loading',
-            chartKey: staticChart.cacheKey,
-            snapshot: prev.chartKey === staticChart.cacheKey ? prev.snapshot : null,
-            error: '',
-        }));
-        void ZiweiChartEngine.prepareDynamicSnapshot(staticChart, deferredCursorDate)
-            .then((nextDynamic) => {
-                if (!cancelled) {
-                    setDynamicState({
-                        status: 'ready',
-                        chartKey: staticChart.cacheKey,
-                        snapshot: nextDynamic,
-                        error: '',
-                    });
-                }
-            })
-            .catch((error: unknown) => {
-                logZiweiRuntimeWarning('prepareDynamicSnapshot', error);
-                if (!cancelled) {
-                    setDynamicState((prev) => ({
-                        status: 'error',
-                        chartKey: staticChart.cacheKey,
-                        snapshot: prev.chartKey === staticChart.cacheKey ? prev.snapshot : null,
-                        error: error instanceof Error ? error.message : '动态运限快照计算失败。',
-                    }));
-                }
             });
 
         return () => {
             cancelled = true;
         };
-    }, [deferredCursorDate, staticChart]);
+    }, [activePayload, staticState.chart, staticState.status]);
+
+    const staticChart = staticState.chart;
 
     useEffect(() => {
         let cancelled = false;
 
         if (!staticChart) {
-            setScopeBundleState({
+            setRuntimeState({
                 status: 'idle',
                 chartKey: null,
                 bundle: null,
@@ -975,27 +701,28 @@ export default function ZiweiResultPage() {
             return;
         }
 
-        setScopeBundleState((prev) => ({
+        setRuntimeState((prev) => ({
             status: 'loading',
             chartKey: staticChart.cacheKey,
             bundle: prev.chartKey === staticChart.cacheKey && prev.bundle?.scope === activeScope ? prev.bundle : null,
             error: '',
         }));
-        void ZiweiChartEngine.prepareScopeBundle(staticChart, deferredCursorDate, activeScope)
-            .then((nextScopeBundle) => {
+
+        void ZiweiChartEngine.prepareRuntimeBundle(staticChart, deferredCursorDate, activeScope)
+            .then((bundle) => {
                 if (!cancelled) {
-                    setScopeBundleState({
+                    setRuntimeState({
                         status: 'ready',
                         chartKey: staticChart.cacheKey,
-                        bundle: nextScopeBundle,
+                        bundle,
                         error: '',
                     });
                 }
             })
             .catch((error: unknown) => {
-                logZiweiRuntimeWarning('prepareScopeBundle', error);
+                logZiweiRuntimeWarning('prepareRuntimeBundle', error);
                 if (!cancelled) {
-                    setScopeBundleState((prev) => ({
+                    setRuntimeState((prev) => ({
                         status: 'error',
                         chartKey: staticChart.cacheKey,
                         bundle: prev.chartKey === staticChart.cacheKey && prev.bundle?.scope === activeScope ? prev.bundle : null,
@@ -1009,66 +736,24 @@ export default function ZiweiResultPage() {
         };
     }, [activeScope, deferredCursorDate, staticChart]);
 
-    useEffect(() => {
-        if (
-            !staticChart
-            || dynamicState.status !== 'ready'
-            || !dynamicState.snapshot
-            || dynamicState.chartKey !== staticChart.cacheKey
-            || scopeBundleState.status !== 'ready'
-            || !scopeBundleState.bundle
-            || scopeBundleState.chartKey !== staticChart.cacheKey
-        ) {
-            return;
-        }
-
-        lastValidDynamicRef.current = dynamicState.snapshot;
-        lastValidScopeBundleRef.current = scopeBundleState.bundle;
-    }, [
-        dynamicState.chartKey,
-        dynamicState.snapshot,
-        dynamicState.status,
-        scopeBundleState.bundle,
-        scopeBundleState.chartKey,
-        scopeBundleState.status,
-        staticChart,
-    ]);
-
-    const generatedShellSnapshot = useMemo(() => (
-        staticChart ? buildZiweiChartSnapshot(staticChart) : null
-    ), [staticChart]);
-    const shellSnapshot = snapshotChart || generatedShellSnapshot;
-    const effectiveScopeBundle = useMemo(() => {
-        if (currentScopeBundle) {
-            return currentScopeBundle;
-        }
-
-        const staleScopeBundle = lastValidScopeBundleRef.current;
-        if (!staticChart || !staleScopeBundle || !staleScopeBundle.cacheKey.startsWith(`${staticChart.cacheKey}|`)) {
-            return null;
-        }
-
-        return staleScopeBundle;
-    }, [activeScope, currentScopeBundle, scopeBundleState.status, staticChart]);
-    const renderedDynamic = useMemo(() => {
-        if (currentScopeBundle) {
-            return dynamic || lastValidDynamicRef.current || null;
-        }
-
-        return lastValidDynamicRef.current || dynamic;
-    }, [currentScopeBundle, dynamic, scopeBundleState.status]);
+    const currentScopeBundle = useMemo(() => (
+        runtimeState.bundle && runtimeState.chartKey === staticChart?.cacheKey
+            ? runtimeState.bundle
+            : null
+    ), [runtimeState.bundle, runtimeState.chartKey, staticChart]);
+    const renderedDynamic = currentScopeBundle?.dynamic ?? null;
     const currentScopeModel = useMemo<ZiweiBoardScopeModel | null>(() => (
-        effectiveScopeBundle?.boardScopeModel ?? null
-    ), [activeScope, effectiveScopeBundle]);
+        currentScopeBundle?.boardScopeModel ?? null
+    ), [currentScopeBundle]);
     const currentBoardDecorations = useMemo<ZiweiBoardDecorationModel | null>(() => (
-        effectiveScopeBundle?.boardDecorations ?? null
-    ), [activeScope, effectiveScopeBundle]);
+        currentScopeBundle?.boardDecorations ?? null
+    ), [currentScopeBundle]);
     const currentOrbitDrawerState = useMemo<ZiweiOrbitDrawerState | null>(() => (
-        effectiveScopeBundle?.orbitDrawerState ?? null
-    ), [activeScope, effectiveScopeBundle]);
+        currentScopeBundle?.orbitDrawerState ?? null
+    ), [currentScopeBundle]);
     const currentSelectedDirectScope = useMemo(() => (
-        effectiveScopeBundle?.selectedDirectScope ?? null
-    ), [activeScope, effectiveScopeBundle]);
+        currentScopeBundle?.selectedDirectScope ?? null
+    ), [currentScopeBundle]);
     const renderedScope = currentScopeModel?.activeScope || activeScope;
     const effectiveTopTab: ZiweiTopTab = staticChart && renderedDynamic ? activeTopTab : 'chart';
     const starInsights = useMemo(() => {
@@ -1083,20 +768,11 @@ export default function ZiweiResultPage() {
         starInsights?.starByName || {}
     ), [starInsights]);
 
-    const shellBoardModel = useMemo<ZiweiBoardSnapshotModel | null>(() => (
-        shellSnapshot ? hydrateZiweiBoardSnapshotModel(shellSnapshot, selectedPalaceName) : null
-    ), [selectedPalaceName, shellSnapshot]);
-    const shellPalaceByName = useMemo<Record<string, ZiweiPalaceAnalysisView> | null>(() => (
-        shellSnapshot
-            ? Object.fromEntries(shellSnapshot.palaces.map((palace) => [palace.name, palace])) as Record<string, ZiweiPalaceAnalysisView>
-            : null
-    ), [shellSnapshot]);
-    const displayPalaceByName = staticChart?.palaceByName || shellPalaceByName;
+    const displayPalaceByName = staticChart?.palaceByName || null;
     const zoomVisible = zoomState.phase !== 'closed';
     const zoomTarget = zoomState.target;
     const zoomMotion = zoomState.motion;
     const selectedPalace = displayPalaceByName?.[selectedPalaceName] || displayPalaceByName?.命宫 || null;
-    const shellSelectedPalace = shellPalaceByName?.[selectedPalaceName] || shellPalaceByName?.命宫 || null;
     const fallbackStarName = staticChart && selectedPalace ? firstStarName(selectedPalace) : null;
     const selectedStar = !staticChart || effectiveTopTab === 'chart'
         ? null
@@ -1119,7 +795,6 @@ export default function ZiweiResultPage() {
         }
 
         return buildZiweiHoroscopePalaceView(
-            staticChart.astrolabe,
             renderedDynamic.horoscopeNow,
             selectedPalace.name,
             renderedScope,
@@ -1131,18 +806,10 @@ export default function ZiweiResultPage() {
             ? buildAnalysisCards(selectedPalace, selectedStar, selectedScopePalace)
             : []
     ), [effectiveTopTab, selectedPalace, selectedScopePalace, selectedStar]);
-    const pillarColumns = useMemo(() => (
-        staticChart
-            ? buildPillarColumns(staticChart)
-            : shellSnapshot
-                ? buildPillarColumnsFromChineseDate(shellSnapshot.staticMeta.chineseDate)
-                : []
-    ), [shellSnapshot, staticChart]);
-    const snapshotGender = recordResult?.gender || staticChart?.input.gender || seedPayload?.gender || 'male';
-    const currentName = staticChart?.input.name?.trim() || recordResult?.name?.trim() || seedPayload?.name?.trim() || '匿名命盘';
+    const currentName = staticChart?.input.name?.trim() || recordResult?.name?.trim() || '匿名命盘';
     const ruleDriftMessage = useMemo(() => (
-        getZiweiRuleDriftMessage(recordResult, Boolean(snapshotChart))
-    ), [recordResult, snapshotChart]);
+        getZiweiRuleDriftMessage(recordResult, false)
+    ), [recordResult]);
     const persistNotice = useMemo(() => buildPersistStatusNotice(persistStatus, persistError), [persistError, persistStatus]);
     const aiConfigStale = useMemo(() => isZiweiAIConfigStale(recordResult), [recordResult]);
     const settingsDirty = useMemo(() => {
@@ -1168,9 +835,7 @@ export default function ZiweiResultPage() {
         resolveZiweiZoomPalaceName(zoomTarget, selectedPalaceName)
     ), [selectedPalaceName, zoomTarget]);
     const zoomPalace = displayPalaceByName?.[zoomPalaceName] || null;
-    const zoomPalaceRenderModel = zoomPalace
-        ? (liveBoardReady ? boardRenderModel?.byPalaceName[zoomPalace.name] : shellBoardModel?.byPalaceName[zoomPalace.name])
-        : undefined;
+    const zoomPalaceRenderModel = zoomPalace ? boardRenderModel?.byPalaceName[zoomPalace.name] : undefined;
     const zoomPalaceDecoration = liveBoardReady && zoomPalace ? currentBoardDecorations?.byPalaceName[zoomPalace.name] : undefined;
     const ziweiFormatterContext = useMemo(() => cloneZiweiFormatterContext({
         cursorDateIso: cursorDate.toISOString(),
@@ -1179,23 +844,9 @@ export default function ZiweiResultPage() {
         selectedStarName,
         activeTopTab: effectiveTopTab,
     }), [activeScope, cursorDate, effectiveTopTab, selectedPalaceName, selectedStarName]);
-    const showStaticShell = !liveBoardReady && Boolean(shellSnapshot && shellBoardModel && shellSelectedPalace);
-    const showPlaceholderShell = !liveBoardReady && !showStaticShell && staticState.status !== 'error';
-    const staticFatalError = staticState.status === 'error' && !showStaticShell;
-    const boardStageNotice = showStaticShell
-        ? (
-            staticState.status === 'error'
-                ? '静态命盘已保留，当前版本命盘恢复失败，已降级为静态展示。'
-                : dynamicState.status === 'error'
-                    ? '当前动态运限恢复失败，已降级为静态命盘。'
-                    : scopeBundleState.status === 'error'
-                        ? (effectiveScopeBundle
-                            ? '当前运限切换失败，页面保留上一份结果。'
-                            : '当前运限视图恢复失败，已降级为静态命盘。')
-                        : '静态命盘已先行打开，动态运限与增强信息会在后台完成后无缝接入。'
-        )
-        : null;
-    const liveBundleWarning = (dynamicState.status === 'error' || scopeBundleState.status === 'error') && liveBoardReady
+    const showPlaceholderShell = !liveBoardReady && staticState.status !== 'error';
+    const staticFatalError = staticState.status === 'error';
+    const liveBundleWarning = runtimeState.status === 'error' && liveBoardReady
         ? '当前运限切换失败，页面保留上一份结果。'
         : null;
 
@@ -1357,7 +1008,7 @@ export default function ZiweiResultPage() {
         setSelectedStarName(null);
         setSettingsVisible(false);
         setSettingsDraftConfig(null);
-    }, [recordId, seedPayloadKey]);
+    }, [recordId]);
 
     useEffect(() => {
         let cancelled = false;
@@ -1372,65 +1023,6 @@ export default function ZiweiResultPage() {
             cancelled = true;
         };
     }, []);
-
-    useEffect(() => {
-        if (
-            !routeDraftRequested
-            || !recordId
-            || !staticChart
-            || !dynamic
-            || recordResult
-            || bootstrapPlan.kind !== 'live'
-            || bootstrapPlan.source !== 'route'
-            || getPendingZiweiRecord(recordId)
-        ) {
-            return;
-        }
-
-        const nextRecord = buildZiweiRecordResult({
-            staticChart,
-            dynamic,
-            id: recordId,
-            createdAt: recordCreatedAt,
-        });
-        const envelope = {
-            engineType: 'ziwei' as const,
-            result: nextRecord,
-            summary: buildZiweiSummary(nextRecord),
-        };
-
-        primePendingZiweiRecord({
-            result: nextRecord,
-            envelope,
-            isFavorite,
-            persist: () => saveRecord(envelope),
-        });
-        setRecordDetail({
-            engineType: 'ziwei',
-            result: nextRecord,
-            isFavorite,
-        });
-        setRecordResult(nextRecord);
-        setPersistStatus('saving');
-        setPersistError('');
-        router.replace(buildZiweiResultRoute({
-            payload: activePayload || staticChart.input,
-            computed: staticChart.input,
-            recordId: nextRecord.id,
-            recordCreatedAt: nextRecord.createdAt,
-            routeDraft: false,
-        }));
-    }, [
-        activePayload,
-        bootstrapPlan,
-        dynamic,
-        isFavorite,
-        recordCreatedAt,
-        recordId,
-        recordResult,
-        routeDraftRequested,
-        staticChart,
-    ]);
 
     const handleOpenAIChat = () => {
         if (!recordResult) {
@@ -1478,16 +1070,6 @@ export default function ZiweiResultPage() {
     };
 
     const handleRetryPersist = () => {
-        if (!recordId) {
-            return;
-        }
-
-        const pending = getPendingZiweiRecord(recordId);
-        if (pending) {
-            retryPendingZiweiPersist(recordId);
-            return;
-        }
-
         if (settingsVisible) {
             void handleSaveSettings();
         }
@@ -1512,12 +1094,11 @@ export default function ZiweiResultPage() {
                 config: settingsDraftConfig,
             };
             const nextStaticChart = await ZiweiChartEngine.prepareStaticChart(nextPayload);
-            const nextDynamic = await ZiweiChartEngine.prepareDynamicSnapshot(nextStaticChart, cursorDate);
-            const nextScopeBundle = await ZiweiChartEngine.prepareScopeBundle(nextStaticChart, cursorDate, activeScope);
+            const nextRuntimeBundle = await ZiweiChartEngine.prepareRuntimeBundle(nextStaticChart, cursorDate, activeScope);
             const nextRecord = buildUpdatedZiweiRecord({
                 baseRecord: recordResult,
                 staticChart: nextStaticChart,
-                dynamic: nextDynamic,
+                dynamic: nextRuntimeBundle.dynamic,
             });
 
             await saveRecord({
@@ -1532,36 +1113,23 @@ export default function ZiweiResultPage() {
                 chart: nextStaticChart,
                 error: '',
             });
-            setDynamicState({
+            setRuntimeState({
                 status: 'ready',
                 chartKey: nextStaticChart.cacheKey,
-                snapshot: nextDynamic,
+                bundle: nextRuntimeBundle,
                 error: '',
             });
-            setScopeBundleState({
-                status: 'ready',
-                chartKey: nextStaticChart.cacheKey,
-                bundle: nextScopeBundle,
-                error: '',
-            });
-            lastValidDynamicRef.current = nextDynamic;
-            lastValidScopeBundleRef.current = nextScopeBundle;
             setRecordResult(nextRecord);
-            setRecordDetail({
-                engineType: 'ziwei',
-                result: nextRecord,
+            primeZiweiSession(recordId, {
+                record: nextRecord,
+                staticChart: nextStaticChart,
+                runtimeBundle: nextRuntimeBundle,
+                activeScope,
                 isFavorite,
             });
             setSettingsVisible(false);
             setSettingsDraftConfig(null);
             setPersistStatus(null);
-            router.replace(buildZiweiResultRoute({
-                payload: nextPayload,
-                computed: nextStaticChart.input,
-                recordId,
-                recordCreatedAt: nextRecord.createdAt,
-                routeDraft: false,
-            }));
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : '紫微配置保存失败';
             setPersistStatus('error');
@@ -1607,12 +1175,8 @@ export default function ZiweiResultPage() {
     const hasEnabledMenuItems = menuItems.some((item) => !item.disabled);
     const chartStatusLine = liveBoardReady && staticChart && selectedPalace
         ? buildChartStatusLine(staticChart, activeScope, selectedPalace)
-        : showStaticShell && shellSnapshot && shellSelectedPalace
-            ? buildStaticShellStatusLine(
-                shellSnapshot,
-                shellSelectedPalace,
-                snapshotChart ? '历史快照' : '静态盘',
-            )
+        : staticState.status === 'loading'
+            ? '紫微命盘加载中'
             : '紫微斗数';
 
     if (staticFatalError) {
@@ -1738,25 +1302,7 @@ export default function ZiweiResultPage() {
                         scrollEventThrottle={16}
                         showsVerticalScrollIndicator={false}
                     >
-                        {showStaticShell && shellSnapshot && shellBoardModel && shellSelectedPalace ? (
-                            <>
-                                <ZiweiSnapshotBoard
-                                    snapshot={shellSnapshot}
-                                    snapshotBoardModel={shellBoardModel}
-                                    metrics={boardMetrics}
-                                    currentName={currentName}
-                                    gender={snapshotGender}
-                                    chartScrollOffsetRef={chartScrollOffsetRef}
-                                    onSelectPalace={handleSelectPalace}
-                                    onOpenZoom={handleOpenZoom}
-                                />
-                                {boardStageNotice ? (
-                                    <View style={styles.snapshotRestoreCard}>
-                                        <Text style={styles.snapshotRestoreText}>{boardStageNotice}</Text>
-                                    </View>
-                                ) : null}
-                            </>
-                        ) : showPlaceholderShell ? (
+                        {showPlaceholderShell ? (
                             <ZiweiBoardPlaceholder
                                 metrics={boardMetrics}
                                 styles={styles}
@@ -1915,8 +1461,6 @@ export default function ZiweiResultPage() {
                                         palace={zoomPalace}
                                         scopeModel={zoomPalaceRenderModel}
                                         decoration={zoomPalaceDecoration}
-                                        activeScope={activeScope}
-                                        selectedPalaceName={selectedPalaceName}
                                         size={{
                                             width: zoomTarget.rect.width,
                                             height: zoomTarget.rect.height,
@@ -1947,7 +1491,7 @@ export default function ZiweiResultPage() {
                     <Pressable style={styles.modalBackdrop} onPress={handleDismissSettings} />
                     <View style={styles.configModalCard}>
                         <ZiweiConfigPanel
-                            value={settingsDraftConfig || activePayload?.config || recordResult?.config || staticChart?.input.config || seedPayload?.config || ZIWEI_DEFAULT_CONFIG}
+                            value={settingsDraftConfig || activePayload?.config || recordResult?.config || staticChart?.input.config || ZIWEI_DEFAULT_CONFIG}
                             onChange={handleConfigChange}
                             mode="result"
                         />
@@ -1983,11 +1527,6 @@ export default function ZiweiResultPage() {
                     onUpdateResult={(updatedResult) => {
                         const nextResult = updatedResult as ZiweiRecordResult;
                         setRecordResult(nextResult);
-                        setRecordDetail({
-                            engineType: 'ziwei',
-                            result: nextResult,
-                            isFavorite,
-                        });
                     }}
                 />
             ) : null}
@@ -2008,117 +1547,6 @@ const ZIWEI_PALACE_CELL_STYLE = StyleSheet.create({
         position: 'absolute',
     },
 }).palaceCell;
-
-const ZiweiSnapshotBoard = memo(function ZiweiSnapshotBoard({
-    snapshot,
-    snapshotBoardModel,
-    metrics,
-    currentName,
-    gender,
-    chartScrollOffsetRef,
-    onSelectPalace,
-    onOpenZoom,
-}: {
-    snapshot: ZiweiChartSnapshotV1;
-    snapshotBoardModel: ZiweiBoardSnapshotModel;
-    metrics: ZiweiBoardMetrics;
-    currentName: string;
-    gender: 'male' | 'female';
-    chartScrollOffsetRef: React.MutableRefObject<number>;
-    onSelectPalace: (palaceName: string) => void;
-    onOpenZoom: (target: ZiweiZoomTarget) => void;
-}) {
-    const { Colors } = useTheme();
-    const styles = useMemo(() => makeStyles(Colors, metrics), [Colors, metrics]);
-    const snapshotPalaceByName = useMemo(() => (
-        Object.fromEntries(snapshot.palaces.map((palace) => [palace.name, palace])) as Record<string, ZiweiPalaceAnalysisView>
-    ), [snapshot.palaces]);
-    const selectedPalace = snapshotPalaceByName[snapshotBoardModel.selectedPalaceName] || snapshotPalaceByName.命宫 || snapshot.palaces[0];
-    const compactBoard = metrics.cellWidth < 88;
-    const boardShellRef = useRef<View | null>(null);
-    const boardShellRectRef = useRef<MeasuredBoardShellRect | null>(null);
-    const [boardShellRect, setBoardShellRect] = useState<MeasuredBoardShellRect | null>(null);
-
-    useEffect(() => {
-        boardShellRectRef.current = boardShellRect;
-    }, [boardShellRect]);
-
-    const syncBoardShellRect = useCallback(() => {
-        boardShellRef.current?.measureInWindow((x, y, width, height) => {
-            const nextRect: MeasuredBoardShellRect = {
-                x,
-                y,
-                width,
-                height,
-                scrollY: chartScrollOffsetRef.current,
-            };
-
-            setBoardShellRect((prev) => {
-                if (
-                    prev
-                    && prev.x === nextRect.x
-                    && prev.y === nextRect.y
-                    && prev.width === nextRect.width
-                    && prev.height === nextRect.height
-                    && prev.scrollY === nextRect.scrollY
-                ) {
-                    return prev;
-                }
-                return nextRect;
-            });
-        });
-    }, [chartScrollOffsetRef]);
-
-    useLayoutEffect(() => {
-        syncBoardShellRect();
-    }, [metrics.boardHeight, metrics.boardWidth, syncBoardShellRect]);
-
-    const handleBoardShellLayout = useCallback((_event: LayoutChangeEvent) => {
-        syncBoardShellRect();
-    }, [syncBoardShellRect]);
-
-    const handleOpenZoomTarget = useCallback((palaceName: string, frame: ZiweiTileFrame) => {
-        const measured = boardShellRectRef.current;
-        if (!measured) {
-            return;
-        }
-
-        onOpenZoom({
-            palaceName,
-            rect: buildZoomRectFromFrame(measured, frame, chartScrollOffsetRef.current),
-        });
-    }, [chartScrollOffsetRef, onOpenZoom]);
-
-    return (
-        <View style={styles.boardWrap}>
-            <View ref={boardShellRef} onLayout={handleBoardShellLayout} collapsable={false} style={styles.boardShell}>
-                {snapshot.workbenchLayout.ringCells.map((cell) => (
-                    <ZiweiPalaceTile
-                        key={`snapshot-${cell.row}-${cell.col}`}
-                        palace={snapshotPalaceByName[cell.palaceName]}
-                        scopeModel={snapshotBoardModel.byPalaceName[cell.palaceName]}
-                        selectedPalaceName={snapshotBoardModel.selectedPalaceName}
-                        frame={getBoardCellFrame(cell, metrics)}
-                        tilePadding={metrics.tilePadding}
-                        compactBoard={compactBoard}
-                        onSingleTap={onSelectPalace}
-                        onDoubleTap={handleOpenZoomTarget}
-                    />
-                ))}
-
-                <ZiweiSnapshotCenterCard
-                    snapshot={snapshot}
-                    selectedPalace={selectedPalace}
-                    centerPanel={snapshotBoardModel.centerPanel}
-                    currentName={currentName}
-                    gender={gender}
-                    frame={getCenterPanelFrame(metrics)}
-                    styles={styles}
-                />
-            </View>
-        </View>
-    );
-});
 
 const ZiweiBoard = memo(function ZiweiBoard({
     staticChart,
@@ -2212,8 +1640,6 @@ const ZiweiBoard = memo(function ZiweiBoard({
                         palace={staticChart.palaceByName[cell.palaceName]}
                         scopeModel={boardRenderModel?.byPalaceName[cell.palaceName]}
                         decoration={boardDecorations?.byPalaceName[cell.palaceName]}
-                        activeScope={activeScope}
-                        selectedPalaceName={selectedPalaceName}
                         frame={getBoardCellFrame(cell, metrics)}
                         tilePadding={metrics.tilePadding}
                         compactBoard={compactBoard}
@@ -2338,8 +1764,6 @@ function ZiweiPalaceTile({
     palace,
     scopeModel,
     decoration,
-    activeScope,
-    selectedPalaceName,
     frame,
     tilePadding,
     compactBoard,
@@ -2349,8 +1773,6 @@ function ZiweiPalaceTile({
     palace: ZiweiPalaceAnalysisView;
     scopeModel?: ZiweiTileRenderModel;
     decoration?: ZiweiPalaceDecorationView;
-    activeScope?: ZiweiActiveScope;
-    selectedPalaceName?: string;
     frame: ZiweiTileFrame;
     tilePadding: number;
     compactBoard: boolean;
@@ -2383,8 +1805,6 @@ function ZiweiPalaceTile({
                 palace={palace}
                 scopeModel={scopeModel}
                 decoration={decoration}
-                activeScope={activeScope}
-                selectedPalaceName={selectedPalaceName}
                 size={frame}
                 tilePadding={tilePadding}
                 compactBoard={compactBoard}
@@ -2397,8 +1817,6 @@ const ZiweiPalaceTileFace = memo(function ZiweiPalaceTileFace({
     palace,
     scopeModel,
     decoration,
-    activeScope,
-    selectedPalaceName,
     size,
     tilePadding,
     compactBoard,
@@ -2407,8 +1825,6 @@ const ZiweiPalaceTileFace = memo(function ZiweiPalaceTileFace({
     palace: ZiweiPalaceAnalysisView;
     scopeModel?: ZiweiTileRenderModel;
     decoration?: ZiweiPalaceDecorationView;
-    activeScope?: ZiweiActiveScope;
-    selectedPalaceName?: string;
     size: Pick<ZiweiTileFrame, 'width' | 'height'>;
     tilePadding: number;
     compactBoard: boolean;
@@ -2580,8 +1996,6 @@ const ZiweiPalaceTileFace = memo(function ZiweiPalaceTileFace({
     prev.palace === next.palace
     && prev.scopeModel === next.scopeModel
     && prev.decoration === next.decoration
-    && prev.activeScope === next.activeScope
-    && prev.selectedPalaceName === next.selectedPalaceName
 ));
 
 const ZiweiPalaceTileStarsLayer = memo(function ZiweiPalaceTileStarsLayer({
@@ -2694,84 +2108,6 @@ function ZiweiPalaceTileStarColumn({
         </View>
     );
 }
-
-const ZiweiSnapshotCenterCard = memo(function ZiweiSnapshotCenterCard({
-    snapshot,
-    selectedPalace,
-    centerPanel,
-    currentName,
-    gender,
-    frame,
-    styles,
-}: {
-    snapshot: ZiweiChartSnapshotV1;
-    selectedPalace: ZiweiPalaceAnalysisView;
-    centerPanel: ZiweiBoardSnapshotModel['centerPanel'];
-    currentName: string;
-    gender: 'male' | 'female';
-    frame: { left: number; top: number; width: number; height: number };
-    styles: ReturnType<typeof makeStyles>;
-}) {
-    const summaryItems = centerPanel.summaryItems;
-    const pillarColumns = buildPillarColumnsFromChineseDate(snapshot.staticMeta.chineseDate);
-    const duplicateScopeSummary = centerPanel.scopeState === centerPanel.scopeSummary;
-
-    return (
-        <View style={[styles.centerCard, frame]}>
-            <View style={styles.centerCardTop}>
-                <Text style={styles.centerName} numberOfLines={1}>{currentName}</Text>
-                <Text style={styles.centerLine} numberOfLines={1}>
-                    {gender === 'male' ? '阳男' : '阴女'} · {snapshot.staticMeta.fiveElementsClass}
-                </Text>
-                <Text style={styles.centerLine} numberOfLines={1}>{snapshot.staticMeta.birthLocal.replace('T', ' ')}</Text>
-                <Text style={styles.centerLine} numberOfLines={1}>
-                    真太阳时 {snapshot.staticMeta.trueSolarDateTimeLocal.replace('T', ' ')}
-                </Text>
-            </View>
-
-            <View style={styles.centerCardMiddle}>
-                <Text style={styles.centerFocusTitle} numberOfLines={1}>{centerPanel.focusTitle}</Text>
-                <Text style={styles.centerScopeState} numberOfLines={1}>{centerPanel.scopeState}</Text>
-                {!duplicateScopeSummary ? (
-                    <Text style={styles.centerFocusMeta} numberOfLines={2}>{centerPanel.scopeSummary}</Text>
-                ) : null}
-                <Text style={styles.centerBadgeRowText} numberOfLines={1}>
-                    {summaryItems.join(' · ')}
-                </Text>
-
-                <View style={styles.centerMutagenGrid}>
-                    {centerPanel.mutagenBadges.map((badge, index) => (
-                        <Text
-                            key={badge.key}
-                            style={[
-                                styles.centerMutagenText,
-                                !badge.active && styles.centerMutagenTextInactive,
-                                index % 2 === 0 ? styles.centerMutagenTextLeft : styles.centerMutagenTextRight,
-                            ]}
-                            numberOfLines={1}
-                        >
-                            {badge.label} {badge.value}
-                        </Text>
-                    ))}
-                </View>
-            </View>
-
-            <View style={styles.centerCardBottom}>
-                <View style={styles.centerPillarsRow}>
-                    {pillarColumns.map((column) => (
-                        <View key={column.key} style={styles.pillarColumn}>
-                            <Text style={styles.pillarHead}>{column.header}</Text>
-                            <Text style={styles.pillarValue}>{column.value}</Text>
-                        </View>
-                    ))}
-                </View>
-                <Text style={styles.centerSnapshotFooter} numberOfLines={1}>
-                    {selectedPalace.name} · {snapshot.staticMeta.lunarDate} · {snapshot.staticMeta.timeLabel}
-                </Text>
-            </View>
-        </View>
-    );
-});
 
 const ZiweiCenterCard = memo(function ZiweiCenterCard({
     chart,

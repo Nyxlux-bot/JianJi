@@ -7,7 +7,7 @@ import {
     YaoValue, WuXing, LiuQin, LiuShen, DivinationMethod,
     BA_GUA, GUA_64, NA_JIA, DIZHI_WUXING, DIZHI_INDEX,
     getLiuQin, getLiuShen, LIUQIN_SHORT, LIUSHEN_SHORT,
-    yaoToGuaIndex, GuaInfo, TIANGAN_WUXING,
+    yaoToGuaIndex, GuaInfo,
 } from './liuyao-data';
 import { solarToLunar, getNaYin, getCurrentJieqi, LunarDate } from './lunar';
 import { calculateTrueSolarTime, formatTrueSolarTime } from './true-solar-time';

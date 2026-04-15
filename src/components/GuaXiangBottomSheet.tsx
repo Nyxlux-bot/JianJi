@@ -4,7 +4,6 @@ import { useTheme } from '../theme/ThemeContext';
 import { Spacing, FontSize, BorderRadius } from '../theme/colors';
 import HexagramDetailView, { HexagramData } from './HexagramDetailView';
 import { CloseIcon } from './Icons';
-import StatusBarDecor from './StatusBarDecor';
 
 // Import hexagram dictionary
 import ichingData from '../data/iching.json';

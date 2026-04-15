@@ -328,7 +328,6 @@ function buildDynamicScopeMatrixLine(
         staticChart.input.config.algorithm,
     );
     const mapped = buildZiweiHoroscopePalaceView(
-        staticChart.astrolabe,
         dynamic.horoscopeNow,
         focusPalace.name,
         scope,
@@ -384,7 +383,6 @@ function buildYearlyCorePalaceLines(staticChart: ZiweiStaticChartResult, dynamic
 
     return palaceNames.map((palaceName) => {
         const mapped = buildZiweiHoroscopePalaceView(
-            staticChart.astrolabe,
             dynamic.horoscopeNow,
             palaceName,
             'yearly',
@@ -406,7 +404,6 @@ function buildYearlyTriggerHighlights(staticChart: ZiweiStaticChartResult, dynam
     );
     const triggers = palaceNames.map((palaceName) => {
         const mapped = buildZiweiHoroscopePalaceView(
-            staticChart.astrolabe,
             dynamic.horoscopeNow,
             palaceName,
             'yearly',
@@ -484,7 +481,7 @@ function buildVerificationTimePackLines(staticChart: ZiweiStaticChartResult, run
     return lines;
 }
 
-function buildFiveYearEvidenceLines(staticChart: ZiweiStaticChartResult, runtimeDynamic: ZiweiDynamicHoroscopeResult, context?: ZiweiFormatterContext): { lines: string[]; yearWindow: string } {
+function buildFiveYearEvidenceLines(staticChart: ZiweiStaticChartResult, context?: ZiweiFormatterContext): { lines: string[]; yearWindow: string } {
     const cursorDate = parseCursorDate(context);
     const currentYear = cursorDate.getFullYear();
     const focusPalace = resolveFocus(staticChart, context);
@@ -602,7 +599,7 @@ export function buildZiweiStageContext(
     }
 
     if (stage === 'five_year' || stage === 'digest') {
-        const yearly = buildFiveYearEvidenceLines(staticChart, dynamic, effectiveContext);
+        const yearly = buildFiveYearEvidenceLines(staticChart, effectiveContext);
         lines.push('');
         lines.push('【六年年度证据包】');
         lines.push(...yearly.lines);

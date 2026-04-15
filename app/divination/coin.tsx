@@ -131,7 +131,7 @@ const Coin3D: React.FC<Coin3DProps> = memo(({ motion, themeName, styles }) => {
 
 Coin3D.displayName = 'Coin3D';
 
-function animateCoin(motion: CoinMotionState, targetFace: CoinFace, seed: number): Promise<void> {
+function animateCoin(motion: CoinMotionState, targetFace: CoinFace): Promise<void> {
     return new Promise(resolve => {
         const totalDuration = 1000;
         const currentY = (motion.rotateY as any)._value || motion.currentAngles.y;
@@ -205,8 +205,7 @@ export default function CoinDivination() {
 
         const animations = tossRes.map((isFront, idx) => {
             const targetFace = getFaceFromToss(isFront);
-            const seed = Date.now() + currentYao * 97 + idx * 131;
-            return animateCoin(coinMotions[idx], targetFace, seed);
+            return animateCoin(coinMotions[idx], targetFace);
         });
 
         const yaoValue = mapTossToYaoValue(tossRes);

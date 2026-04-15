@@ -19,8 +19,8 @@ import {
 } from 'react-native';
 import ConfirmModal from '../../src/components/ConfirmModal';
 import StatusBarDecor from '../../src/components/StatusBarDecor';
-import { ChevronRightIcon, StarIcon, TrashIcon } from '../../src/components/Icons';
-import { deleteRecord, getAllRecords, getRecord, RecordSummary, toggleFavorite } from '../../src/db/database';
+import { StarIcon, TrashIcon } from '../../src/components/Icons';
+import { deleteRecord, getAllRecords, RecordSummary, toggleFavorite } from '../../src/db/database';
 import { buildZiweiHistoryRestoreRoute } from '../../src/features/ziwei/result-route';
 import { BorderRadius, FontSize, Spacing } from '../../src/theme/colors';
 import { useTheme } from '../../src/theme/ThemeContext';
@@ -302,52 +302,6 @@ export default function HistoryPage() {
         }),
         [deferredKeyword, filters, records],
     );
-    const visibleRecords = filteredRecords;
-
-    useEffect(() => {
-        const ziweiVisibleRecords = visibleRecords
-            .filter((record) => record.engineType === 'ziwei')
-            .slice(0, 3);
-
-        if (ziweiVisibleRecords.length === 0) {
-            return;
-        }
-
-        let cancelled = false;
-        const timer = setTimeout(() => {
-            void Promise.all([
-                import('../../src/features/ziwei/chart-engine'),
-                import('../../src/features/ziwei/record'),
-            ])
-                .then(([chartEngineModule, recordModule]) => {
-                    if (cancelled) {
-                        return;
-                    }
-
-                    const { ZiweiChartEngine } = chartEngineModule;
-                    const { toZiweiInputPayload } = recordModule;
-
-                    ziweiVisibleRecords.forEach((record) => {
-                        void getRecord(record.id)
-                            .then((detail) => {
-                                if (cancelled || !detail || detail.engineType !== 'ziwei') {
-                                    return;
-                                }
-
-                                void ZiweiChartEngine.prewarmStaticChart(toZiweiInputPayload(detail.result)).catch(() => undefined);
-                            })
-                            .catch(() => undefined);
-                    });
-                })
-                .catch(() => undefined);
-        }, 500);
-
-        return () => {
-            cancelled = true;
-            clearTimeout(timer);
-        };
-    }, [visibleRecords]);
-
     const currentEngineOption = ENGINE_OPTIONS.find((item) => item.key === filters.activeEngine) || ENGINE_OPTIONS[0];
     const currentCategoryOptions = filters.activeEngine === 'liuyao'
         ? LIUYAO_CATEGORY_OPTIONS

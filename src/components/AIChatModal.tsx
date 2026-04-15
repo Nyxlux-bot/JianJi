@@ -21,7 +21,7 @@ import { AIConversationStage, PersistedAIChatMessage } from '../core/ai-meta';
 import { BaziResult } from '../core/bazi-types';
 import { PanResult } from '../core/liuyao-calc';
 import { saveRecord } from '../db/database';
-import { cloneZiweiFormatterContext, ZiweiFormatterContext } from '../features/ziwei/ai-context';
+import { ZiweiFormatterContext } from '../features/ziwei/ai-context';
 import {
     buildZiweiAIConfigSignature,
     isZiweiAIConfigStale,
@@ -836,12 +836,10 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                         ? validateBaziWorkflowResponse(
                             options.expectedCompletion as 'foundation' | 'verification' | 'five_year',
                             rawAssistantContent,
-                            latestResultRef.current as BaziResult,
                         )
                         : validateZiweiWorkflowResponse(
                             options.expectedCompletion as 'foundation' | 'verification' | 'five_year',
                             rawAssistantContent,
-                            latestResultRef.current as ZiweiRecordResult,
                         );
                     stageSuccess = validation.success;
                     const shouldRollbackFailedStage = shouldRollbackFailedWorkflowResponse(
@@ -1078,7 +1076,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         }
 
         const prompt = isBaziResult(latestResultRef.current)
-            ? buildBaziFiveYearPrompt(latestResultRef.current)
+            ? buildBaziFiveYearPrompt()
             : (isZiweiResult(latestResultRef.current)
                 ? buildZiweiFiveYearPrompt(latestResultRef.current)
                 : '');

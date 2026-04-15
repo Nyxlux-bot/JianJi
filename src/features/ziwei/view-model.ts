@@ -319,8 +319,9 @@ function buildSurroundedPalacesView(surrounded?: IFunctionalSurpalaces): ZiweiSu
 }
 
 function buildPalaceFlightView(palace: IFunctionalPalace, astrolabe: IFunctionalAstrolabe) {
+    const mutagedPlaces = palace.mutagedPlaces();
     const destinations = ZIWEI_MUTAGENS.map((mutagen, index) => {
-        const target = palace.mutagedPlaces()[index];
+        const target = mutagedPlaces[index];
         return {
             mutagen,
             palaceName: target?.name || null,
@@ -649,7 +650,6 @@ export function buildZiweiHoroscopeScopeViews(
 }
 
 export function buildZiweiHoroscopePalaceView(
-    astrolabe: IFunctionalAstrolabe,
     horoscope: IFunctionalHoroscope,
     palaceName: string,
     scope: ZiweiDynamicScope,
@@ -894,13 +894,15 @@ export function buildZiweiBoardDecorations(
         return cached;
     }
 
-    const baseAssignments = buildDecadalYearAssignments(staticChart, dynamic, resolveDynamicHoroscope);
+    const baseAssignments = activeScope === 'decadal'
+        ? buildDecadalYearAssignments(staticChart, dynamic, resolveDynamicHoroscope)
+        : null;
     const currentYear = dynamic.cursorDate.getFullYear();
     const byPalaceName = Object.fromEntries(staticChart.palaces.map((palace) => {
         const overlays = buildPalaceOverlays(palace, dynamic.horoscopeNow, activeScope);
         const activeOverlay = overlays.find((overlay) => overlay.key === activeScope) || null;
         const historyOverlayLabels = buildHistoryOverlayLabels(overlays, activeScope);
-        const baseYearAssignments = baseAssignments[palace.name] || [];
+        const baseYearAssignments = baseAssignments?.[palace.name] || [];
         const yearAssignments = baseYearAssignments.map((item) => ({
             ...item,
             active: item.year === currentYear,
@@ -1156,7 +1158,6 @@ export function buildZiweiBoardRenderModelFromScopeModel(params: {
     const selectedScopePalace = scopeModel.activeScope === 'age'
         ? null
         : buildZiweiHoroscopePalaceView(
-            staticChart.astrolabe,
             dynamic.horoscopeNow,
             selectedPalace.name,
             scopeModel.activeScope,

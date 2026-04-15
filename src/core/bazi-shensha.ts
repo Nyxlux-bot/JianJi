@@ -378,24 +378,6 @@ function jinShen(gan: string, zhi: string): boolean {
     return set.has(`${gan}${zhi}`);
 }
 
-function wuGui(monthZhi: string, zhi: string): boolean {
-    const map: Record<string, string> = {
-        子: '辰',
-        丑: '巳',
-        寅: '午',
-        卯: '未',
-        辰: '申',
-        巳: '酉',
-        午: '戌',
-        未: '亥',
-        申: '子',
-        酉: '丑',
-        戌: '寅',
-        亥: '卯',
-    };
-    return map[monthZhi] === zhi;
-}
-
 function tianYi(monthZhi: string, zhi: string): boolean {
     const map: Record<string, string> = {
         寅: '丑',

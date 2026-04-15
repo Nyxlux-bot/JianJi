@@ -6,7 +6,7 @@
 import React, { useState } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity,
-    ScrollView, TextInput, Alert,
+    ScrollView, TextInput,
 } from 'react-native';
 import StatusBarDecor from '../../src/components/StatusBarDecor';
 import { router } from 'expo-router';

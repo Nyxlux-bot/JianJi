@@ -431,7 +431,6 @@ export function findDatesByBazi(
     const results: Date[] = [];
 
     // 快速筛除非法的四柱输入 (比如时柱不匹配日柱等直接阻断)
-    const testHour = getHourGanZhi(dayGZ, 0); // 随便测一个子时，如果连对应关系都不对，那说明输入本身前后矛盾
     // ... 这里为了简化，直接进入搜索
 
     // 年干支 60年一轮回。我们先找到所有符合 yearGZ 的年份

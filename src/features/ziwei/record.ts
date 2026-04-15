@@ -8,7 +8,6 @@ import {
     buildZiweiPromptSeed,
     ZIWEI_AI_CONTEXT_VERSION,
 } from './ai-serializer';
-import { buildZiweiChartSnapshot } from './view-model';
 import {
     ZIWEI_BRIGHTNESS_BASELINE_VERSION,
     ZIWEI_IZTRO_VERSION,
@@ -214,7 +213,6 @@ export function buildZiweiRecordResult(params: {
         body: staticChart.astrolabe.body,
         aiContextSnapshot: buildZiweiAIContextSnapshot(staticChart, dynamic),
         ruleSignature: buildCurrentZiweiRuleSignature(),
-        chartSnapshot: buildZiweiChartSnapshot(staticChart),
     };
 }
 

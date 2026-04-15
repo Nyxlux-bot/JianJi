@@ -38,27 +38,7 @@ export interface ZiweiLunarDateInput {
 
 export interface ZiweiRouteParams {
     [key: string]: string | undefined;
-    birthLocal: string;
-    longitude: string;
-    gender: string;
-    tzOffsetMinutes: string;
-    dst: string;
-    calendarType?: string;
-    lunarYear?: string;
-    lunarMonth?: string;
-    lunarDay?: string;
-    isLeapMonth?: string;
-    algorithm?: string;
-    yearDivide?: string;
-    horoscopeDivide?: string;
-    dayDivide?: string;
-    astroType?: string;
-    cityLabel?: string;
-    name?: string;
-    timeIndex?: string;
     recordId?: string;
-    recordCreatedAt?: string;
-    routeDraft?: string;
 }
 
 export interface ZiweiInputPayload {

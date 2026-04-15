@@ -1,9 +1,7 @@
 import { DI_ZHI, TIAN_GAN, TIANGAN_WUXING, WuXing } from './liuyao-data';
 import {
-    CONTROLS,
     GAN_CHONG,
     GAN_HE,
-    GENERATES,
     getDictPairEntry,
     getGanKeMeta,
     getPairKey,

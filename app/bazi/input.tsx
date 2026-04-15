@@ -33,17 +33,6 @@ function formatDateTime(date: Date): string {
     return `${y}-${m}-${d} ${hh}:${mm}`;
 }
 
-function formatBirthPlace(
-    provinceName?: string,
-    cityName?: string,
-    districtName?: string,
-): string {
-    if (!provinceName && !cityName && !districtName) {
-        return '未设置出生地';
-    }
-    return `${provinceName || ''}${cityName || ''}${districtName || ''}`;
-}
-
 function buildBaziSummary(result: BaziResult) {
     return {
         title: result.subject.name || result.fourPillars.join(' '),

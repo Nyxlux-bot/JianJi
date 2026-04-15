@@ -9,7 +9,6 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-    AIIcon,
     BackIcon,
     EyeIcon,
     EyeOffIcon,
@@ -304,9 +303,6 @@ export default function BaziResultPage() {
     const displayName = privacyEnabled ? maskVisibleText(result?.subject.name ?? '') : (result?.subject.name ?? '');
     const displaySolarHeader = privacyEnabled && proChartView ? maskLabeledText(proChartView.header.solarHeaderText) : (proChartView?.header.solarHeaderText ?? '');
     const displayLunarHeader = privacyEnabled && proChartView ? maskLabeledText(proChartView.header.lunarHeaderText) : (proChartView?.header.lunarHeaderText ?? '');
-    const displayHeroLunar = privacyEnabled ? maskVisibleText(result?.baseInfo.lunarDisplay ?? '') : (result?.baseInfo.lunarDisplay ?? '');
-    const displayHeroSolar = privacyEnabled ? maskVisibleText(result?.baseInfo.solarDisplay ?? '') : (result?.baseInfo.solarDisplay ?? '');
-
     const handleRetryPersist = () => {
         if (!id) {
             return;
@@ -522,7 +518,6 @@ export default function BaziResultPage() {
                         solarText={displaySolarHeader}
                         lunarText={displayLunarHeader}
                         mingZaoText={proChartView.header.mingZaoText}
-                        privacyEnabled={privacyEnabled}
                         panelMode={panelMode}
                         showPanelSwitch={activeSection === 'proChart'}
                         onTogglePanelMode={() => setPanelMode((prev) => (prev === 'fortune' ? 'taiming' : 'fortune'))}
@@ -683,7 +678,6 @@ const ChartHeaderStrip: React.FC<{
     solarText: string;
     lunarText: string;
     mingZaoText: string;
-    privacyEnabled: boolean;
     panelMode: BaziPanelMode;
     showPanelSwitch: boolean;
     onTogglePanelMode: () => void;
@@ -693,7 +687,6 @@ const ChartHeaderStrip: React.FC<{
     solarText,
     lunarText,
     mingZaoText,
-    privacyEnabled,
     panelMode,
     showPanelSwitch,
     onTogglePanelMode,
@@ -713,21 +706,6 @@ const ChartHeaderStrip: React.FC<{
             </View>
         </View>
     );
-
-const HeaderActionButton: React.FC<{
-    children: React.ReactNode;
-    onPress: () => void;
-    active?: boolean;
-    styles: ReturnType<typeof makeStyles>;
-}> = ({ children, onPress, active = false, styles }) => (
-    <TouchableOpacity
-        style={[styles.chartHeaderActionBtn, active && styles.chartHeaderActionBtnActive]}
-        onPress={onPress}
-        activeOpacity={0.82}
-    >
-        {children}
-    </TouchableOpacity>
-);
 
 const PanelModeSwitch: React.FC<{
     panelMode: BaziPanelMode;

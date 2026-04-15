@@ -332,64 +332,6 @@ const InfoRow: React.FC<{ label: string; value: string; styles: any }> = ({ labe
     </View>
 );
 
-// 定制化原生的 Markdown 显示样式
-const makeMarkdownStyles = (Colors: any) => StyleSheet.create({
-    body: {
-        fontSize: FontSize.md,
-        color: Colors.text.primary,
-        lineHeight: 24,
-    },
-    heading1: {
-        fontSize: FontSize.lg,
-        color: Colors.accent.gold,
-        marginTop: Spacing.md,
-        marginBottom: Spacing.sm,
-        fontWeight: 'bold',
-    },
-    heading2: {
-        fontSize: FontSize.md,
-        color: Colors.accent.gold,
-        marginTop: Spacing.sm,
-        marginBottom: Spacing.xs,
-        fontWeight: 'bold',
-    },
-    heading3: {
-        fontSize: FontSize.md,
-        color: Colors.text.heading,
-        marginTop: Spacing.sm,
-        marginBottom: -Spacing.xs,
-        fontWeight: 'bold',
-    },
-    strong: {
-        fontWeight: 'bold',
-        color: Colors.accent.gold,
-    },
-    em: {
-        fontStyle: 'italic',
-        color: Colors.text.secondary,
-    },
-    list_item: {
-        marginVertical: 4,
-    },
-    bullet_list: {
-        marginBottom: Spacing.md,
-    },
-    ordered_list: {
-        marginBottom: Spacing.md,
-    },
-    blockquote: {
-        backgroundColor: Colors.bg.elevated,
-        borderLeftColor: Colors.border.subtle,
-        borderLeftWidth: 4,
-        paddingLeft: Spacing.md,
-        marginVertical: Spacing.sm,
-    },
-    paragraph: {
-        marginTop: 0,
-        marginBottom: Spacing.md,
-    }
-} as any);
-
 const makeStyles = (Colors: any) => StyleSheet.create({
     container: { flex: 1, backgroundColor: Colors.bg.primary },
     loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },

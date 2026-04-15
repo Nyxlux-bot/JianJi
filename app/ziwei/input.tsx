@@ -19,16 +19,20 @@ import CityPicker from '../../src/components/CityPicker';
 import DateTimePicker, { DateTimePickerSelection } from '../../src/components/DateTimePicker';
 import { formatLocalDateTime } from '../../src/core/bazi-local-time';
 import { formatLunarDateLabel } from '../../src/core/lunar';
-import { getRecord } from '../../src/db/database';
+import { getRecord, saveRecord } from '../../src/db/database';
 import {
     buildZiweiInputPayload,
     ZIWEI_DEFAULT_CONFIG,
     ZIWEI_STANDARD_TIMEZONE_OFFSET_MINUTES,
 } from '../../src/features/ziwei/iztro-adapter';
 import { buildZiweiEditFormState } from '../../src/features/ziwei/edit-helpers';
-import { getPendingZiweiRecord } from '../../src/features/ziwei/pending-result-cache';
-import { createZiweiRecordId } from '../../src/features/ziwei/record';
+import {
+    buildZiweiRecordResult,
+    buildZiweiSummary,
+    createZiweiRecordId,
+} from '../../src/features/ziwei/record';
 import { buildZiweiResultRoute } from '../../src/features/ziwei/result-route';
+import { primeZiweiSession } from '../../src/features/ziwei/result-session';
 import { ZiweiChartEngine } from '../../src/features/ziwei/chart-engine';
 import {
     ZiweiConfigOptions,
@@ -41,17 +45,6 @@ function formatDateTime(date: Date): string {
     return formatLocalDateTime(date).replace('T', ' ');
 }
 
-function formatBirthPlace(
-    provinceName?: string,
-    cityName?: string,
-    districtName?: string,
-): string {
-    if (!provinceName && !cityName && !districtName) {
-        return '';
-    }
-    return `${provinceName || ''}${cityName || ''}${districtName || ''}`;
-}
-
 function formatLunarInputLabel(lunar?: ZiweiLunarDateInput): string {
     if (!lunar) {
         return '';
@@ -62,12 +55,6 @@ function formatLunarInputLabel(lunar?: ZiweiLunarDateInput): string {
         month: lunar.month,
         day: lunar.day,
         isLeap: lunar.isLeapMonth,
-    });
-}
-
-function yieldToNextFrame(): Promise<void> {
-    return new Promise((resolve) => {
-        requestAnimationFrame(() => resolve());
     });
 }
 
@@ -103,22 +90,6 @@ export default function ZiweiInputPage() {
             }
 
             try {
-                const pending = getPendingZiweiRecord(editId);
-                if (pending && pending.status !== 'saved') {
-                    const form = buildZiweiEditFormState(pending.result);
-                    setName(form.name);
-                    setGender(form.gender);
-                    setBirthDate(form.birthDate);
-                    setBirthSelection(form.birthSelection);
-                    setConfig(form.config);
-                    setDaylightSavingEnabled(form.daylightSavingEnabled);
-                    setLocation(form.location);
-                    setLocationFallbackLabel(form.locationFallbackLabel);
-                    setEditingRecordId(form.editingRecordId);
-                    setEditingCreatedAt(form.createdAt);
-                    return;
-                }
-
                 const detail = await getRecord(editId);
                 if (cancelled) {
                     return;
@@ -193,16 +164,34 @@ export default function ZiweiInputPage() {
 
         try {
             setLoading(true);
-            void ZiweiChartEngine.prewarmStaticChart(payload).catch(() => undefined);
-            await yieldToNextFrame();
             const nextRecordId = editingRecordId || createZiweiRecordId();
             const nextCreatedAt = editingCreatedAt || new Date().toISOString();
+            const cursorDate = new Date();
+            const staticChart = await ZiweiChartEngine.prepareStaticChart(payload);
+            const runtimeBundle = await ZiweiChartEngine.prepareRuntimeBundle(staticChart, cursorDate, 'yearly');
+            const nextRecord = buildZiweiRecordResult({
+                staticChart,
+                dynamic: runtimeBundle.dynamic,
+                id: nextRecordId,
+                createdAt: nextCreatedAt,
+            });
+
+            await saveRecord({
+                engineType: 'ziwei',
+                result: nextRecord,
+                summary: buildZiweiSummary(nextRecord),
+            });
+
+            primeZiweiSession(nextRecord.id, {
+                record: nextRecord,
+                staticChart,
+                runtimeBundle,
+                activeScope: 'yearly',
+                isFavorite: false,
+            });
 
             router.push(buildZiweiResultRoute({
-                payload,
                 recordId: nextRecordId,
-                recordCreatedAt: nextCreatedAt,
-                routeDraft: true,
             }));
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : '紫微命盘保存失败';

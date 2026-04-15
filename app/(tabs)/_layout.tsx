@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { View, TouchableOpacity, StyleSheet, Dimensions, Platform, Animated } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, Dimensions, Animated } from 'react-native';
 import { Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../src/theme/ThemeContext';
@@ -9,7 +9,7 @@ import { HistoryIcon, SettingsIcon, ReadIcon, HomeIcon } from '../../src/compone
 const { width } = Dimensions.get('window');
 const TAB_BAR_WIDTH = width * 0.85;
 
-function TabItem({ route, index, options, isFocused, navigation, safeColors }: any) {
+function TabItem({ route, options, isFocused, navigation, safeColors }: any) {
     const scaleValue = useRef(new Animated.Value(isFocused ? 1 : 0)).current;
 
     useEffect(() => {
