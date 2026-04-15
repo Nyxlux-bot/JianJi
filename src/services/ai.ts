@@ -103,6 +103,9 @@ const ZIWEI_STAGE_MARKERS = {
     verification: '[[ZIWEI_STAGE:VERIFICATION_DONE]]',
     five_year: '[[ZIWEI_STAGE:FIVE_YEAR_DONE]]',
 } as const;
+const THINK_BLOCK_REGEX = /<think>[\s\S]*?<\/think>/gi;
+const THINK_BLOCK_START_REGEX = /<think>/i;
+const THINK_BLOCK_END_REGEX = /<\/think>/i;
 
 export type BaziWorkflowResponseKind = keyof typeof BAZI_STAGE_MARKERS;
 export type ZiweiWorkflowResponseKind = keyof typeof ZIWEI_STAGE_MARKERS;
@@ -415,33 +418,52 @@ function normalizeStageText(content: string): string {
         .trim();
 }
 
+export function stripThinkingBlocks(content: string): string {
+    const withoutClosedThinkBlocks = content.replace(THINK_BLOCK_REGEX, '');
+    const lastStartIndex = withoutClosedThinkBlocks.search(THINK_BLOCK_START_REGEX);
+    if (lastStartIndex < 0) {
+        return withoutClosedThinkBlocks;
+    }
+    const afterStart = withoutClosedThinkBlocks.slice(lastStartIndex);
+    if (THINK_BLOCK_END_REGEX.test(afterStart)) {
+        return withoutClosedThinkBlocks;
+    }
+    return withoutClosedThinkBlocks.slice(0, lastStartIndex);
+}
+
 export function sanitizeBaziStreamingContent(content: string): string {
     const withoutMarkers = content.replace(/\[\[BAZI_STAGE:(?:FOUNDATION_DONE|VERIFICATION_DONE|FIVE_YEAR_DONE)\]\]/g, '');
-    const partialMarkerStart = getPartialMarkerStartIndex(withoutMarkers, '[[BAZI_STAGE:');
+    const withoutThinkingBlocks = stripThinkingBlocks(withoutMarkers);
+    const partialMarkerStart = getPartialMarkerStartIndex(withoutThinkingBlocks, '[[BAZI_STAGE:');
     const visibleContent = partialMarkerStart === -1
-        ? withoutMarkers
-        : withoutMarkers.slice(0, partialMarkerStart);
+        ? withoutThinkingBlocks
+        : withoutThinkingBlocks.slice(0, partialMarkerStart);
     return normalizeStageText(visibleContent);
 }
 
 export function stripBaziStageMarkers(content: string): string {
     return normalizeStageText(
-        content.replace(/\[\[BAZI_STAGE:(?:FOUNDATION_DONE|VERIFICATION_DONE|FIVE_YEAR_DONE)\]\]/g, ''),
+        stripThinkingBlocks(
+            content.replace(/\[\[BAZI_STAGE:(?:FOUNDATION_DONE|VERIFICATION_DONE|FIVE_YEAR_DONE)\]\]/g, ''),
+        ),
     );
 }
 
 export function sanitizeZiweiStreamingContent(content: string): string {
     const withoutMarkers = content.replace(/\[\[ZIWEI_STAGE:(?:FOUNDATION_DONE|VERIFICATION_DONE|FIVE_YEAR_DONE)\]\]/g, '');
-    const partialMarkerStart = getPartialMarkerStartIndex(withoutMarkers, '[[ZIWEI_STAGE:');
+    const withoutThinkingBlocks = stripThinkingBlocks(withoutMarkers);
+    const partialMarkerStart = getPartialMarkerStartIndex(withoutThinkingBlocks, '[[ZIWEI_STAGE:');
     const visibleContent = partialMarkerStart === -1
-        ? withoutMarkers
-        : withoutMarkers.slice(0, partialMarkerStart);
+        ? withoutThinkingBlocks
+        : withoutThinkingBlocks.slice(0, partialMarkerStart);
     return normalizeStageText(visibleContent);
 }
 
 export function stripZiweiStageMarkers(content: string): string {
     return normalizeStageText(
-        content.replace(/\[\[ZIWEI_STAGE:(?:FOUNDATION_DONE|VERIFICATION_DONE|FIVE_YEAR_DONE)\]\]/g, ''),
+        stripThinkingBlocks(
+            content.replace(/\[\[ZIWEI_STAGE:(?:FOUNDATION_DONE|VERIFICATION_DONE|FIVE_YEAR_DONE)\]\]/g, ''),
+        ),
     );
 }
 

@@ -50,6 +50,7 @@ import {
     generateZiweiConversationDigest,
     sanitizeBaziStreamingContent,
     sanitizeZiweiStreamingContent,
+    stripThinkingBlocks,
     shouldGeneratePostResponseArtifacts,
     stripBaziStageMarkers,
     stripZiweiStageMarkers,
@@ -775,7 +776,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                             ? sanitizeBaziStreamingContent(rawAssistantText)
                             : (workflowMode === 'ziwei'
                                 ? sanitizeZiweiStreamingContent(rawAssistantText)
-                                : rawAssistantText);
+                                : stripThinkingBlocks(rawAssistantText).trim());
                         setMessages((prev) => {
                             const updated = upsertStreamingAssistantContent(prev, assistantContent);
                             latestMessagesRef.current = updated;
@@ -1468,6 +1469,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         borderBottomRightRadius: 4,
     },
     bubbleAssistant: {
+        width: '85%',
         backgroundColor: Colors.bg.card,
         borderBottomLeftRadius: 4,
         borderWidth: 1,
