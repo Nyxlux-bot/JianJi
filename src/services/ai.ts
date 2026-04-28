@@ -1853,7 +1853,7 @@ export async function analyzeWithAIChatStream(
                     recoverable: true,
                     usedFallback: false,
                 });
-            }, 30000);
+            }, 90000);
         };
 
         resetHeartbeat();
