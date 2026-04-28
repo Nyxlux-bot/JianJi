@@ -1,3 +1,5 @@
+import { resolveModelsUrl } from './ai-endpoints';
+
 interface FetchAvailableModelsParams {
     apiUrl: string;
     apiKey: string;
@@ -11,39 +13,8 @@ interface ModelsResponseBody {
     data?: ModelsResponseItem[];
 }
 
-export function resolveModelsUrl(apiUrl: string): string {
-    const trimmedUrl = apiUrl.trim();
+export { resolveModelsUrl };
 
-    if (!trimmedUrl) {
-        return trimmedUrl;
-    }
-
-    if (trimmedUrl.endsWith('/chat/completions')) {
-        return trimmedUrl.replace(/\/chat\/completions$/, '/models');
-    }
-
-    if (trimmedUrl.endsWith('/v1')) {
-        return `${trimmedUrl}/models`;
-    }
-
-    try {
-        const url = new URL(trimmedUrl);
-
-        if (/\/chat\/completions\/?$/.test(url.pathname)) {
-            url.pathname = url.pathname.replace(/\/chat\/completions\/?$/, '/models');
-            return url.toString();
-        }
-
-        if (/\/v1\/?$/.test(url.pathname)) {
-            url.pathname = `${url.pathname.replace(/\/$/, '')}/models`;
-            return url.toString();
-        }
-
-        return trimmedUrl;
-    } catch {
-        return trimmedUrl;
-    }
-}
 
 function extractModelIds(body: ModelsResponseBody): string[] {
     if (!Array.isArray(body.data)) {

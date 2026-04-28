@@ -30,6 +30,7 @@ import {
 } from '../features/ziwei/record';
 import { formatBaziToText } from './bazi-formatter';
 import { DEFAULT_BAZI_SYSTEM_PROMPT, DEFAULT_LIUYAO_SYSTEM_PROMPT, DEFAULT_ZIWEI_SYSTEM_PROMPT } from './default-prompts';
+import { resolveChatCompletionsUrl } from './ai-endpoints';
 import { getSettings } from './settings';
 import { formatZiweiToText } from './ziwei-formatter';
 
@@ -1238,7 +1239,7 @@ async function requestChatCompletion(
             messageCount: options.debugMeta?.messageCount ?? messages.length,
             systemCharCount: options.debugMeta?.systemCharCount ?? (messages.find((item) => item.role === 'system')?.content.length || 0),
         });
-        const response = await fetch(settings.apiUrl, {
+        const response = await fetch(resolveChatCompletionsUrl(settings.apiUrl), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -1421,6 +1422,10 @@ export function getChatRequestOptions(
     }
 
     return {};
+}
+
+function getStreamIdleTimeoutMs(stage: string): number {
+    return 240000;
 }
 
 export function getBaziConversationStage(result: BaziResult): BaziAIConversationStage {
@@ -1820,6 +1825,7 @@ export async function analyzeWithAIChatStream(
     return new Promise((resolve) => {
         let isAborted = false;
         let heartbeatTimer: NodeJS.Timeout;
+        const streamIdleTimeoutMs = getStreamIdleTimeoutMs(stage);
         const handleAbort = () => {
             if (heartbeatTimer) {
                 clearTimeout(heartbeatTimer);
@@ -1853,7 +1859,7 @@ export async function analyzeWithAIChatStream(
                     recoverable: true,
                     usedFallback: false,
                 });
-            }, 90000);
+            }, streamIdleTimeoutMs);
         };
 
         resetHeartbeat();
@@ -1863,7 +1869,7 @@ export async function analyzeWithAIChatStream(
             systemCharCount: requestOptions.debugMeta?.systemCharCount ?? (messages.find((item) => item.role === 'system')?.content.length || 0),
         });
 
-        eventSource = new EventSource(settings.apiUrl, {
+        eventSource = new EventSource(resolveChatCompletionsUrl(settings.apiUrl), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -1876,6 +1882,7 @@ export async function analyzeWithAIChatStream(
                 max_tokens: requestOptions.maxTokens ?? 2000,
                 stream: true,
             }),
+            lineEndingCharacter: '\n',
         });
 
         if (signal) {
@@ -1919,12 +1926,18 @@ export async function analyzeWithAIChatStream(
             if (heartbeatTimer) {
                 clearTimeout(heartbeatTimer);
             }
+            if (signal) {
+                signal.removeEventListener('abort', handleAbort);
+            }
             eventSource.close();
+            const errorStatus = typeof error.xhrStatus === 'number' && error.xhrStatus > 0
+                ? `HTTP ${error.xhrStatus}`
+                : '';
             const errorMessage = error.message || JSON.stringify(error);
             resolve({
                 success: false,
-                error: `模型请求意外中断: ${errorMessage}`,
-                code: 'network_error',
+                error: `模型请求意外中断${errorStatus ? `（${errorStatus}）` : ''}: ${errorMessage}`,
+                code: errorStatus ? 'http_error' : 'network_error',
                 stage,
                 recoverable: true,
                 usedFallback: false,
