@@ -61,6 +61,17 @@ const BAZI_FALLBACK_QUICK_REPLIES = [
     '未来哪年感情波动大',
     '未来五年事业发力点',
 ];
+const LIUYAO_STRONG_REASONING_STREAM_PROMPT = [
+    '【强推理流式要求】',
+    '本轮会通过流式连接返回。为了避免长时间强推理导致网关误判超时，你必须先尽快输出一行“正在起卦分析...”，随后继续完整解盘。',
+    '不要输出内部推理过程，不要解释这条要求。',
+].join('\n');
+const LIUYAO_EVIDENCE_GUARD_PROMPT = [
+    '【六爻证据锚定】',
+    '你必须严格基于系统给出的排盘事实作答，不得编造排盘外的人物背景、事件经历、时间节点或未提供的卦爻信息。',
+    '输出必须覆盖：整体卦意、世应关系、用神/忌神、动变、应期、趋避建议。',
+    '关键判断必须引用盘面锚点，例如本卦/变卦、世爻/应爻、日月建、旬空、动爻、六亲六神。',
+].join('\n');
 const ZIWEI_DIGEST_VERSION = 2;
 const ZIWEI_FOUNDATION_PROMPT = [
     '当前只执行紫微斗数工作流的第一阶段：基础命盘分析。',
@@ -184,6 +195,7 @@ export interface AIRequestOptions {
     maxTokens?: number;
     stage?: string;
     debugMeta?: AIRequestDebugMeta;
+    onReasoning?: () => void;
 }
 
 function isBaziResult(result: PanResult | BaziResult | ZiweiRecordResult): result is BaziResult {
@@ -1425,6 +1437,10 @@ export function getChatRequestOptions(
 }
 
 function getStreamIdleTimeoutMs(stage: string): number {
+    if (stage === 'initial' || stage === 'followup') {
+        return 480000;
+    }
+
     return 240000;
 }
 
@@ -1679,7 +1695,12 @@ export async function buildRequestBundle(
     requestContext: AIRequestBuildContext = {},
 ): Promise<AIRequestBundle> {
     if (!isBaziResult(result) && !isZiweiResult(result)) {
-        const messages = [await buildSystemMessage(result), ...toApiMessages(chatHistory)];
+        const messages = [
+            await buildSystemMessage(result),
+            { role: 'system' as const, content: LIUYAO_EVIDENCE_GUARD_PROMPT },
+            { role: 'system' as const, content: LIUYAO_STRONG_REASONING_STREAM_PROMPT },
+            ...toApiMessages(chatHistory),
+        ];
         return {
             messages,
             debugMeta: {
@@ -1824,6 +1845,7 @@ export async function analyzeWithAIChatStream(
 
     return new Promise((resolve) => {
         let isAborted = false;
+        let hasReasoningSignal = false;
         let heartbeatTimer: NodeJS.Timeout;
         const streamIdleTimeoutMs = getStreamIdleTimeoutMs(stage);
         const handleAbort = () => {
@@ -1902,14 +1924,34 @@ export async function analyzeWithAIChatStream(
                 if (heartbeatTimer) {
                     clearTimeout(heartbeatTimer);
                 }
+                if (signal) {
+                    signal.removeEventListener('abort', handleAbort);
+                }
                 eventSource.close();
+                if (!fullContent.trim()) {
+                    resolve({
+                        success: false,
+                        error: '模型推理已结束，但没有返回可见正文，请重试。',
+                        code: 'empty_response',
+                        stage,
+                        recoverable: true,
+                        usedFallback: false,
+                    });
+                    return;
+                }
                 resolve({ success: true, content: fullContent });
                 return;
             }
 
             try {
                 const parsed = JSON.parse(dataStr);
-                const chunk = parsed.choices?.[0]?.delta?.content || '';
+                const delta = parsed.choices?.[0]?.delta || {};
+                const reasoningChunk = typeof delta.reasoning_content === 'string' ? delta.reasoning_content : '';
+                const chunk = typeof delta.content === 'string' ? delta.content : '';
+                if (reasoningChunk && !hasReasoningSignal) {
+                    hasReasoningSignal = true;
+                    requestOptions.onReasoning?.();
+                }
                 if (chunk) {
                     fullContent += chunk;
                     onChunk(chunk);
@@ -1930,13 +1972,20 @@ export async function analyzeWithAIChatStream(
                 signal.removeEventListener('abort', handleAbort);
             }
             eventSource.close();
-            const errorStatus = typeof error.xhrStatus === 'number' && error.xhrStatus > 0
-                ? `HTTP ${error.xhrStatus}`
+            const xhrStatus = typeof error.xhrStatus === 'number' && error.xhrStatus > 0
+                ? error.xhrStatus
+                : 0;
+            const errorStatus = xhrStatus > 0
+                ? `HTTP ${xhrStatus}`
                 : '';
-            const errorMessage = error.message || JSON.stringify(error);
+            const errorMessage = xhrStatus === 524
+                ? '模型强推理耗时较长，接口网关返回 524 超时，请重试。'
+                : (error.message || JSON.stringify(error));
             resolve({
                 success: false,
-                error: `模型请求意外中断${errorStatus ? `（${errorStatus}）` : ''}: ${errorMessage}`,
+                error: xhrStatus === 524
+                    ? errorMessage
+                    : `模型请求意外中断${errorStatus ? `（${errorStatus}）` : ''}: ${errorMessage}`,
                 code: errorStatus ? 'http_error' : 'network_error',
                 stage,
                 recoverable: true,

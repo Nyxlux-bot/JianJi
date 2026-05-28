@@ -62,6 +62,14 @@ import {
     getLocalZiweiVerificationActions,
     type AIFailureInfo,
 } from '../services/ai';
+import {
+    cancelLiuyaoAIJob,
+    getLiuyaoAIJob,
+    LiuyaoAIJobState,
+    recoverInterruptedLiuyaoAIJob,
+    startLiuyaoAIJob,
+    subscribeLiuyaoAIJob,
+} from '../services/liuyao-ai-jobs';
 import { shareChatMarkdown } from '../services/share';
 import { BorderRadius, FontSize, Spacing } from '../theme/colors';
 import { useTheme } from '../theme/ThemeContext';
@@ -112,11 +120,27 @@ function generateMessageId(prefix: 'user' | 'assistant' | 'history'): string {
     return `${prefix}-${Date.now()}-${messageSeq}`;
 }
 
-function hydrateMessages(messages: PersistedAIChatMessage[]): UIChatMessage[] {
-    return messages.map((message) => ({
+function hydrateMessages(messages: PersistedAIChatMessage[], idPrefix = 'history'): UIChatMessage[] {
+    return messages.map((message, index) => ({
         ...message,
-        uiId: generateMessageId('history'),
+        uiId: `${idPrefix}-${index}-${message.role}`,
     }));
+}
+
+function areMessagesEqual(left: UIChatMessage[], right: UIChatMessage[]): boolean {
+    if (left.length !== right.length) {
+        return false;
+    }
+
+    return left.every((message, index) => {
+        const other = right[index];
+        return message.uiId === other.uiId
+            && message.role === other.role
+            && message.content === other.content
+            && message.hidden === other.hidden
+            && message.pending === other.pending
+            && message.requestContent === other.requestContent;
+    });
 }
 
 function toPersistedMessages(messages: UIChatMessage[]): PersistedAIChatMessage[] {
@@ -264,6 +288,8 @@ function formatAIFailureMessage(failure?: Pick<AIFailureInfo, 'code' | 'message'
             return failure.message;
         case 'invalid_response':
             return 'AI 返回格式无效，请重试。';
+        case 'empty_response':
+            return failure.message || 'AI 推理结束但没有返回可见正文，请重试。';
         case 'aborted':
             return 'AI 请求已取消。';
         default:
@@ -323,21 +349,24 @@ function buildPendingAssistantMessage(
         expectedCompletion?: AIWorkflowResponseKind;
     } = {},
 ): UIChatMessage {
+    const keepOpenTip = mode === 'liuyao'
+        ? '可关闭弹窗，分析会在应用内继续；如需停止，请点右上角取消。'
+        : '请保持弹窗打开，关闭会取消本次请求。';
     const content = options.expectedCompletion === 'foundation'
         ? (mode === 'ziwei'
-            ? '正在读取命盘并生成基础命盘分析...\n可先返回命盘页继续查看，分析会在后台继续。'
+            ? `正在读取命盘并生成基础命盘分析...\n${keepOpenTip}`
             : (mode === 'bazi'
-                ? '正在读取四柱并生成基础定局...\n可先返回结果页继续查看，分析会在后台继续。'
-                : '正在生成首轮分析...\n可先关闭弹窗，分析会在后台继续。'))
+                ? `正在读取四柱并生成基础定局...\n${keepOpenTip}`
+                : `正在生成首轮分析...\n${keepOpenTip}`))
         : options.expectedCompletion === 'verification'
-            ? '正在生成前事核验...\n可先关闭弹窗，分析会在后台继续。'
+            ? `正在生成前事核验...\n${keepOpenTip}`
             : options.expectedCompletion === 'five_year'
                 ? (mode === 'ziwei'
-                    ? '正在展开今年与未来五年解析...\n可先返回命盘页继续查看，分析会在后台继续。'
-                    : '正在展开未来五年分析...\n可先关闭弹窗，分析会在后台继续。')
+                    ? `正在展开今年与未来五年解析...\n${keepOpenTip}`
+                    : `正在展开未来五年分析...\n${keepOpenTip}`)
                 : (options.isAutoInitial
-                    ? '正在准备 AI 分析...\n可先关闭弹窗，分析会在后台继续。'
-                    : '正在连接 AI 并整理回复...\n可先关闭弹窗，分析会在后台继续。');
+                    ? `正在准备 AI 分析...\n${keepOpenTip}`
+                    : `正在连接 AI 并整理回复...\n${keepOpenTip}`);
 
     return {
         role: 'assistant',
@@ -345,6 +374,86 @@ function buildPendingAssistantMessage(
         pending: true,
         uiId: generateMessageId('assistant'),
     };
+}
+
+function isActiveLiuyaoJob(job?: LiuyaoAIJobState | null): boolean {
+    return job?.status === 'running'
+        || job?.status === 'reasoning'
+        || job?.status === 'streaming'
+        || job?.status === 'validating';
+}
+
+function buildLiuyaoJobPendingMessage(job: LiuyaoAIJobState): UIChatMessage | null {
+    const content = job.status === 'running'
+        ? '正在提交六爻分析...\n可关闭弹窗，分析会在应用内继续；如需停止，请点右上角取消。'
+        : job.status === 'reasoning'
+            ? '强推理模型正在深度分析...\n首段正文可能需要等待较久，可关闭弹窗稍后回来查看。'
+            : job.status === 'validating'
+                ? '正在校验盘据...\n校验通过后才会写入正式 AI 分析结果。'
+                : '';
+
+    if (!content) {
+        return null;
+    }
+
+    return {
+        role: 'assistant',
+        content,
+        pending: true,
+        uiId: `liuyao-job-${job.jobId}-${job.status}`,
+    };
+}
+
+function buildLiuyaoJobMessages(job: LiuyaoAIJobState): UIChatMessage[] {
+    const baseMessages = hydrateMessages(job.messages, `liuyao-job-${job.jobId}-history`);
+    if (job.status === 'streaming' && job.draftContent) {
+        return [
+            ...baseMessages,
+            {
+                role: 'assistant',
+                content: job.draftContent,
+                pending: false,
+                uiId: `liuyao-job-${job.jobId}-draft`,
+            },
+        ];
+    }
+    if (job.status === 'completed' && job.validatedContent) {
+        return hydrateMessages(job.messages, `liuyao-job-${job.jobId}-history`);
+    }
+    const pendingMessage = buildLiuyaoJobPendingMessage(job);
+    return pendingMessage ? [...baseMessages, pendingMessage] : baseMessages;
+}
+
+function getLiuyaoJobPresentationState(job: LiuyaoAIJobState): ChatPresentationState {
+    if (job.status === 'running') {
+        return 'preparing_request';
+    }
+    if (job.status === 'reasoning') {
+        return 'reasoning';
+    }
+    if (job.status === 'streaming' || job.status === 'validating') {
+        return 'streaming';
+    }
+    return 'presenting';
+}
+
+function getLiuyaoJobNotice(job?: LiuyaoAIJobState | null): string | null {
+    if (!job) {
+        return null;
+    }
+    if (job.status === 'streaming') {
+        return '正文生成中，完成盘据校验后才会写入正式结果。';
+    }
+    if (job.status === 'failed') {
+        return job.failure?.message || '六爻分析失败，请重试。';
+    }
+    if (job.status === 'interrupted') {
+        return '上次分析已中断，未写入正式结果，可以重新开始。';
+    }
+    if (job.status === 'cancelled') {
+        return '本次六爻分析已取消。';
+    }
+    return null;
 }
 
 export default function AIChatModal({ visible, onClose, result, onUpdateResult, baziContext, ziweiContext }: AIChatModalProps) {
@@ -365,6 +474,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     const autoStartTaskRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
     const activeAbortControllerRef = useRef<AbortController | null>(null);
     const activeRequestSeqRef = useRef(0);
+    const syncedLiuyaoJobIdRef = useRef<string | null>(null);
 
     const [messages, setMessages] = useState<UIChatMessage[]>([]);
     const [inputText, setInputText] = useState('');
@@ -375,11 +485,14 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     const [menuVisible, setMenuVisible] = useState(false);
     const [hasFoundationAttempted, setHasFoundationAttempted] = useState(false);
     const [presentationState, setPresentationState] = useState<ChatPresentationState>('idle');
+    const [liuyaoJob, setLiuyaoJob] = useState<LiuyaoAIJobState | null>(null);
     const workflowMode: 'liuyao' | 'bazi' | 'ziwei' = isBaziResult(result)
         ? 'bazi'
         : (isZiweiResult(result) ? 'ziwei' : 'liuyao');
     const stagedMode = workflowMode !== 'liuyao';
-    const isAnalyzingPhase = presentationState === 'preparing_request' || presentationState === 'streaming';
+    const isAnalyzingPhase = presentationState === 'preparing_request'
+        || presentationState === 'reasoning'
+        || presentationState === 'streaming';
     const ziweiAnalysisStale = workflowMode === 'ziwei'
         && isZiweiResult(result)
         && isZiweiAIConfigStale(result);
@@ -416,7 +529,9 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         isMounted.current = true;
         return () => {
             cancelScheduledAutoStart();
-            invalidateActiveRequest();
+            if (workflowMode !== 'liuyao') {
+                invalidateActiveRequest();
+            }
             isMounted.current = false;
         };
     }, []);
@@ -445,25 +560,79 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     }, [messages]);
 
     useEffect(() => {
-        if (!visible) {
-            cancelScheduledAutoStart();
-            invalidateActiveRequest();
-            modalShownRef.current = false;
-            autoStartPendingRef.current = false;
-            setIsLoading(false);
-            setMenuVisible(false);
-            setHasFoundationAttempted(false);
-            setPresentationState('idle');
-            setRequestDebugMeta(null);
+        if (workflowMode !== 'liuyao') {
+            setLiuyaoJob(null);
+            return undefined;
         }
-    }, [visible]);
+
+        void recoverInterruptedLiuyaoAIJob(result.id);
+        return subscribeLiuyaoAIJob(result.id, setLiuyaoJob);
+    }, [workflowMode, result.id]);
 
     useEffect(() => {
+        if (workflowMode !== 'liuyao' || !liuyaoJob) {
+            return;
+        }
+
+        const jobMessages = buildLiuyaoJobMessages(liuyaoJob);
+        setMessages((currentMessages) => {
+            if (areMessagesEqual(currentMessages, jobMessages)) {
+                latestMessagesRef.current = currentMessages;
+                return currentMessages;
+            }
+            latestMessagesRef.current = jobMessages;
+            return jobMessages;
+        });
+        setIsLoading(isActiveLiuyaoJob(liuyaoJob));
+        setArtifactNotice(getLiuyaoJobNotice(liuyaoJob));
+        setPresentationState(getLiuyaoJobPresentationState(liuyaoJob));
+
+        if (liuyaoJob.status === 'completed' && liuyaoJob.result && syncedLiuyaoJobIdRef.current !== liuyaoJob.jobId) {
+            setQuickReplies(liuyaoJob.result.quickReplies ?? []);
+            syncedLiuyaoJobIdRef.current = liuyaoJob.jobId;
+            if (latestResultRef.current.aiAnalysis !== liuyaoJob.result.aiAnalysis) {
+                latestResultRef.current = liuyaoJob.result;
+                onUpdateResult(liuyaoJob.result);
+            }
+        }
+    }, [workflowMode, liuyaoJob, onUpdateResult]);
+
+    useEffect(() => {
+        if (!visible) {
+            cancelScheduledAutoStart();
+            if (workflowMode !== 'liuyao') {
+                invalidateActiveRequest();
+                setIsLoading(false);
+                setPresentationState('idle');
+            }
+            modalShownRef.current = false;
+            autoStartPendingRef.current = false;
+            setMenuVisible(false);
+            setHasFoundationAttempted(false);
+            setRequestDebugMeta(null);
+        }
+    }, [visible, workflowMode]);
+
+    useEffect(() => {
+        syncedLiuyaoJobIdRef.current = null;
         setHasFoundationAttempted(false);
     }, [result.id]);
 
     useEffect(() => {
         if (visible) {
+            const currentLiuyaoJob = workflowMode === 'liuyao' ? getLiuyaoAIJob(result.id) : null;
+            if (currentLiuyaoJob) {
+                const jobMessages = buildLiuyaoJobMessages(currentLiuyaoJob);
+                setMessages(jobMessages);
+                latestMessagesRef.current = jobMessages;
+                autoStartPendingRef.current = false;
+                modalShownRef.current = false;
+                setPresentationState(getLiuyaoJobPresentationState(currentLiuyaoJob));
+                setArtifactNotice(getLiuyaoJobNotice(currentLiuyaoJob));
+                setQuickReplies(result.quickReplies && result.quickReplies.length > 0 ? result.quickReplies : []);
+                return;
+            }
+
             let initialMessages: PersistedAIChatMessage[] = [];
             if (result.aiChatHistory && result.aiChatHistory.length > 0) {
                 initialMessages = result.aiChatHistory;
@@ -474,7 +643,8 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             const hydrated = hydrateMessages(initialMessages);
             setMessages(hydrated);
             latestMessagesRef.current = hydrated;
-            autoStartPendingRef.current = hydrated.length === 0;
+            const runningLiuyaoJob = workflowMode === 'liuyao' ? getLiuyaoAIJob(result.id) : null;
+            autoStartPendingRef.current = hydrated.length === 0 && !isActiveLiuyaoJob(runningLiuyaoJob);
             modalShownRef.current = false;
             setPresentationState('presenting');
             setRequestDebugMeta(null);
@@ -663,10 +833,9 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
 
         cancelScheduledAutoStart();
         autoStartPendingRef.current = false;
-        invalidateActiveRequest();
-        const requestId = activeRequestSeqRef.current;
-        const abortController = new AbortController();
-        activeAbortControllerRef.current = abortController;
+        if (workflowMode === 'liuyao' && isActiveLiuyaoJob(getLiuyaoAIJob(latestResultRef.current.id))) {
+            return;
+        }
 
         const rewrittenText = options.requestTextOverride
             ?? (
@@ -728,6 +897,21 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         setMessages(uiMessages);
         latestMessagesRef.current = uiMessages;
         setIsLoading(true);
+
+        if (workflowMode === 'liuyao') {
+            const job = startLiuyaoAIJob({
+                result: latestResultRef.current as PanResult,
+                messages: toPersistedMessages(nextMessages),
+                phase,
+            });
+            setLiuyaoJob(job);
+            return;
+        }
+
+        invalidateActiveRequest();
+        const requestId = activeRequestSeqRef.current;
+        const abortController = new AbortController();
+        activeAbortControllerRef.current = abortController;
 
         try {
             const lockedBaziContext = workflowMode === 'bazi' ? await ensureBaziContextSnapshot() : undefined;
@@ -1113,13 +1297,23 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
 
     const handleClose = () => {
         cancelScheduledAutoStart();
-        invalidateActiveRequest();
-        setIsLoading(false);
+        if (workflowMode !== 'liuyao') {
+            invalidateActiveRequest();
+            setIsLoading(false);
+        }
         setMenuVisible(false);
         onClose();
     };
 
+    const handleCancelLiuyaoJob = () => {
+        cancelLiuyaoAIJob(result.id);
+        setMenuVisible(false);
+    };
+
     const menuItems: OverflowMenuItem[] = [
+        ...(workflowMode === 'liuyao' && isActiveLiuyaoJob(liuyaoJob)
+            ? [{ key: 'cancel-liuyao', label: '取消本次分析', onPress: handleCancelLiuyaoJob, destructive: true }]
+            : []),
         { key: 'copy', label: '复制回复', onPress: handleCopyLatestAssistant, disabled: isLoading },
         { key: 'retry', label: '重试上一问', onPress: handleRetryLastQuestion, disabled: isLoading || ziweiAnalysisStale || (stagedMode && workflowStage !== 'followup_ready') },
         { key: 'export', label: '导出会话', onPress: handleExportChat, disabled: isLoading },
@@ -1139,7 +1333,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         messages.length,
         hasFoundationAttempted,
     ) && !ziweiAnalysisStale;
-    const inputLocked = (stagedMode && workflowStage !== 'followup_ready') || ziweiAnalysisStale;
+    const inputLocked = isActiveLiuyaoJob(liuyaoJob) || (stagedMode && workflowStage !== 'followup_ready') || ziweiAnalysisStale;
 
     const renderMessage = ({ item }: { item: UIChatMessage }) => {
         if (item.role === 'system' || item.hidden) {
@@ -1309,7 +1503,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                             </View>
                         ) : (
                             <>
-                                {artifactNotice && !isLoading && (!stagedMode || workflowStage === 'followup_ready') ? (
+                                {artifactNotice && (!isLoading || workflowMode === 'liuyao') && (!stagedMode || workflowStage === 'followup_ready') ? (
                                     <Text style={styles.artifactNoticeText}>{artifactNotice}</Text>
                                 ) : null}
                                 {quickReplies.length > 0 && !isLoading && (!stagedMode || workflowStage === 'followup_ready') ? (
@@ -1348,7 +1542,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                                                 : (workflowMode === 'ziwei'
                                                     ? '继续细问未来五年的事业、感情或关键年份...'
                                                     : '继续细问未来五年里的财运、婚恋或事业...')))))
-                                    : '向 AI 追问更多细节...'}
+                                    : (isActiveLiuyaoJob(liuyaoJob) ? '六爻分析运行中，可关闭弹窗稍后查看...' : '向 AI 追问更多细节...')}
                                 placeholderTextColor={Colors.text.tertiary}
                                 value={inputText}
                                 onChangeText={setInputText}

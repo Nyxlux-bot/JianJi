@@ -1,4 +1,4 @@
-export type ChatPresentationState = 'idle' | 'presenting' | 'preparing_request' | 'streaming';
+export type ChatPresentationState = 'idle' | 'presenting' | 'preparing_request' | 'reasoning' | 'streaming';
 
 export interface AutoStartInitialAnalysisOptions {
     visible: boolean;
