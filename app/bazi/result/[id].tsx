@@ -46,6 +46,7 @@ import {
     retryPendingBaziPersist,
     subscribePendingBaziRecord,
 } from '../../../src/features/bazi/pending-result-cache';
+import { shareBaziResultMarkdown } from '../../../src/services/share';
 import { isAIConfigured } from '../../../src/services/settings';
 
 const MATRIX_COLORS: Record<string, string> = {
@@ -401,6 +402,16 @@ export default function BaziResultPage() {
         setIsFavorite((prev) => !prev);
     };
 
+    const handleShare = async () => {
+        if (!result) return;
+        try {
+            await shareBaziResultMarkdown(result);
+        } catch (error: any) {
+            const message = typeof error?.message === 'string' ? error.message : '导出失败，请稍后重试';
+            CustomAlert.alert('导出失败', message);
+        }
+    };
+
     const handleDelete = async () => {
         if (!id || !hasPersistedRecord) return;
         setDeleteVisible(false);
@@ -408,6 +419,7 @@ export default function BaziResultPage() {
         router.back();
     };
     const menuItems: OverflowMenuItem[] = [
+        { key: 'export', label: '导出八字', onPress: handleShare },
         { key: 'edit', label: '修改内容', onPress: handleEdit, disabled: isPersisting },
         { key: 'favorite', label: isFavorite ? '取消收藏' : '收藏结果', onPress: handleToggleFavorite, disabled: !hasPersistedRecord },
         { key: 'delete', label: '删除记录', onPress: () => setDeleteVisible(true), destructive: true, disabled: !hasPersistedRecord },

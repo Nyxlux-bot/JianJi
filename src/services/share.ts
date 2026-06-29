@@ -1,9 +1,11 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { PersistedAIChatMessage } from '../core/ai-meta';
+import { extractBaziRelations } from '../core/bazi-relations';
 import { BaziResult } from '../core/bazi-types';
 import { PanResult } from '../core/liuyao-calc';
 import { ZiweiRecordResult } from '../features/ziwei/record';
+import { formatBaziToText } from './bazi-formatter';
 
 const METHOD_LABEL: Record<string, string> = {
     time: '时间排卦',
@@ -56,6 +58,51 @@ function pickLastAssistant(result: PanResult): string {
     return (result.aiAnalysis || '').trim();
 }
 
+function getBaziRelations(result: BaziResult): string[] {
+    const stems = result.fourPillars.map((pillar) => pillar.charAt(0));
+    const branches = result.fourPillars.map((pillar) => pillar.charAt(1));
+    return extractBaziRelations(stems, branches);
+}
+
+function formatBaziLiuYueLines(liuYue: BaziResult['liuNian'][number]['liuYue']): string[] {
+    if (liuYue.length === 0) {
+        return ['  - 流月：暂无'];
+    }
+    return liuYue.map((item) => (
+        `  - ${item.index + 1}. ${item.termName} | ${item.ganZhi} | ${item.termDate}${item.isCurrent ? ' [当前流月]' : ''}`
+    ));
+}
+
+function formatBaziLiuNianBlock(item: BaziResult['liuNian'][number]): string[] {
+    return [
+        `- ${item.year}年 | ${item.ganZhi} | 年龄${item.age} | 小运${item.xiaoYunGanZhi}${item.isCurrent ? ' [当前流年]' : ''}`,
+        ...formatBaziLiuYueLines(item.liuYue),
+    ];
+}
+
+function formatBaziDaYunBlock(item: BaziResult['daYun'][number]): string[] {
+    const lines = [
+        `### 第${item.index + 1}步大运：${item.ganZhi}${item.isCurrent ? ' [当前大运]' : ''}`,
+        '',
+        `- 年龄：${item.startAge}-${item.endAge}岁`,
+        `- 年份：${item.startYear}-${item.endYear}年`,
+        `- 交运：${item.jiaoYunDateTime}`,
+        '',
+        '#### 流年与流月',
+        '',
+    ];
+
+    if (item.liuNian.length === 0) {
+        lines.push('- 暂无流年数据');
+        return lines;
+    }
+
+    item.liuNian.forEach((liuNian) => {
+        lines.push(...formatBaziLiuNianBlock(liuNian), '');
+    });
+    return lines;
+}
+
 export function buildResultMarkdown(result: PanResult): string {
     const aiConclusion = pickLastAssistant(result);
 
@@ -88,6 +135,37 @@ export function buildResultMarkdown(result: PanResult): string {
 export async function shareResultMarkdown(result: PanResult): Promise<void> {
     const fileName = `liuyao_result_${sanitizeName(result.benGua.fullName)}_${Date.now()}.md`;
     const markdown = buildResultMarkdown(result);
+    await shareMarkdownFile(fileName, markdown);
+}
+
+export function buildBaziResultMarkdown(result: BaziResult): string {
+    const title = result.subject.name?.trim() || result.fourPillars.join(' ');
+    const lines = [
+        `# 八字排盘：${title}`,
+        '',
+        `- 命造：${result.subject.mingZaoLabel}（${result.subject.genderLabel}）`,
+        `- 四柱：${result.fourPillars.join(' ')}`,
+        `- 导出时间：${new Date().toISOString()}`,
+        '',
+        '## 完整排盘文本',
+        '',
+        formatBaziToText(result, getBaziRelations(result)),
+        '',
+        '## 全量大运流年流月',
+        '',
+        ...(result.daYun.length > 0 ? result.daYun.flatMap(formatBaziDaYunBlock) : ['- 暂无大运数据']),
+        '',
+        '## 全量小运流年流月',
+        '',
+        ...(result.xiaoYun.length > 0 ? result.xiaoYun.flatMap((item) => [...formatBaziLiuNianBlock(item), '']) : ['- 暂无小运数据']),
+    ];
+
+    return lines.join('\n');
+}
+
+export async function shareBaziResultMarkdown(result: BaziResult): Promise<void> {
+    const fileName = `bazi_result_${sanitizeName(result.subject.name?.trim() || result.fourPillars.join('_'))}_${Date.now()}.md`;
+    const markdown = buildBaziResultMarkdown(result);
     await shareMarkdownFile(fileName, markdown);
 }
 
