@@ -7,6 +7,7 @@ import { Platform } from 'react-native';
 import { normalizeStoredBaziResult } from '../core/bazi-normalize';
 import { BaziResult } from '../core/bazi-types';
 import { PanResult } from '../core/liuyao-calc';
+import { BaziCompatibilityResult } from '../features/bazi/match/types';
 import { ZiweiRecordResult } from '../features/ziwei/record';
 import { validateImportRecords } from './import-validation';
 import { resolveImportAction } from './import-strategy';
@@ -18,6 +19,7 @@ import {
     inferEngineFromResult,
     isDivinationMethod,
     isPanResult,
+    isBaziCompatibilityResult,
     isZiweiRecordResult,
     RecordSummary,
 } from './record-types';
@@ -54,6 +56,7 @@ interface ExportRow extends RecordDetailRow {
 export type RecordDetail =
     | { engineType: 'liuyao'; result: PanResult; isFavorite: boolean }
     | { engineType: 'bazi'; result: BaziResult; isFavorite: boolean }
+    | { engineType: 'baziCompatibility'; result: BaziCompatibilityResult; isFavorite: boolean }
     | { engineType: 'ziwei'; result: ZiweiRecordResult; isFavorite: boolean };
 
 export type ImportMode = 'merge' | 'replace';
@@ -75,8 +78,11 @@ function normalizeEngineType(
     method: unknown,
     result: unknown
 ): DivinationEngine {
-    if (engineType === 'liuyao' || engineType === 'bazi' || engineType === 'ziwei') {
+    if (engineType === 'liuyao' || engineType === 'bazi' || engineType === 'ziwei' || engineType === 'baziCompatibility') {
         return engineType;
+    }
+    if (method === 'baziCompatibility') {
+        return 'baziCompatibility';
     }
     if (method === 'bazi') {
         return 'bazi';
@@ -99,6 +105,9 @@ function toMethodForStorage(engineType: DivinationEngine, method: string | undef
     }
     if (engineType === 'ziwei') {
         return method || 'ziwei';
+    }
+    if (engineType === 'baziCompatibility') {
+        return method || 'baziCompatibility';
     }
     return method || '';
 }
@@ -125,6 +134,9 @@ function toRecordDetail(row: RecordDetailRow): RecordDetail | null {
     const isFavorite = row.is_favorite === 1;
 
     if (engineType === 'liuyao' && isPanResult(parsed)) {
+        return { engineType, result: parsed, isFavorite };
+    }
+    if (engineType === 'baziCompatibility' && isBaziCompatibilityResult(parsed)) {
         return { engineType, result: parsed, isFavorite };
     }
     if (engineType === 'bazi') {
@@ -252,7 +264,7 @@ function getWebRecords(): WebRecord[] {
             .filter((item) => (
                 typeof item.id === 'string'
                 && typeof item.createdAt === 'string'
-                && (item.engineType === 'liuyao' || item.engineType === 'bazi' || item.engineType === 'ziwei')
+                && (item.engineType === 'liuyao' || item.engineType === 'bazi' || item.engineType === 'ziwei' || item.engineType === 'baziCompatibility')
                 && typeof item.method === 'string'
                 && typeof item.title === 'string'
                 && typeof item.subtitle === 'string'
@@ -346,6 +358,13 @@ const webDb = {
                 isFavorite: record.isFavorite,
             };
         }
+        if (record.engineType === 'baziCompatibility' && isBaziCompatibilityResult(record.fullResult)) {
+            return {
+                engineType: 'baziCompatibility',
+                result: record.fullResult,
+                isFavorite: record.isFavorite,
+            };
+        }
         if (record.engineType === 'bazi') {
             const normalized = normalizeStoredBaziResult(record.fullResult);
             if (normalized) {
@@ -409,6 +428,23 @@ const webDb = {
                 }
                 exported.push({
                     engineType: 'ziwei',
+                    result: record.fullResult,
+                    summary: {
+                        method: record.method || undefined,
+                        question: record.question,
+                        title: record.title,
+                        subtitle: record.subtitle,
+                    },
+                });
+                return;
+            }
+
+            if (record.engineType === 'baziCompatibility') {
+                if (!isBaziCompatibilityResult(record.fullResult)) {
+                    return;
+                }
+                exported.push({
+                    engineType: 'baziCompatibility',
                     result: record.fullResult,
                     summary: {
                         method: record.method || undefined,

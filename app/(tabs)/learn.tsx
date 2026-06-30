@@ -43,6 +43,21 @@ export default function LearnPage() {
                     <ChevronRightIcon size={20} color={Colors.text.tertiary} />
                 </TouchableOpacity>
 
+                <TouchableOpacity
+                    style={styles.menuCard}
+                    activeOpacity={0.7}
+                    onPress={() => router.push('/learn/bazi-classics')}
+                >
+                    <View style={styles.iconContainer}>
+                        <ReadIcon size={28} color={Colors.accent.gold} />
+                    </View>
+                    <View style={styles.menuTextContainer}>
+                        <Text style={styles.menuTitle}>命理典籍</Text>
+                        <Text style={styles.menuDesc}>阅读子平、滴天髓、渊海、命理探源原文</Text>
+                    </View>
+                    <ChevronRightIcon size={20} color={Colors.text.tertiary} />
+                </TouchableOpacity>
+
                 <View style={{ height: 100 }} />
             </ScrollView>
         </View>

@@ -26,6 +26,7 @@ import { BorderRadius, FontSize, Spacing } from '../../src/theme/colors';
 import { useTheme } from '../../src/theme/ThemeContext';
 import {
     BaziHistoryCategory,
+    BaziCompatibilityHistoryCategory,
     DEFAULT_HISTORY_FILTER,
     filterHistoryRecords,
     getHistoryMetaLabel,
@@ -40,6 +41,7 @@ const HISTORY_FILTER_STORAGE_KEY = 'history_filter_state_v2';
 const ENGINE_OPTIONS: Array<{ key: HistoryActiveEngine; label: string; description: string }> = [
     { key: 'liuyao', label: '六爻', description: '时间、硬币、数字、手动起卦' },
     { key: 'bazi', label: '八字', description: '乾造、坤造与命盘收藏' },
+    { key: 'baziCompatibility', label: '合盘', description: '八字合盘与合盘详批' },
     { key: 'ziwei', label: '紫微', description: '紫微斗数命盘与运限记录' },
 ];
 
@@ -66,6 +68,11 @@ const ZIWEI_CATEGORY_OPTIONS: Array<{ key: ZiweiHistoryCategory; label: string }
     { key: 'favorite', label: '收藏' },
 ];
 
+const BAZI_COMPATIBILITY_CATEGORY_OPTIONS: Array<{ key: BaziCompatibilityHistoryCategory; label: string }> = [
+    { key: 'all', label: '全部' },
+    { key: 'favorite', label: '收藏' },
+];
+
 const META_LABELS: Record<string, string> = {
     time: '时间',
     coin: '硬币',
@@ -77,6 +84,7 @@ const META_LABELS: Record<string, string> = {
     male: '男命',
     female: '女命',
     ziwei: '紫微',
+    baziCompatibility: '合盘',
 };
 
 type HistoryStyles = ReturnType<typeof makeStyles>;
@@ -137,7 +145,7 @@ const HistoryRecordRow = memo(function HistoryRecordRow({
                     <View
                         style={[
                             styles.recordMetaBadge,
-                            engineType === 'bazi'
+                            engineType === 'bazi' || engineType === 'baziCompatibility'
                                 ? styles.recordMetaBadgeBazi
                                 : engineType === 'ziwei'
                                     ? styles.recordMetaBadgeZiwei
@@ -184,7 +192,11 @@ function normalizeStoredFilters(raw: unknown): HistoryFilterState {
     }
 
     const parsed = raw as Partial<HistoryFilterState>;
-    const activeEngine = parsed.activeEngine === 'bazi' || parsed.activeEngine === 'ziwei' ? parsed.activeEngine : 'liuyao';
+    const activeEngine = parsed.activeEngine === 'bazi'
+        || parsed.activeEngine === 'ziwei'
+        || parsed.activeEngine === 'baziCompatibility'
+        ? parsed.activeEngine
+        : 'liuyao';
     const liuyaoCategory = LIUYAO_CATEGORY_OPTIONS.some((item) => item.key === parsed.liuyaoCategory)
         ? parsed.liuyaoCategory as LiuyaoHistoryCategory
         : DEFAULT_HISTORY_FILTER.liuyaoCategory;
@@ -194,6 +206,9 @@ function normalizeStoredFilters(raw: unknown): HistoryFilterState {
     const ziweiCategory = ZIWEI_CATEGORY_OPTIONS.some((item) => item.key === parsed.ziweiCategory)
         ? parsed.ziweiCategory as ZiweiHistoryCategory
         : DEFAULT_HISTORY_FILTER.ziweiCategory;
+    const baziCompatibilityCategory = BAZI_COMPATIBILITY_CATEGORY_OPTIONS.some((item) => item.key === parsed.baziCompatibilityCategory)
+        ? parsed.baziCompatibilityCategory as BaziCompatibilityHistoryCategory
+        : DEFAULT_HISTORY_FILTER.baziCompatibilityCategory;
 
     return {
         keyword: typeof parsed.keyword === 'string' ? parsed.keyword : DEFAULT_HISTORY_FILTER.keyword,
@@ -201,15 +216,17 @@ function normalizeStoredFilters(raw: unknown): HistoryFilterState {
         liuyaoCategory,
         baziCategory,
         ziweiCategory,
+        baziCompatibilityCategory,
     };
 }
 
-function buildPersistedFilters(filter: HistoryFilterState): Pick<HistoryFilterState, 'activeEngine' | 'liuyaoCategory' | 'baziCategory' | 'ziweiCategory'> {
+function buildPersistedFilters(filter: HistoryFilterState): Pick<HistoryFilterState, 'activeEngine' | 'liuyaoCategory' | 'baziCategory' | 'ziweiCategory' | 'baziCompatibilityCategory'> {
     return {
         activeEngine: filter.activeEngine,
         liuyaoCategory: filter.liuyaoCategory,
         baziCategory: filter.baziCategory,
         ziweiCategory: filter.ziweiCategory,
+        baziCompatibilityCategory: filter.baziCompatibilityCategory,
     };
 }
 
@@ -250,7 +267,7 @@ export default function HistoryPage() {
             return;
         }
         void AsyncStorage.setItem(HISTORY_FILTER_STORAGE_KEY, JSON.stringify(buildPersistedFilters(filters)));
-    }, [filters.activeEngine, filters.baziCategory, filters.liuyaoCategory, filters.ziweiCategory, filtersReady]);
+    }, [filters.activeEngine, filters.baziCategory, filters.baziCompatibilityCategory, filters.liuyaoCategory, filters.ziweiCategory, filtersReady]);
 
     const loadRecords = useCallback(async () => {
         const data = await getAllRecords();
@@ -288,6 +305,10 @@ export default function HistoryPage() {
             router.push(`/bazi/result/${id}`);
             return;
         }
+        if (engineType === 'baziCompatibility') {
+            router.push(`/bazi/match/result/${id}`);
+            return;
+        }
         if (engineType === 'ziwei') {
             router.push(buildZiweiHistoryRestoreRoute(id));
             return;
@@ -307,7 +328,9 @@ export default function HistoryPage() {
         ? LIUYAO_CATEGORY_OPTIONS
         : filters.activeEngine === 'bazi'
             ? BAZI_CATEGORY_OPTIONS
-            : ZIWEI_CATEGORY_OPTIONS;
+            : filters.activeEngine === 'baziCompatibility'
+                ? BAZI_COMPATIBILITY_CATEGORY_OPTIONS
+                : ZIWEI_CATEGORY_OPTIONS;
 
     const formatDate = useCallback((iso: string) => {
         const d = new Date(iso);
@@ -325,13 +348,15 @@ export default function HistoryPage() {
         }));
     }, []);
 
-    const handleCategoryChange = useCallback((category: LiuyaoHistoryCategory | BaziHistoryCategory | ZiweiHistoryCategory) => {
+    const handleCategoryChange = useCallback((category: LiuyaoHistoryCategory | BaziHistoryCategory | ZiweiHistoryCategory | BaziCompatibilityHistoryCategory) => {
         setFilters((prev) => (
             prev.activeEngine === 'liuyao'
                 ? { ...prev, liuyaoCategory: category as LiuyaoHistoryCategory }
                 : prev.activeEngine === 'bazi'
                     ? { ...prev, baziCategory: category as BaziHistoryCategory }
-                    : { ...prev, ziweiCategory: category as ZiweiHistoryCategory }
+                    : prev.activeEngine === 'baziCompatibility'
+                        ? { ...prev, baziCompatibilityCategory: category as BaziCompatibilityHistoryCategory }
+                        : { ...prev, ziweiCategory: category as ZiweiHistoryCategory }
         ));
     }, []);
 
@@ -418,7 +443,9 @@ export default function HistoryPage() {
                             ? filters.liuyaoCategory === option.key
                             : filters.activeEngine === 'bazi'
                                 ? filters.baziCategory === option.key
-                                : filters.ziweiCategory === option.key;
+                                : filters.activeEngine === 'baziCompatibility'
+                                    ? filters.baziCompatibilityCategory === option.key
+                                    : filters.ziweiCategory === option.key;
                         return (
                             <TouchableOpacity
                                 key={option.key}

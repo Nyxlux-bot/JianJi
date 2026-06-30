@@ -1,10 +1,11 @@
 import { DivinationMethod } from '../core/liuyao-data';
-import { DivinationEngine } from '../db/database';
+import { DivinationEngine } from '../db/record-types';
 
-export type HistoryActiveEngine = 'liuyao' | 'bazi' | 'ziwei';
+export type HistoryActiveEngine = 'liuyao' | 'bazi' | 'ziwei' | 'baziCompatibility';
 export type LiuyaoHistoryCategory = 'all' | DivinationMethod | 'favorite';
 export type BaziHistoryCategory = 'all' | 'kunzao' | 'qianzao' | 'favorite';
 export type ZiweiHistoryCategory = 'all' | 'male' | 'female' | 'favorite';
+export type BaziCompatibilityHistoryCategory = 'all' | 'favorite';
 
 export interface HistoryRecordItem {
     id: string;
@@ -23,6 +24,7 @@ export interface HistoryFilterState {
     liuyaoCategory: LiuyaoHistoryCategory;
     baziCategory: BaziHistoryCategory;
     ziweiCategory: ZiweiHistoryCategory;
+    baziCompatibilityCategory: BaziCompatibilityHistoryCategory;
 }
 
 export const DEFAULT_HISTORY_FILTER: HistoryFilterState = {
@@ -31,14 +33,18 @@ export const DEFAULT_HISTORY_FILTER: HistoryFilterState = {
     liuyaoCategory: 'all',
     baziCategory: 'all',
     ziweiCategory: 'all',
+    baziCompatibilityCategory: 'all',
 };
 
-export function getActiveHistoryCategory(filter: HistoryFilterState): LiuyaoHistoryCategory | BaziHistoryCategory | ZiweiHistoryCategory {
+export function getActiveHistoryCategory(filter: HistoryFilterState): LiuyaoHistoryCategory | BaziHistoryCategory | ZiweiHistoryCategory | BaziCompatibilityHistoryCategory {
     if (filter.activeEngine === 'liuyao') {
         return filter.liuyaoCategory;
     }
     if (filter.activeEngine === 'bazi') {
         return filter.baziCategory;
+    }
+    if (filter.activeEngine === 'baziCompatibility') {
+        return filter.baziCompatibilityCategory;
     }
     return filter.ziweiCategory;
 }
@@ -82,6 +88,9 @@ export function getHistoryMetaLabel(record: HistoryRecordItem): string {
     if (record.engineType === 'ziwei') {
         return getZiweiCategory(record) || 'ziwei';
     }
+    if (record.engineType === 'baziCompatibility') {
+        return 'baziCompatibility';
+    }
 
     return getBaziCategory(record) || 'bazi';
 }
@@ -111,6 +120,10 @@ export function filterHistoryRecords<T extends HistoryRecordItem>(records: T[], 
                 if (category !== activeCategory) {
                     return false;
                 }
+            }
+        } else if (filter.activeEngine === 'baziCompatibility') {
+            if (activeCategory === 'favorite' && !record.isFavorite) {
+                return false;
             }
         } else {
             if (activeCategory === 'favorite' && !record.isFavorite) {

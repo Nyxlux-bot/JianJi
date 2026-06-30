@@ -4,15 +4,35 @@ import {
 } from '../core/ai-meta';
 import { BaziResult } from '../core/bazi-types';
 import { PanResult } from '../core/liuyao-calc';
+import type {
+    BaziCompatibilityResult,
+    BaziMarriageTimingCandidate,
+    BaziMarriageTimingProfile,
+    BaziMarriageTimingResult,
+    BaziMarriageYearCandidate,
+    BaziMatchDimensionScore,
+    BaziMatchEvidence,
+    BaziMatchMatrixEntry,
+    BaziMatchProfile,
+    BaziMatchReview,
+} from '../features/bazi/match/types';
 import { DivinationMethod } from '../core/liuyao-data';
 import { ZiweiRecordResult } from '../features/ziwei/record';
 import { ZIWEI_SUPPORTED_TIMEZONE_OFFSET_MINUTES } from '../features/ziwei/runtime-meta';
 
-export type DivinationEngine = 'liuyao' | 'bazi' | 'ziwei';
+export type DivinationEngine = 'liuyao' | 'bazi' | 'ziwei' | 'baziCompatibility';
 
-export type DivinationResult = PanResult | BaziResult | ZiweiRecordResult;
+export type DivinationResult = PanResult | BaziResult | ZiweiRecordResult | BaziCompatibilityResult;
 
 const LIUYAO_METHODS: readonly DivinationMethod[] = ['time', 'coin', 'number', 'manual'];
+const WUXING_VALUES = ['木', '火', '土', '金', '水'] as const;
+const BAZI_MATCH_GRADES = ['优', '良', '中', '差'] as const;
+const BAZI_MATCH_DIMENSION_KEYS = ['harmony', 'supportHusband', 'supportWife', 'offspring', 'longevity', 'mutualSupport', 'lifecycle'] as const;
+const BAZI_MATCH_REFERENCE_IDS = ['HM-01', 'HM-02', 'FS-01', 'FS-02', 'PG-01', 'PG-02', 'CY-01', 'YY-01', 'YQ-01', 'EXP-01', 'LS-01'] as const;
+const BAZI_MATCH_MATRIX_CATEGORIES = ['bestFit', 'mainConflict', 'spouseStarPalace', 'elementComplement', 'relationImpact', 'fortuneTiming', 'marriageTiming', 'riskPriority'] as const;
+const BAZI_MATCH_MATRIX_DIRECTIONS = ['positive', 'negative', 'neutral'] as const;
+const BAZI_MATCH_MATRIX_STRENGTHS = ['high', 'medium', 'low'] as const;
+const BAZI_MATCH_REVIEW_CAN_PROCEED = ['strong', 'workable', 'cautious', 'difficult'] as const;
 
 export interface RecordSummary {
     id: string;
@@ -48,6 +68,139 @@ function isFiniteNumber(value: unknown): value is number {
 
 function isStringArray(value: unknown): value is string[] {
     return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
+function isStringTuple4(value: unknown): value is [string, string, string, string] {
+    return isStringArray(value) && value.length === 4;
+}
+
+function isOneOf(value: unknown, options: readonly string[]): boolean {
+    return typeof value === 'string' && options.includes(value);
+}
+
+function isWuXingArray(value: unknown): boolean {
+    return Array.isArray(value) && value.every((item) => isOneOf(item, WUXING_VALUES));
+}
+
+function isWuXingCounts(value: unknown): boolean {
+    return isObject(value) && WUXING_VALUES.every((item) => isFiniteNumber(value[item]));
+}
+
+function isStarCounts(value: unknown): boolean {
+    return isObject(value) && Object.values(value).every((item) => isFiniteNumber(item));
+}
+
+function isBaziMatchEvidence(value: unknown): value is BaziMatchEvidence {
+    return isObject(value)
+        && typeof value.label === 'string'
+        && typeof value.detail === 'string'
+        && (value.effect === 'positive' || value.effect === 'negative' || value.effect === 'neutral')
+        && (value.referenceIds === undefined || (Array.isArray(value.referenceIds) && value.referenceIds.every((item) => isOneOf(item, BAZI_MATCH_REFERENCE_IDS))));
+}
+
+function isBaziMatchDimension(value: unknown): value is BaziMatchDimensionScore {
+    return isObject(value)
+        && isOneOf(value.key, BAZI_MATCH_DIMENSION_KEYS)
+        && typeof value.title === 'string'
+        && isFiniteNumber(value.score)
+        && isOneOf(value.grade, BAZI_MATCH_GRADES)
+        && typeof value.summary === 'string'
+        && Array.isArray(value.evidence)
+        && value.evidence.every((item) => isBaziMatchEvidence(item));
+}
+
+function isBaziMatchMatrixEntry(value: unknown): value is BaziMatchMatrixEntry {
+    return isObject(value)
+        && isOneOf(value.category, BAZI_MATCH_MATRIX_CATEGORIES)
+        && typeof value.title === 'string'
+        && isOneOf(value.direction, BAZI_MATCH_MATRIX_DIRECTIONS)
+        && isOneOf(value.strength, BAZI_MATCH_MATRIX_STRENGTHS)
+        && typeof value.detail === 'string'
+        && (value.referenceIds === undefined || (Array.isArray(value.referenceIds) && value.referenceIds.every((item) => isOneOf(item, BAZI_MATCH_REFERENCE_IDS))));
+}
+
+function isBaziMatchReview(value: unknown): value is BaziMatchReview {
+    return isObject(value)
+        && typeof value.mainLine === 'string'
+        && isOneOf(value.canProceed, BAZI_MATCH_REVIEW_CAN_PROCEED)
+        && typeof value.scoreReview === 'string'
+        && typeof value.bestFit === 'string'
+        && typeof value.mainConflict === 'string'
+        && isStringArray(value.priorities);
+}
+
+function isBaziMarriageYear(value: unknown): value is BaziMarriageYearCandidate {
+    return isObject(value)
+        && isFiniteNumber(value.year)
+        && typeof value.ganZhi === 'string'
+        && (value.kind === 'trigger' || value.kind === 'recommendation')
+        && isFiniteNumber(value.score)
+        && isStringArray(value.reasons)
+        && (value.maleAge === undefined || isFiniteNumber(value.maleAge))
+        && (value.femaleAge === undefined || isFiniteNumber(value.femaleAge))
+        && (value.referenceIds === undefined || (Array.isArray(value.referenceIds) && value.referenceIds.every((item) => isOneOf(item, BAZI_MATCH_REFERENCE_IDS))));
+}
+
+function isBaziMarriageTimingCandidate(value: unknown): value is BaziMarriageTimingCandidate {
+    return isObject(value)
+        && isFiniteNumber(value.year)
+        && isFiniteNumber(value.age)
+        && typeof value.ganZhi === 'string'
+        && isFiniteNumber(value.score)
+        && isStringArray(value.reasons)
+        && (value.referenceIds === undefined || (Array.isArray(value.referenceIds) && value.referenceIds.every((item) => isOneOf(item, BAZI_MATCH_REFERENCE_IDS))));
+}
+
+function isBaziMarriageTimingProfile(value: unknown): value is BaziMarriageTimingProfile {
+    return isObject(value)
+        && typeof value.name === 'string'
+        && typeof value.genderLabel === 'string'
+        && Array.isArray(value.candidates)
+        && value.candidates.every((item) => isBaziMarriageTimingCandidate(item));
+}
+
+function isBaziMarriageTimingResult(value: unknown): value is BaziMarriageTimingResult {
+    return isObject(value)
+        && isBaziMarriageTimingProfile(value.male)
+        && isBaziMarriageTimingProfile(value.female)
+        && typeof value.summary === 'string';
+}
+
+function isBaziFutureDaYun(value: unknown): boolean {
+    return Array.isArray(value) && value.every((item) => (
+        isObject(item)
+        && typeof item.ganZhi === 'string'
+        && isFiniteNumber(item.startYear)
+        && isFiniteNumber(item.endYear)
+        && isOneOf(item.stemElement, WUXING_VALUES)
+        && isOneOf(item.branchElement, WUXING_VALUES)
+    ));
+}
+
+function isBaziMatchProfile(value: unknown): value is BaziMatchProfile {
+    return isObject(value)
+        && typeof value.sourceId === 'string'
+        && typeof value.name === 'string'
+        && (value.gender === 0 || value.gender === 1)
+        && typeof value.genderLabel === 'string'
+        && typeof value.mingZaoLabel === 'string'
+        && isStringTuple4(value.fourPillars)
+        && isStringTuple4(value.stems)
+        && isStringTuple4(value.branches)
+        && typeof value.yearBranch === 'string'
+        && typeof value.dayStem === 'string'
+        && typeof value.dayBranch === 'string'
+        && typeof value.hourBranch === 'string'
+        && typeof value.mingGongBranch === 'string'
+        && typeof value.zodiac === 'string'
+        && isStringArray(value.shenSha)
+        && isWuXingCounts(value.elementCounts)
+        && isWuXingArray(value.neededElements)
+        && isWuXingArray(value.dominantElements)
+        && isWuXingArray(value.weakElements)
+        && isStarCounts(value.starCounts)
+        && (value.strength === 'weak' || value.strength === 'balanced' || value.strength === 'strong')
+        && isBaziFutureDaYun(value.futureDaYun);
 }
 
 function isPersistedAIChatMessage(value: unknown): boolean {
@@ -272,6 +425,32 @@ export function isBaziResult(value: unknown): value is BaziResult {
         && hasValidSchoolOptions;
 }
 
+export function isBaziCompatibilityResult(value: unknown): value is BaziCompatibilityResult {
+    if (!isObject(value)) {
+        return false;
+    }
+    const candidate = value as Partial<BaziCompatibilityResult>;
+    return typeof candidate.id === 'string'
+        && typeof candidate.createdAt === 'string'
+        && typeof candidate.calculatedAt === 'string'
+        && isBaziResult(candidate.male)
+        && isBaziResult(candidate.female)
+        && isBaziMatchProfile(candidate.maleProfile)
+        && isBaziMatchProfile(candidate.femaleProfile)
+        && Array.isArray(candidate.dimensions)
+        && candidate.dimensions.every((item) => isBaziMatchDimension(item))
+        && isFiniteNumber(candidate.totalScore)
+        && isOneOf(candidate.grade, BAZI_MATCH_GRADES)
+        && typeof candidate.summary === 'string'
+        && Array.isArray(candidate.marriageYears)
+        && candidate.marriageYears.every((item) => isBaziMarriageYear(item))
+        && (candidate.marriageTiming === undefined || isBaziMarriageTimingResult(candidate.marriageTiming))
+        && (candidate.review === undefined || isBaziMatchReview(candidate.review))
+        && (candidate.evidenceMatrix === undefined || (Array.isArray(candidate.evidenceMatrix) && candidate.evidenceMatrix.every((item) => isBaziMatchMatrixEntry(item))))
+        && (candidate.aiAnalysis === undefined || typeof candidate.aiAnalysis === 'string')
+        && (candidate.aiChatHistory === undefined || isPersistedAIChatHistory(candidate.aiChatHistory));
+}
+
 export function isZiweiRecordResult(value: unknown): value is ZiweiRecordResult {
     if (!isObject(value)) {
         return false;
@@ -332,6 +511,9 @@ export function inferEngineFromResult(result: unknown): DivinationEngine {
     if (isZiweiRecordResult(result)) {
         return 'ziwei';
     }
+    if (isBaziCompatibilityResult(result)) {
+        return 'baziCompatibility';
+    }
     throw new Error('无法识别记录引擎类型');
 }
 
@@ -361,6 +543,18 @@ export function buildSummaryFields(envelope: DivinationRecordEnvelope): RecordSu
             question: summary?.question ?? '',
             title: summary?.title || result.name?.trim() || '紫微命盘',
             subtitle: summary?.subtitle ?? `${genderLabel} · ${result.cityLabel || '未设置出生地'} · ${result.fiveElementsClass}`,
+        };
+    }
+
+    if (engineType === 'baziCompatibility') {
+        if (!isBaziCompatibilityResult(result)) {
+            throw new Error('八字合盘记录结构非法');
+        }
+        return {
+            method: summary?.method || 'baziCompatibility',
+            question: summary?.question ?? '',
+            title: summary?.title || `${result.maleProfile.name} × ${result.femaleProfile.name}`,
+            subtitle: summary?.subtitle ?? `合盘 · ${result.totalScore}分 · ${result.grade}`,
         };
     }
 

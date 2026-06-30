@@ -136,21 +136,39 @@ export default function HomePage() {
                             <Text style={styles.sectionHint}>专业四柱排盘</Text>
                         </View>
 
-                        <TouchableOpacity
-                            style={styles.baziFeatureCard}
-                            activeOpacity={0.82}
-                            onPress={() => router.push('/bazi/input')}
-                        >
-                            <View style={styles.baziFeatureTitleRow}>
-                                <View style={styles.baziFeatureIcon}>
-                                    <BaGuaIcon size={37} color={Colors.accent.gold} />
+                        <View style={styles.baziFeatureStack}>
+                            <TouchableOpacity
+                                style={styles.baziFeatureCard}
+                                activeOpacity={0.82}
+                                onPress={() => router.push('/bazi/input')}
+                            >
+                                <View style={styles.baziFeatureTitleRow}>
+                                    <View style={styles.baziFeatureIcon}>
+                                        <BaGuaIcon size={37} color={Colors.accent.gold} />
+                                    </View>
+                                    <Text style={styles.baziFeatureTitle}>八字排盘</Text>
                                 </View>
-                                <Text style={styles.baziFeatureTitle}>八字排盘</Text>
-                            </View>
-                            <Text style={styles.baziFeatureDesc}>
-                                支持四柱、十神、藏干、大运、流年、流月，以及专业细盘查看。
-                            </Text>
-                        </TouchableOpacity>
+                                <Text style={styles.baziFeatureDesc}>
+                                    支持四柱、十神、藏干、大运、流年、流月，以及专业细盘查看。
+                                </Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.baziFeatureCard}
+                                activeOpacity={0.82}
+                                onPress={() => router.push('/bazi/match')}
+                            >
+                                <View style={styles.baziFeatureTitleRow}>
+                                    <View style={styles.baziFeatureIcon}>
+                                        <SparklesIcon size={30} color={Colors.accent.gold} />
+                                    </View>
+                                    <Text style={styles.baziFeatureTitle}>八字合盘</Text>
+                                </View>
+                                <Text style={styles.baziFeatureDesc}>
+                                    从已有八字记录选择男女双方，生成五维合盘、婚期应期与合盘详批。
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 ) : (
                     <View style={styles.primarySection}>
@@ -315,6 +333,9 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         fontSize: FontSize.xs,
         color: Colors.text.tertiary,
         lineHeight: 18,
+    },
+    baziFeatureStack: {
+        gap: Spacing.md,
     },
     baziFeatureCard: {
         borderRadius: BorderRadius.xl,

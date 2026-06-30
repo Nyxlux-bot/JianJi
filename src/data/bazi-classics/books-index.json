@@ -1,0 +1,917 @@
+[
+  {
+    "id": "zipingzhenquan",
+    "title": "子平真诠",
+    "author": "沈孝瞻",
+    "dynasty": "清",
+    "chapterCount": 43,
+    "charCount": 31317,
+    "chapters": [
+      {
+        "id": "zipingzhenquan-001",
+        "title": "序",
+        "charCount": 602
+      },
+      {
+        "id": "zipingzhenquan-002",
+        "title": "论十干十二支1",
+        "charCount": 693
+      },
+      {
+        "id": "zipingzhenquan-003",
+        "title": "论阴阳生克2",
+        "charCount": 4257
+      },
+      {
+        "id": "zipingzhenquan-004",
+        "title": "论阴阳生死3",
+        "charCount": 699
+      },
+      {
+        "id": "zipingzhenquan-005",
+        "title": "论十干配合性情4",
+        "charCount": 538
+      },
+      {
+        "id": "zipingzhenquan-006",
+        "title": "论十干合而不合5",
+        "charCount": 670
+      },
+      {
+        "id": "zipingzhenquan-007",
+        "title": "论十干得时不旺失时不弱6",
+        "charCount": 579
+      },
+      {
+        "id": "zipingzhenquan-008",
+        "title": "论刑冲会合解法7",
+        "charCount": 675
+      },
+      {
+        "id": "zipingzhenquan-009",
+        "title": "论用神8",
+        "charCount": 523
+      },
+      {
+        "id": "zipingzhenquan-010",
+        "title": "论用神成败救应9",
+        "charCount": 781
+      },
+      {
+        "id": "zipingzhenquan-011",
+        "title": "论用神变化10",
+        "charCount": 688
+      },
+      {
+        "id": "zipingzhenquan-012",
+        "title": "论用神纯杂11",
+        "charCount": 239
+      },
+      {
+        "id": "zipingzhenquan-013",
+        "title": "论用神格局高低12",
+        "charCount": 674
+      },
+      {
+        "id": "zipingzhenquan-014",
+        "title": "论用神因成得败因败得成13",
+        "charCount": 339
+      },
+      {
+        "id": "zipingzhenquan-015",
+        "title": "论用神配气候得失14",
+        "charCount": 551
+      },
+      {
+        "id": "zipingzhenquan-016",
+        "title": "论相神紧要15",
+        "charCount": 482
+      },
+      {
+        "id": "zipingzhenquan-017",
+        "title": "论杂气如何取用16",
+        "charCount": 821
+      },
+      {
+        "id": "zipingzhenquan-018",
+        "title": "论墓库刑冲之说17",
+        "charCount": 582
+      },
+      {
+        "id": "zipingzhenquan-019",
+        "title": "论四吉神能破格18",
+        "charCount": 226
+      },
+      {
+        "id": "zipingzhenquan-020",
+        "title": "论四凶神能成格19",
+        "charCount": 139
+      },
+      {
+        "id": "zipingzhenquan-021",
+        "title": "论生克先后分吉凶20",
+        "charCount": 579
+      },
+      {
+        "id": "zipingzhenquan-022",
+        "title": "论星辰无关格局21",
+        "charCount": 592
+      },
+      {
+        "id": "zipingzhenquan-023",
+        "title": "论外格用舍22",
+        "charCount": 265
+      },
+      {
+        "id": "zipingzhenquan-024",
+        "title": "论宫分用神配六亲23",
+        "charCount": 273
+      },
+      {
+        "id": "zipingzhenquan-025",
+        "title": "论妻子24",
+        "charCount": 868
+      },
+      {
+        "id": "zipingzhenquan-026",
+        "title": "论行运25",
+        "charCount": 747
+      },
+      {
+        "id": "zipingzhenquan-027",
+        "title": "论行运成格变格26",
+        "charCount": 355
+      },
+      {
+        "id": "zipingzhenquan-028",
+        "title": "论喜忌干支有别27",
+        "charCount": 278
+      },
+      {
+        "id": "zipingzhenquan-029",
+        "title": "论支中喜忌逢运透清28",
+        "charCount": 399
+      },
+      {
+        "id": "zipingzhenquan-030",
+        "title": "论时说拘泥格局29",
+        "charCount": 338
+      },
+      {
+        "id": "zipingzhenquan-031",
+        "title": "论时说以讹传讹30",
+        "charCount": 516
+      },
+      {
+        "id": "zipingzhenquan-032",
+        "title": "论正官/论正官取运31-32",
+        "charCount": 1010
+      },
+      {
+        "id": "zipingzhenquan-033",
+        "title": "论财/论财取运33-34",
+        "charCount": 1176
+      },
+      {
+        "id": "zipingzhenquan-034",
+        "title": "论印绶/论印绶取运35-36",
+        "charCount": 1017
+      },
+      {
+        "id": "zipingzhenquan-035",
+        "title": "论食神/论食神取运37-38",
+        "charCount": 745
+      },
+      {
+        "id": "zipingzhenquan-036",
+        "title": "论偏官/论偏官取运39-40",
+        "charCount": 1028
+      },
+      {
+        "id": "zipingzhenquan-037",
+        "title": "论伤官/论伤官取运41-42",
+        "charCount": 1156
+      },
+      {
+        "id": "zipingzhenquan-038",
+        "title": "论阳刃43",
+        "charCount": 650
+      },
+      {
+        "id": "zipingzhenquan-039",
+        "title": "论阳刃取运44",
+        "charCount": 124
+      },
+      {
+        "id": "zipingzhenquan-040",
+        "title": "论建禄月劫45",
+        "charCount": 819
+      },
+      {
+        "id": "zipingzhenquan-041",
+        "title": "论建禄月劫取运46",
+        "charCount": 339
+      },
+      {
+        "id": "zipingzhenquan-042",
+        "title": "论杂格47",
+        "charCount": 1524
+      },
+      {
+        "id": "zipingzhenquan-043",
+        "title": "论杂格取运48",
+        "charCount": 1761
+      }
+    ]
+  },
+  {
+    "id": "ditiansuichanwei",
+    "title": "滴天髓阐微",
+    "author": "任铁樵",
+    "dynasty": "清",
+    "chapterCount": 64,
+    "charCount": 136224,
+    "chapters": [
+      {
+        "id": "ditiansuichanwei-001",
+        "title": "序",
+        "charCount": 397
+      },
+      {
+        "id": "ditiansuichanwei-002",
+        "title": "天道",
+        "charCount": 167
+      },
+      {
+        "id": "ditiansuichanwei-003",
+        "title": "坤道",
+        "charCount": 150
+      },
+      {
+        "id": "ditiansuichanwei-004",
+        "title": "人道",
+        "charCount": 651
+      },
+      {
+        "id": "ditiansuichanwei-005",
+        "title": "知命",
+        "charCount": 1698
+      },
+      {
+        "id": "ditiansuichanwei-006",
+        "title": "理气",
+        "charCount": 707
+      },
+      {
+        "id": "ditiansuichanwei-007",
+        "title": "配合",
+        "charCount": 787
+      },
+      {
+        "id": "ditiansuichanwei-008",
+        "title": "天干",
+        "charCount": 4906
+      },
+      {
+        "id": "ditiansuichanwei-009",
+        "title": "地支",
+        "charCount": 4528
+      },
+      {
+        "id": "ditiansuichanwei-010",
+        "title": "干支总论",
+        "charCount": 8805
+      },
+      {
+        "id": "ditiansuichanwei-011",
+        "title": "形象",
+        "charCount": 4610
+      },
+      {
+        "id": "ditiansuichanwei-012",
+        "title": "方局",
+        "charCount": 3170
+      },
+      {
+        "id": "ditiansuichanwei-013",
+        "title": "八格",
+        "charCount": 3147
+      },
+      {
+        "id": "ditiansuichanwei-014",
+        "title": "体用",
+        "charCount": 1906
+      },
+      {
+        "id": "ditiansuichanwei-015",
+        "title": "精神",
+        "charCount": 1333
+      },
+      {
+        "id": "ditiansuichanwei-016",
+        "title": "月令",
+        "charCount": 834
+      },
+      {
+        "id": "ditiansuichanwei-017",
+        "title": "生时",
+        "charCount": 698
+      },
+      {
+        "id": "ditiansuichanwei-018",
+        "title": "衰旺",
+        "charCount": 3633
+      },
+      {
+        "id": "ditiansuichanwei-019",
+        "title": "中和",
+        "charCount": 960
+      },
+      {
+        "id": "ditiansuichanwei-020",
+        "title": "源流",
+        "charCount": 1780
+      },
+      {
+        "id": "ditiansuichanwei-021",
+        "title": "通关",
+        "charCount": 1220
+      },
+      {
+        "id": "ditiansuichanwei-022",
+        "title": "官杀",
+        "charCount": 5169
+      },
+      {
+        "id": "ditiansuichanwei-023",
+        "title": "伤官",
+        "charCount": 4172
+      },
+      {
+        "id": "ditiansuichanwei-024",
+        "title": "清气",
+        "charCount": 1228
+      },
+      {
+        "id": "ditiansuichanwei-025",
+        "title": "浊气",
+        "charCount": 921
+      },
+      {
+        "id": "ditiansuichanwei-026",
+        "title": "真神",
+        "charCount": 809
+      },
+      {
+        "id": "ditiansuichanwei-027",
+        "title": "假神",
+        "charCount": 1270
+      },
+      {
+        "id": "ditiansuichanwei-028",
+        "title": "刚柔",
+        "charCount": 1441
+      },
+      {
+        "id": "ditiansuichanwei-029",
+        "title": "顺逆",
+        "charCount": 875
+      },
+      {
+        "id": "ditiansuichanwei-030",
+        "title": "寒暖",
+        "charCount": 1094
+      },
+      {
+        "id": "ditiansuichanwei-031",
+        "title": "燥湿",
+        "charCount": 925
+      },
+      {
+        "id": "ditiansuichanwei-032",
+        "title": "隐显",
+        "charCount": 765
+      },
+      {
+        "id": "ditiansuichanwei-033",
+        "title": "众寡",
+        "charCount": 785
+      },
+      {
+        "id": "ditiansuichanwei-034",
+        "title": "震兑",
+        "charCount": 1267
+      },
+      {
+        "id": "ditiansuichanwei-035",
+        "title": "坎离",
+        "charCount": 1173
+      },
+      {
+        "id": "ditiansuichanwei-036",
+        "title": "夫妻",
+        "charCount": 1297
+      },
+      {
+        "id": "ditiansuichanwei-037",
+        "title": "子女",
+        "charCount": 1906
+      },
+      {
+        "id": "ditiansuichanwei-038",
+        "title": "父母",
+        "charCount": 1182
+      },
+      {
+        "id": "ditiansuichanwei-039",
+        "title": "兄弟",
+        "charCount": 783
+      },
+      {
+        "id": "ditiansuichanwei-040",
+        "title": "何知",
+        "charCount": 7997
+      },
+      {
+        "id": "ditiansuichanwei-041",
+        "title": "女命",
+        "charCount": 5828
+      },
+      {
+        "id": "ditiansuichanwei-042",
+        "title": "小儿",
+        "charCount": 1766
+      },
+      {
+        "id": "ditiansuichanwei-043",
+        "title": "才德",
+        "charCount": 1021
+      },
+      {
+        "id": "ditiansuichanwei-044",
+        "title": "奋郁",
+        "charCount": 1224
+      },
+      {
+        "id": "ditiansuichanwei-045",
+        "title": "恩怨",
+        "charCount": 986
+      },
+      {
+        "id": "ditiansuichanwei-046",
+        "title": "闲神",
+        "charCount": 2087
+      },
+      {
+        "id": "ditiansuichanwei-047",
+        "title": "从象",
+        "charCount": 2020
+      },
+      {
+        "id": "ditiansuichanwei-048",
+        "title": "化象",
+        "charCount": 1613
+      },
+      {
+        "id": "ditiansuichanwei-049",
+        "title": "假从",
+        "charCount": 1099
+      },
+      {
+        "id": "ditiansuichanwei-050",
+        "title": "假化",
+        "charCount": 1377
+      },
+      {
+        "id": "ditiansuichanwei-051",
+        "title": "顺局",
+        "charCount": 1555
+      },
+      {
+        "id": "ditiansuichanwei-052",
+        "title": "反局",
+        "charCount": 3629
+      },
+      {
+        "id": "ditiansuichanwei-053",
+        "title": "战局",
+        "charCount": 1283
+      },
+      {
+        "id": "ditiansuichanwei-054",
+        "title": "合局",
+        "charCount": 1458
+      },
+      {
+        "id": "ditiansuichanwei-055",
+        "title": "君象",
+        "charCount": 599
+      },
+      {
+        "id": "ditiansuichanwei-056",
+        "title": "臣象",
+        "charCount": 880
+      },
+      {
+        "id": "ditiansuichanwei-057",
+        "title": "母象",
+        "charCount": 564
+      },
+      {
+        "id": "ditiansuichanwei-058",
+        "title": "子象",
+        "charCount": 623
+      },
+      {
+        "id": "ditiansuichanwei-059",
+        "title": "性情",
+        "charCount": 7302
+      },
+      {
+        "id": "ditiansuichanwei-060",
+        "title": "疾病",
+        "charCount": 6647
+      },
+      {
+        "id": "ditiansuichanwei-061",
+        "title": "出身",
+        "charCount": 4846
+      },
+      {
+        "id": "ditiansuichanwei-062",
+        "title": "地位",
+        "charCount": 2868
+      },
+      {
+        "id": "ditiansuichanwei-063",
+        "title": "岁运",
+        "charCount": 2930
+      },
+      {
+        "id": "ditiansuichanwei-064",
+        "title": "贞元",
+        "charCount": 873
+      }
+    ]
+  },
+  {
+    "id": "yuanhaiziping",
+    "title": "渊海子平",
+    "author": "徐大升",
+    "dynasty": "宋",
+    "chapterCount": 43,
+    "charCount": 72377,
+    "chapters": [
+      {
+        "id": "yuanhaiziping-001",
+        "title": "基础",
+        "charCount": 5877
+      },
+      {
+        "id": "yuanhaiziping-002",
+        "title": "十神",
+        "charCount": 8207
+      },
+      {
+        "id": "yuanhaiziping-003",
+        "title": "神煞",
+        "charCount": 2613
+      },
+      {
+        "id": "yuanhaiziping-004",
+        "title": "六亲",
+        "charCount": 2630
+      },
+      {
+        "id": "yuanhaiziping-005",
+        "title": "女命",
+        "charCount": 2412
+      },
+      {
+        "id": "yuanhaiziping-006",
+        "title": "子平举要歌-赋论·一",
+        "charCount": 205
+      },
+      {
+        "id": "yuanhaiziping-007",
+        "title": "详解定真论-赋论·一",
+        "charCount": 508
+      },
+      {
+        "id": "yuanhaiziping-008",
+        "title": "喜忌篇-赋论·一",
+        "charCount": 923
+      },
+      {
+        "id": "yuanhaiziping-009",
+        "title": "继善篇-赋论·一",
+        "charCount": 1266
+      },
+      {
+        "id": "yuanhaiziping-010",
+        "title": "看命入式-赋论·一",
+        "charCount": 192
+      },
+      {
+        "id": "yuanhaiziping-011",
+        "title": "神趣八法-赋论·一",
+        "charCount": 558
+      },
+      {
+        "id": "yuanhaiziping-012",
+        "title": "杂论口诀-赋论·一",
+        "charCount": 1353
+      },
+      {
+        "id": "yuanhaiziping-013",
+        "title": "相心赋-赋论·二",
+        "charCount": 571
+      },
+      {
+        "id": "yuanhaiziping-014",
+        "title": "玄机赋-赋论·二",
+        "charCount": 999
+      },
+      {
+        "id": "yuanhaiziping-015",
+        "title": "幽微赋-赋论·二",
+        "charCount": 837
+      },
+      {
+        "id": "yuanhaiziping-016",
+        "title": "五行元理消息赋-赋论·二",
+        "charCount": 1342
+      },
+      {
+        "id": "yuanhaiziping-017",
+        "title": "金玉赋-赋论·二",
+        "charCount": 2324
+      },
+      {
+        "id": "yuanhaiziping-018",
+        "title": "《碧渊赋》捷驰千里马-赋论·二",
+        "charCount": 2478
+      },
+      {
+        "id": "yuanhaiziping-019",
+        "title": "群兴论-赋论·三",
+        "charCount": 914
+      },
+      {
+        "id": "yuanhaiziping-020",
+        "title": "论兴亡-赋论·三",
+        "charCount": 527
+      },
+      {
+        "id": "yuanhaiziping-021",
+        "title": "宝法-赋论·三",
+        "charCount": 688
+      },
+      {
+        "id": "yuanhaiziping-022",
+        "title": "寸金搜髓论-赋论·三",
+        "charCount": 1263
+      },
+      {
+        "id": "yuanhaiziping-023",
+        "title": "论命细法-赋论·三",
+        "charCount": 1599
+      },
+      {
+        "id": "yuanhaiziping-024",
+        "title": "心镜歌-赋论·三",
+        "charCount": 772
+      },
+      {
+        "id": "yuanhaiziping-025",
+        "title": "妖祥赋-赋论·三",
+        "charCount": 761
+      },
+      {
+        "id": "yuanhaiziping-026",
+        "title": "络绎赋-赋论·三",
+        "charCount": 660
+      },
+      {
+        "id": "yuanhaiziping-027",
+        "title": "造微论-赋论·四",
+        "charCount": 931
+      },
+      {
+        "id": "yuanhaiziping-028",
+        "title": "人鉴论-赋论·四",
+        "charCount": 1110
+      },
+      {
+        "id": "yuanhaiziping-029",
+        "title": "爱憎赋-赋论·四",
+        "charCount": 1905
+      },
+      {
+        "id": "yuanhaiziping-030",
+        "title": "万金赋-赋论·四",
+        "charCount": 604
+      },
+      {
+        "id": "yuanhaiziping-031",
+        "title": "挈要捷驰玄妙诀-赋论·四",
+        "charCount": 1159
+      },
+      {
+        "id": "yuanhaiziping-032",
+        "title": "渊源集说-赋论·四",
+        "charCount": 662
+      },
+      {
+        "id": "yuanhaiziping-033",
+        "title": "子平百章论科甲歌-赋论·四",
+        "charCount": 175
+      },
+      {
+        "id": "yuanhaiziping-034",
+        "title": "四言独步-赋论·四",
+        "charCount": 1731
+      },
+      {
+        "id": "yuanhaiziping-035",
+        "title": "身弱论-赋论·五",
+        "charCount": 306
+      },
+      {
+        "id": "yuanhaiziping-036",
+        "title": "弃命从杀论-赋论·五",
+        "charCount": 281
+      },
+      {
+        "id": "yuanhaiziping-037",
+        "title": "五言独步-赋论·五",
+        "charCount": 613
+      },
+      {
+        "id": "yuanhaiziping-038",
+        "title": "五行生克赋-赋论·五",
+        "charCount": 726
+      },
+      {
+        "id": "yuanhaiziping-039",
+        "title": "珞琭子消息赋-赋论·五",
+        "charCount": 2322
+      },
+      {
+        "id": "yuanhaiziping-040",
+        "title": "论八字撮要法-赋论·五",
+        "charCount": 182
+      },
+      {
+        "id": "yuanhaiziping-041",
+        "title": "格局生死引用-赋论·五",
+        "charCount": 489
+      },
+      {
+        "id": "yuanhaiziping-042",
+        "title": "格局",
+        "charCount": 12743
+      },
+      {
+        "id": "yuanhaiziping-043",
+        "title": "诗诀",
+        "charCount": 3959
+      }
+    ]
+  },
+  {
+    "id": "minglitanyuan",
+    "title": "命理探源",
+    "author": "袁树珊",
+    "dynasty": "民国",
+    "chapterCount": 25,
+    "charCount": 50603,
+    "chapters": [
+      {
+        "id": "minglitanyuan-001",
+        "title": "卷一 本原 - 命理探源-袁树珊(民国)",
+        "charCount": 9372
+      },
+      {
+        "id": "minglitanyuan-002",
+        "title": "卷二 起例 - 命理探源-袁树珊(民国)",
+        "charCount": 9093
+      },
+      {
+        "id": "minglitanyuan-003",
+        "title": "卷三 强弱 - 命理探源-袁树珊(民国)",
+        "charCount": 7717
+      },
+      {
+        "id": "minglitanyuan-004",
+        "title": "论天干宜忌-卷四 - 命理探源-袁树珊(民国)",
+        "charCount": 2070
+      },
+      {
+        "id": "minglitanyuan-005",
+        "title": "论干支异同-卷四 - 命理探源-袁树珊(民国)",
+        "charCount": 700
+      },
+      {
+        "id": "minglitanyuan-006",
+        "title": "论五行生克制化宜忌-卷四 - 命理探源-袁树珊(民国)",
+        "charCount": 269
+      },
+      {
+        "id": "minglitanyuan-007",
+        "title": "论四时之木宜忌-卷四 - 命理探源-袁树珊(民国)",
+        "charCount": 382
+      },
+      {
+        "id": "minglitanyuan-008",
+        "title": "论四时之火宜忌-卷四 - 命理探源-袁树珊(民国)",
+        "charCount": 291
+      },
+      {
+        "id": "minglitanyuan-009",
+        "title": "论土四时宜忌-卷四 - 命理探源-袁树珊(民国)",
+        "charCount": 226
+      },
+      {
+        "id": "minglitanyuan-010",
+        "title": "论四时之金宜忌-卷四 - 命理探源-袁树珊(民国)",
+        "charCount": 295
+      },
+      {
+        "id": "minglitanyuan-011",
+        "title": "论四时之水宜忌-卷四 - 命理探源-袁树珊(民国)",
+        "charCount": 924
+      },
+      {
+        "id": "minglitanyuan-012",
+        "title": "论五行四时九州分野宜忌-卷四 - 命理探源-袁树珊(民国)",
+        "charCount": 862
+      },
+      {
+        "id": "minglitanyuan-013",
+        "title": "论官财印食神宜忌-卷四 - 命理探源-袁树珊(民国)",
+        "charCount": 3283
+      },
+      {
+        "id": "minglitanyuan-014",
+        "title": "论病药-卷四 - 命理探源-袁树珊(民国)",
+        "charCount": 776
+      },
+      {
+        "id": "minglitanyuan-015",
+        "title": "论衰旺、四吉凶神-卷四 - 命理探源-袁树珊(民国)",
+        "charCount": 578
+      },
+      {
+        "id": "minglitanyuan-016",
+        "title": "论用神-卷四 - 命理探源-袁树珊(民国)",
+        "charCount": 408
+      },
+      {
+        "id": "minglitanyuan-017",
+        "title": "论用神成败救应-卷四 - 命理探源-袁树珊(民国)",
+        "charCount": 1004
+      },
+      {
+        "id": "minglitanyuan-018",
+        "title": "论用神因成得败因败得成-卷四 - 命理探源-袁树珊(民国)",
+        "charCount": 337
+      },
+      {
+        "id": "minglitanyuan-019",
+        "title": "论用神配气候得失-卷四 - 命理探源-袁树珊(民国)",
+        "charCount": 700
+      },
+      {
+        "id": "minglitanyuan-020",
+        "title": "论相神紧要-卷四 - 命理探源-袁树珊(民国)",
+        "charCount": 480
+      },
+      {
+        "id": "minglitanyuan-021",
+        "title": "论用神格局高低-卷四 - 命理探源-袁树珊(民国)",
+        "charCount": 671
+      },
+      {
+        "id": "minglitanyuan-022",
+        "title": "论生克先后分吉凶-卷四 - 命理探源-袁树珊(民国)",
+        "charCount": 479
+      },
+      {
+        "id": "minglitanyuan-023",
+        "title": "卷五 化合刑冲 - 命理探源-袁树珊(民国)",
+        "charCount": 8787
+      },
+      {
+        "id": "minglitanyuan-024",
+        "title": "卷六 先贤名论 - 命理探源-袁树珊(民国)",
+        "charCount": 174
+      },
+      {
+        "id": "minglitanyuan-025",
+        "title": "推命范例-卷七 - 命理探源-袁树珊(民国)",
+        "charCount": 725
+      }
+    ]
+  }
+]

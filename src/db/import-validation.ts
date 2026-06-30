@@ -1,12 +1,14 @@
 import { normalizeStoredBaziResult } from '../core/bazi-normalize';
 import { BaziResult } from '../core/bazi-types';
 import { PanResult } from '../core/liuyao-calc';
+import { BaziCompatibilityResult } from '../features/bazi/match/types';
 import { ZiweiRecordResult } from '../features/ziwei/record';
 import { ZIWEI_SUPPORTED_TIMEZONE_OFFSET_MINUTES } from '../features/ziwei/runtime-meta';
 import {
     DivinationEngine,
     DivinationRecordEnvelope,
     isDivinationMethod,
+    isBaziCompatibilityResult,
     isPanResult,
     isZiweiRecordResult,
 } from './record-types';
@@ -76,6 +78,14 @@ function validateZiweiRecord(result: unknown, index: number): ZiweiRecordResult 
     return sanitized;
 }
 
+function validateBaziCompatibilityRecord(result: unknown, index: number): BaziCompatibilityResult {
+    if (!isBaziCompatibilityResult(result)) {
+        throw new Error(`第${index + 1}条记录格式无效：八字合盘结果结构非法`);
+    }
+    assertCreatedAt(result.createdAt, index);
+    return result;
+}
+
 function normalizeSummary(summary: unknown): DivinationRecordEnvelope['summary'] {
     if (!isObject(summary)) {
         return undefined;
@@ -89,7 +99,7 @@ function normalizeSummary(summary: unknown): DivinationRecordEnvelope['summary']
 }
 
 function assertEngineType(value: unknown, index: number): asserts value is DivinationEngine {
-    if (value !== 'liuyao' && value !== 'bazi' && value !== 'ziwei') {
+    if (value !== 'liuyao' && value !== 'bazi' && value !== 'ziwei' && value !== 'baziCompatibility') {
         throw new Error(`第${index + 1}条记录格式无效：缺少有效 engineType`);
     }
 }
@@ -119,6 +129,15 @@ function normalizeRecord(record: unknown, index: number): DivinationRecordEnvelo
             const result = validateBaziRecord(record.result, index);
             return {
                 engineType: 'bazi',
+                result,
+                summary: normalizeSummary(record.summary),
+            };
+        }
+
+        if (record.engineType === 'baziCompatibility') {
+            const result = validateBaziCompatibilityRecord(record.result, index);
+            return {
+                engineType: 'baziCompatibility',
                 result,
                 summary: normalizeSummary(record.summary),
             };

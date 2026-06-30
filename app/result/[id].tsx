@@ -66,6 +66,9 @@ export default function ResultPage() {
                     } else if (detail.engineType === 'ziwei') {
                         router.replace(`/ziwei/result/${id}`);
                         return;
+                    } else if (detail.engineType === 'baziCompatibility') {
+                        router.replace(`/bazi/match/result/${id}`);
+                        return;
                     } else {
                         router.replace(`/bazi/result/${id}`);
                         return;
