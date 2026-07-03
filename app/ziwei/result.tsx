@@ -1405,7 +1405,7 @@ export default function ZiweiResultPage() {
                     <AnalysisCard
                         title="基本信息"
                         lines={[
-                            `${currentName} · ${staticChart!.input.gender === 'male' ? '阳男' : '阴女'}`,
+                            `${currentName} · ${staticChart!.input.gender === 'male' ? '乾造' : '坤造'}`,
                             `输入语义：${formatInputSemantic(staticChart!)}`,
                             `真太阳时：${formatDateTime(staticChart!.input.trueSolarDate)}`,
                             `北京时间：${formatDateTime(staticChart!.input.birthLocalDate)}`,
@@ -2145,7 +2145,7 @@ const ZiweiCenterCard = memo(function ZiweiCenterCard({
             <View style={styles.centerCardTop}>
                 <Text style={styles.centerName} numberOfLines={1}>{currentName}</Text>
                 <Text style={styles.centerLine} numberOfLines={1}>
-                    {chart.input.gender === 'male' ? '阳男' : '阴女'} · {chart.astrolabe.fiveElementsClass}
+                    {chart.input.gender === 'male' ? '乾造' : '坤造'} · {chart.astrolabe.fiveElementsClass}
                 </Text>
                 <Text style={styles.centerLine} numberOfLines={1}>{formatDateTime(chart.input.birthLocalDate)}</Text>
                 <Text style={styles.centerLine} numberOfLines={1}>真太阳时 {formatDateTime(chart.input.trueSolarDate)}</Text>
@@ -2698,12 +2698,9 @@ const makeStyles = (Colors: any, metrics: ZiweiBoardMetrics) => {
         headerBtn: {
             width: 44,
             height: 44,
-            borderRadius: BorderRadius.md,
-            borderWidth: 1,
-            borderColor: Colors.border.subtle,
-            backgroundColor: Colors.bg.card,
             alignItems: 'center',
             justifyContent: 'center',
+            backgroundColor: 'transparent',
         },
         headerBtnDisabled: {
             opacity: 0.45,

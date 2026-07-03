@@ -1,11 +1,9 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors as DefaultColors } from './colors';
-import { GreenColors } from './colors-green';
 import { WhiteColors } from './colors-white';
-import { PurpleColors } from './colors-purple';
 
-type ThemeType = 'dark' | 'green' | 'white' | 'purple';
+export type ThemeType = 'yin' | 'yang';
 
 interface ThemeContextProps {
     theme: ThemeType;
@@ -14,13 +12,17 @@ interface ThemeContextProps {
 }
 
 const ThemeContext = createContext<ThemeContextProps>({
-    theme: 'dark',
+    theme: 'yin',
     setTheme: () => { },
     Colors: DefaultColors,
 });
 
+function normalizeTheme(value: string | null): ThemeType {
+    return value === 'white' || value === 'yang' ? 'yang' : 'yin';
+}
+
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [theme, setThemeState] = useState<ThemeType>('dark');
+    const [theme, setThemeState] = useState<ThemeType>('yin');
     const [isReady, setIsReady] = useState(false);
 
     useEffect(() => {
@@ -29,8 +31,10 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             try {
                 const t = await AsyncStorage.getItem('app-theme');
                 if (!mounted) return;
-                if (t === 'green' || t === 'white' || t === 'purple' || t === 'dark') {
-                    setThemeState(t as ThemeType);
+                const normalized = normalizeTheme(t);
+                setThemeState(normalized);
+                if (t !== normalized) {
+                    AsyncStorage.setItem('app-theme', normalized).catch(() => { });
                 }
             } catch {
                 // fallback to default theme
@@ -53,9 +57,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const getColors = () => {
         switch (theme) {
-            case 'green': return GreenColors;
-            case 'white': return WhiteColors;
-            case 'purple': return PurpleColors;
+            case 'yang': return WhiteColors;
             default: return DefaultColors;
         }
     };

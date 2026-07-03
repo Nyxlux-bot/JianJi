@@ -17,7 +17,7 @@ import CustomAlertProvider from '../src/components/CustomAlertProvider';
 SplashScreen.preventAutoHideAsync().catch(() => { });
 
 function RootApp() {
-    const { Colors } = useTheme();
+    const { Colors, theme } = useTheme();
     const styles = makeStyles(Colors);
     const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -45,7 +45,7 @@ function RootApp() {
         <GestureHandlerRootView style={styles.container}>
             <SafeAreaProvider>
                 <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
-                    <StatusBar style={Colors.bg.primary === '#f9f6f0' ? 'dark' : 'light'} />
+                    <StatusBar style={theme === 'yang' ? 'dark' : 'light'} />
                     <Stack
                         screenOptions={{
                             headerShown: false,

@@ -9,6 +9,7 @@ const KEYS = {
     API_URL: 'settings_api_url',
     API_KEY: 'settings_api_key',
     MODEL: 'settings_model',
+    TEMPERATURE: 'settings_temperature',
     GEOCODER_API_KEY: 'settings_geocoder_api_key',
     LIUYAO_SYSTEM_PROMPT: 'settings_prompt_liuyao_system',
     LIUYAO_PROMPT_VERSION: 'settings_prompt_liuyao_version',
@@ -39,6 +40,7 @@ export interface AISettings {
     apiUrl: string;
     apiKey: string;
     model: string;
+    temperature: number;
     geocoderApiKey: string;
 }
 
@@ -46,8 +48,19 @@ export const DEFAULT_SETTINGS: AISettings = {
     apiUrl: 'https://api.openai.com/v1/chat/completions',
     apiKey: '',
     model: 'gpt-4o',
+    temperature: 0.7,
     geocoderApiKey: '',
 };
+
+function normalizeTemperature(value: unknown, fallback = DEFAULT_SETTINGS.temperature): number {
+    const numberValue = typeof value === 'number'
+        ? value
+        : (typeof value === 'string' ? Number(value) : NaN);
+    if (!Number.isFinite(numberValue)) {
+        return fallback;
+    }
+    return Math.max(0, Math.min(2, Number(numberValue.toFixed(2))));
+}
 
 export function mergeImportedSettings(rawSettings: unknown, currentSettings: AISettings): AISettings {
     if (!rawSettings || typeof rawSettings !== 'object') {
@@ -66,6 +79,7 @@ export function mergeImportedSettings(rawSettings: unknown, currentSettings: AIS
         model: typeof incoming.model === 'string' && incoming.model.trim().length > 0
             ? incoming.model
             : currentSettings.model,
+        temperature: normalizeTemperature(incoming.temperature, currentSettings.temperature),
         geocoderApiKey: typeof incoming.geocoderApiKey === 'string' && incoming.geocoderApiKey.trim().length > 0
             ? incoming.geocoderApiKey
             : currentSettings.geocoderApiKey,
@@ -79,10 +93,11 @@ async function clearLegacyPromptStorage(): Promise<void> {
 /** 获取全部设置 */
 export async function getSettings(): Promise<AISettings> {
     try {
-        const [apiUrl, apiKey, model, geocoderApiKey] = await Promise.all([
+        const [apiUrl, apiKey, model, temperature, geocoderApiKey] = await Promise.all([
             AsyncStorage.getItem(KEYS.API_URL).catch(() => null),
             AsyncStorage.getItem(KEYS.API_KEY).catch(() => null),
             AsyncStorage.getItem(KEYS.MODEL).catch(() => null),
+            AsyncStorage.getItem(KEYS.TEMPERATURE).catch(() => null),
             AsyncStorage.getItem(KEYS.GEOCODER_API_KEY).catch(() => null),
         ]);
 
@@ -92,6 +107,7 @@ export async function getSettings(): Promise<AISettings> {
             apiUrl: apiUrl || DEFAULT_SETTINGS.apiUrl,
             apiKey: apiKey || DEFAULT_SETTINGS.apiKey,
             model: model || DEFAULT_SETTINGS.model,
+            temperature: normalizeTemperature(temperature),
             geocoderApiKey: geocoderApiKey || DEFAULT_SETTINGS.geocoderApiKey,
         };
     } catch {
@@ -105,6 +121,7 @@ export async function saveSettings(settings: AISettings): Promise<void> {
         AsyncStorage.setItem(KEYS.API_URL, settings.apiUrl),
         AsyncStorage.setItem(KEYS.API_KEY, settings.apiKey),
         AsyncStorage.setItem(KEYS.MODEL, settings.model),
+        AsyncStorage.setItem(KEYS.TEMPERATURE, String(normalizeTemperature(settings.temperature))),
         AsyncStorage.setItem(KEYS.GEOCODER_API_KEY, settings.geocoderApiKey),
         ...LEGACY_PROMPT_KEYS.map((key) => AsyncStorage.removeItem(key)),
     ]);

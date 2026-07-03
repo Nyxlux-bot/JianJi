@@ -217,7 +217,7 @@ export function buildZiweiRecordResult(params: {
 }
 
 export function buildZiweiSummary(result: ZiweiRecordResult) {
-    const genderLabel = result.gender === 'male' ? '男命' : '女命';
+    const genderLabel = result.gender === 'male' ? '乾造' : '坤造';
 
     return {
         method: result.gender,

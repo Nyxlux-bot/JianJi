@@ -63,8 +63,8 @@ const BAZI_CATEGORY_OPTIONS: Array<{ key: BaziHistoryCategory; label: string }> 
 
 const ZIWEI_CATEGORY_OPTIONS: Array<{ key: ZiweiHistoryCategory; label: string }> = [
     { key: 'all', label: '全部' },
-    { key: 'male', label: '男命' },
-    { key: 'female', label: '女命' },
+    { key: 'female', label: '坤造' },
+    { key: 'male', label: '乾造' },
     { key: 'favorite', label: '收藏' },
 ];
 
@@ -81,8 +81,8 @@ const META_LABELS: Record<string, string> = {
     kunzao: '坤造',
     qianzao: '乾造',
     bazi: '八字',
-    male: '男命',
-    female: '女命',
+    male: '乾造',
+    female: '坤造',
     ziwei: '紫微',
     baziCompatibility: '合盘',
 };
@@ -95,6 +95,7 @@ interface HistoryRecordRowProps {
     question: string;
     createdAtLabel: string;
     metaLabel: string;
+    metaLabelKey: string;
     engineType: RecordSummary['engineType'];
     isFavorite: boolean;
     favoriteColor: string;
@@ -111,6 +112,7 @@ const HistoryRecordRow = memo(function HistoryRecordRow({
     question,
     createdAtLabel,
     metaLabel,
+    metaLabelKey,
     engineType,
     isFavorite,
     favoriteColor,
@@ -145,14 +147,26 @@ const HistoryRecordRow = memo(function HistoryRecordRow({
                     <View
                         style={[
                             styles.recordMetaBadge,
-                            engineType === 'bazi' || engineType === 'baziCompatibility'
+                            metaLabelKey === 'qianzao' || metaLabelKey === 'male'
+                                ? styles.recordMetaBadgeMale
+                                : metaLabelKey === 'kunzao' || metaLabelKey === 'female'
+                                    ? styles.recordMetaBadgeFemale
+                                    : engineType === 'bazi' || engineType === 'baziCompatibility'
                                 ? styles.recordMetaBadgeBazi
                                 : engineType === 'ziwei'
                                     ? styles.recordMetaBadgeZiwei
                                     : styles.recordMetaBadgeLiuyao,
                         ]}
                     >
-                        <Text style={styles.recordMetaBadgeText}>{metaLabel}</Text>
+                        <Text
+                            style={[
+                                styles.recordMetaBadgeText,
+                                (metaLabelKey === 'qianzao' || metaLabelKey === 'male') && styles.recordMetaBadgeTextMale,
+                                (metaLabelKey === 'kunzao' || metaLabelKey === 'female') && styles.recordMetaBadgeTextFemale,
+                            ]}
+                        >
+                            {metaLabel}
+                        </Text>
                     </View>
                     <Text style={styles.recordMeta}>{createdAtLabel}</Text>
                 </View>
@@ -373,6 +387,7 @@ export default function HistoryPage() {
                 question={item.question}
                 createdAtLabel={formatDate(item.createdAt)}
                 metaLabel={metaLabel}
+                metaLabelKey={metaLabelKey}
                 engineType={item.engineType}
                 isFavorite={item.isFavorite}
                 favoriteColor={Colors.accent.gold}
@@ -637,6 +652,16 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         borderWidth: 1,
         borderColor: Colors.accent.gold,
     },
+    recordMetaBadgeMale: {
+        backgroundColor: Colors.bg.elevated,
+        borderWidth: 1,
+        borderColor: '#5F8ED8',
+    },
+    recordMetaBadgeFemale: {
+        backgroundColor: Colors.bg.elevated,
+        borderWidth: 1,
+        borderColor: '#D98A8A',
+    },
     recordMetaBadgeZiwei: {
         backgroundColor: Colors.bg.elevated,
         borderWidth: 1,
@@ -646,6 +671,12 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         fontSize: FontSize.xs,
         color: Colors.text.secondary,
         fontWeight: '700',
+    },
+    recordMetaBadgeTextMale: {
+        color: '#5F8ED8',
+    },
+    recordMetaBadgeTextFemale: {
+        color: '#D98A8A',
     },
     recordMeta: {
         fontSize: FontSize.xs,

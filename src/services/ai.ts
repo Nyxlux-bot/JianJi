@@ -1268,7 +1268,7 @@ async function requestChatCompletion(
             body: JSON.stringify({
                 model: settings.model,
                 messages,
-                temperature: options.temperature ?? 0.3,
+                temperature: options.temperature ?? settings.temperature,
                 max_tokens: options.maxTokens ?? 600,
             }),
             signal: controller.signal as RequestInit['signal'],
@@ -1927,7 +1927,7 @@ export async function analyzeWithAIChatStream(
             body: JSON.stringify({
                 model: settings.model,
                 messages,
-                temperature: requestOptions.temperature ?? 0.7,
+                temperature: requestOptions.temperature ?? settings.temperature,
                 max_tokens: requestOptions.maxTokens ?? 2000,
                 stream: true,
             }),

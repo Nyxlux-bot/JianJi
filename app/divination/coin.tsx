@@ -99,7 +99,7 @@ function useCoinMotionState(): CoinMotionState {
 
 interface Coin3DProps {
     motion: CoinMotionState;
-    themeName: 'dark' | 'green' | 'white' | 'purple';
+    themeName: 'yin' | 'yang';
     styles: ReturnType<typeof makeStyles>;
 }
 

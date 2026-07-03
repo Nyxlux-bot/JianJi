@@ -6,7 +6,7 @@ export type CoinFace = 'front' | 'back';
 export interface YongleCoinProps {
     face: CoinFace;
     size?: number;
-    themeName?: 'dark' | 'green' | 'white' | 'purple';
+    themeName?: 'yin' | 'yang';
     style?: StyleProp<ImageStyle>;
 }
 

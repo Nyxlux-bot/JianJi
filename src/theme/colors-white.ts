@@ -2,15 +2,15 @@ import { Colors } from './colors';
 import { buildBaziThemeTokens } from './bazi-theme';
 
 const baseColors = {
-    bg: { primary: '#f9f6f0', secondary: '#f0ede6', card: '#ffffff', elevated: '#ffffff', input: '#f2efea', overlay: 'rgba(0,0,0,0.3)' },
-    text: { primary: '#1a1b1c', secondary: '#5a5b5c', tertiary: '#8a8b8c', inverse: '#ffffff', heading: '#000000' },
-    accent: { gold: '#cc3333', goldLight: '#e64d4d', goldDark: '#a32929', red: '#cc3333', redLight: '#e64d4d', jade: '#2b7a4b', jadeDark: '#1a4e2e' },
-    yao: { yang: '#cc3333', yin: '#cc3333', moving: '#1a1b1c', movingBg: 'rgba(26,27,28,0.1)' },
-    liushen: { qinglong: '#2b7a4b', zhuque: '#cc3333', gouchen: '#b37a24', tengshe: '#66523d', baihu: '#8a8b8c', xuanwu: '#2b3f5c' },
-    border: { subtle: '#e6e3dd', normal: '#d4d1cb', accent: '#cc3333' },
+    bg: { primary: '#f6f1e7', secondary: '#eee5d5', card: '#fffaf0', elevated: '#f9f0df', input: '#f0e6d4', overlay: 'rgba(37,29,18,0.28)' },
+    text: { primary: '#211b12', secondary: '#5f5445', tertiary: '#8b7d68', inverse: '#fffaf0', heading: '#120f0a' },
+    accent: { gold: '#9b7017', goldLight: '#c79b3a', goldDark: '#72510f', red: '#b74d3d', redLight: '#d66b5b', jade: '#4d8a63', jadeDark: '#2d6543' },
+    yao: { yang: '#9b7017', yin: '#9b7017', moving: '#b74d3d', movingBg: 'rgba(183,77,61,0.12)' },
+    liushen: { qinglong: '#4d8a63', zhuque: '#b74d3d', gouchen: '#9b7017', tengshe: '#8b6c45', baihu: '#7f7769', xuanwu: '#475d78' },
+    border: { subtle: '#ded2bd', normal: '#cfc0a8', accent: '#9b7017' },
 };
 
 export const WhiteColors: typeof Colors = {
     ...baseColors,
-    bazi: buildBaziThemeTokens(baseColors, { brandColor: '#cc3333' }),
+    bazi: buildBaziThemeTokens(baseColors),
 };

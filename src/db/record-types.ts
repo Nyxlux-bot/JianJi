@@ -536,7 +536,7 @@ export function buildSummaryFields(envelope: DivinationRecordEnvelope): RecordSu
         if (!isZiweiRecordResult(result)) {
             throw new Error('紫微记录结构非法');
         }
-        const genderLabel = result.gender === 'male' ? '男命' : '女命';
+        const genderLabel = result.gender === 'male' ? '乾造' : '坤造';
 
         return {
             method: summary?.method || result.gender,
