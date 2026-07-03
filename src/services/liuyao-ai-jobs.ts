@@ -357,7 +357,9 @@ export function startLiuyaoAIJob({ result, messages, phase }: StartLiuyaoAIJobPa
 
     void (async () => {
         try {
-            const requestBundle = await buildRequestBundle(result, messages);
+            const requestBundle = await buildRequestBundle(result, messages, undefined, {
+                workflowStage: phase === 'followup' ? 'followup' : undefined,
+            });
             const requestOptions = {
                 ...getChatRequestOptions(result, phase),
                 stage: phase,

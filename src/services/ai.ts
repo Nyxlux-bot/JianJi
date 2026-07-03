@@ -72,6 +72,13 @@ const LIUYAO_EVIDENCE_GUARD_PROMPT = [
     '输出必须覆盖：整体卦意、世应关系、用神/忌神、动变、应期、趋避建议。',
     '关键判断必须引用盘面锚点，例如本卦/变卦、世爻/应爻、日月建、旬空、动爻、六亲六神。',
 ].join('\n');
+const LIUYAO_FOLLOWUP_EVIDENCE_GUARD_PROMPT = [
+    '【六爻追问证据锚定】',
+    '本轮是六爻追问，不要脱离前文已经完成的卦意、用神忌神、世应关系和应期判断。',
+    '必须同时结合：系统排盘事实、前文上下文、用户本次问题。不得只按常识回答，也不得重新编造排盘外信息。',
+    '回答要围绕本次问题收束，但仍需写清相关盘面依据；至少引用本卦/变卦、世爻/应爻、日月建、旬空、动爻、六亲六神中的关键锚点。',
+    '若本次问题涉及时间、月份、日期或行动选择，必须给出应期取法和趋避建议。',
+].join('\n');
 const ZIWEI_DIGEST_VERSION = 2;
 const ZIWEI_FOUNDATION_PROMPT = [
     '当前只执行紫微斗数工作流的第一阶段：基础命盘分析。',
@@ -1699,9 +1706,10 @@ export async function buildRequestBundle(
     requestContext: AIRequestBuildContext = {},
 ): Promise<AIRequestBundle> {
     if (!isBaziResult(result) && !isZiweiResult(result)) {
+        const isFollowup = requestContext.workflowStage === 'followup';
         const messages = [
             await buildSystemMessage(result),
-            { role: 'system' as const, content: LIUYAO_EVIDENCE_GUARD_PROMPT },
+            { role: 'system' as const, content: isFollowup ? LIUYAO_FOLLOWUP_EVIDENCE_GUARD_PROMPT : LIUYAO_EVIDENCE_GUARD_PROMPT },
             { role: 'system' as const, content: LIUYAO_STRONG_REASONING_STREAM_PROMPT },
             ...toApiMessages(chatHistory),
         ];
@@ -1803,6 +1811,19 @@ export async function buildRequestMessages(
     return bundle.messages;
 }
 
+function splitStreamEventPayload(data: string): string[] {
+    const trimmed = data.trim();
+    if (!trimmed) {
+        return [];
+    }
+    if (trimmed === '[DONE]') {
+        return [trimmed];
+    }
+
+    const lines = trimmed.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+    return lines.length > 1 ? lines : [trimmed];
+}
+
 export async function analyzeWithAIChatStream(
     messages: AIChatMessage[],
     onChunk: (text: string) => void,
@@ -1885,6 +1906,7 @@ export async function analyzeWithAIChatStream(
                     stage,
                     recoverable: true,
                     usedFallback: false,
+                    content: fullContent || undefined,
                 });
             }, streamIdleTimeoutMs);
         };
@@ -1909,7 +1931,6 @@ export async function analyzeWithAIChatStream(
                 max_tokens: requestOptions.maxTokens ?? 2000,
                 stream: true,
             }),
-            lineEndingCharacter: '\n',
         });
 
         if (signal) {
@@ -1953,6 +1974,7 @@ export async function analyzeWithAIChatStream(
                         stage,
                         recoverable: true,
                         usedFallback: false,
+                        content: fullContent || undefined,
                     });
                     return;
                 }
@@ -1960,8 +1982,48 @@ export async function analyzeWithAIChatStream(
                 return;
             }
 
-            try {
-                const parsed = JSON.parse(dataStr);
+            for (const payload of splitStreamEventPayload(dataStr)) {
+                if (payload === '[DONE]') {
+                    if (heartbeatTimer) {
+                        clearTimeout(heartbeatTimer);
+                    }
+                    if (signal) {
+                        signal.removeEventListener('abort', handleAbort);
+                    }
+                    eventSource.close();
+                    if (!fullContent.trim()) {
+                        resolve({
+                            success: false,
+                            error: '模型推理已结束，但没有返回可见正文，请重试。',
+                            code: 'empty_response',
+                            stage,
+                            recoverable: true,
+                            usedFallback: false,
+                        });
+                        return;
+                    }
+                    if (lastFinishReason === 'length') {
+                        resolve({
+                            success: false,
+                            error: '输出内容超出模型单次 Token 限制，分析被截断，请重试。',
+                            code: 'token_limit',
+                            stage,
+                            recoverable: true,
+                            usedFallback: false,
+                            content: fullContent || undefined,
+                        });
+                        return;
+                    }
+                    resolve({ success: true, content: fullContent });
+                    return;
+                }
+
+                let parsed: any;
+                try {
+                    parsed = JSON.parse(payload);
+                } catch {
+                    continue;
+                }
                 const choice = parsed.choices?.[0];
                 const delta = choice?.delta || {};
                 // 记录 finish_reason，用于在 [DONE] 时检测截断
@@ -1978,8 +2040,6 @@ export async function analyzeWithAIChatStream(
                     fullContent += chunk;
                     onChunk(chunk);
                 }
-            } catch {
-                // 忽略非标准消息块
             }
         });
 
@@ -2012,6 +2072,7 @@ export async function analyzeWithAIChatStream(
                 stage,
                 recoverable: true,
                 usedFallback: false,
+                content: fullContent || undefined,
             });
         });
     });
