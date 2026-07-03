@@ -2,7 +2,7 @@
   "expo": {
     "name": "见机",
     "slug": "jianji",
-    "version": "1.5.8",
+    "version": "1.5.9",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -24,7 +24,7 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.jianji.app",
-      "versionCode": 10508
+      "versionCode": 10509
     },
     "plugins": [
       "expo-router",
