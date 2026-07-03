@@ -1,9 +1,20 @@
 name: EAS Build and Release APK
+
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      bump:
+        description: '版本递增方式'
+        required: false
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
 
 jobs:
   build:
@@ -12,44 +23,141 @@ jobs:
       contents: write
 
     steps:
-      - name: 1. 拉取代码
+      - name: 1. 拉取完整代码历史
         uses: actions/checkout@v4
-      - name: 2. 配置 Node 环境
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 2. 配置 Git 身份（仅手动触发时）
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: 3. 自动递增版本号并打 Tag（仅手动触发时）
+        if: github.event_name == 'workflow_dispatch'
+        id: bump_version
+        run: |
+          BUMP="${{ github.event.inputs.bump }}"
+          CURRENT=$(jq -r '.expo.version' app.json)
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+
+          case "$BUMP" in
+            major) MAJOR=$((MAJOR+1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR+1)); PATCH=0 ;;
+            *)     PATCH=$((PATCH+1)) ;;
+          esac
+
+          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+
+          # versionCode：从现有值递增，不存在则从版本号计算初始值
+          CURRENT_CODE=$(jq -r '.expo.android.versionCode // 0' app.json)
+          if [ "$CURRENT_CODE" = "0" ] || [ "$CURRENT_CODE" = "null" ]; then
+            NEW_CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
+          else
+            NEW_CODE=$((CURRENT_CODE + 1))
+          fi
+
+          # 更新 app.json
+          jq --arg v "$NEW_VERSION" --argjson c "$NEW_CODE" \
+            '.expo.version = $v | .expo.android.versionCode = $c' \
+            app.json > app.json.tmp && mv app.json.tmp app.json
+
+          echo "new_version=v${NEW_VERSION}" >> $GITHUB_OUTPUT
+          echo "✅ 版本 $CURRENT → $NEW_VERSION，versionCode → $NEW_CODE"
+
+          # 提交版本变更并打 tag（使用 GITHUB_TOKEN 推送，不会触发二次 workflow）
+          git add app.json
+          git commit -m "chore: bump version to ${NEW_VERSION}"
+          git tag "v${NEW_VERSION}"
+          git push origin HEAD:main "v${NEW_VERSION}"
+
+      - name: 4. 生成中文版本说明
+        id: changelog
+        run: |
+          # 当前 tag
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            CURRENT_TAG="${{ steps.bump_version.outputs.new_version }}"
+          else
+            CURRENT_TAG="${{ github.ref_name }}"
+          fi
+
+          # 找上一个 tag（按时间倒序排，排除当前 tag）
+          PREV_TAG=$(git tag --sort=-creatordate | grep -v "^${CURRENT_TAG}$" | head -1)
+
+          if [ -n "$PREV_TAG" ]; then
+            echo "变更范围：${PREV_TAG} → ${CURRENT_TAG}"
+            COMMITS=$(git log "${PREV_TAG}..HEAD" --oneline --no-merges)
+          else
+            echo "未找到上一个 tag，使用最近 30 条提交"
+            COMMITS=$(git log --oneline --no-merges -30)
+          fi
+
+          FEATURES=""
+          FIXES=""
+          OTHERS=""
+
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            MSG=$(echo "$line" | sed 's/^[0-9a-f]\{7,\} //')
+
+            # 跳过纯版本 bump 提交
+            echo "$MSG" | grep -qiE '^(chore:)?\s*(bump version|version to)' && continue
+
+            if echo "$MSG" | grep -qiE '(^fix|^bug|fix:|bugfix|修复|修正|bug)'; then
+              FIXES="${FIXES}\n- ${MSG}"
+            elif echo "$MSG" | grep -qiE '(^feat|^add|feat:|add:|新增|添加|支持|优化|improve|update|更新)'; then
+              FEATURES="${FEATURES}\n- ${MSG}"
+            else
+              OTHERS="${OTHERS}\n- ${MSG}"
+            fi
+          done <<< "$COMMITS"
+
+          NOTES=""
+          [ -n "$FEATURES" ] && NOTES="${NOTES}## ✨ 新增功能\n${FEATURES}\n\n"
+          [ -n "$FIXES" ]    && NOTES="${NOTES}## 🐛 问题修复\n${FIXES}\n\n"
+          [ -n "$OTHERS" ]   && NOTES="${NOTES}## 🔧 其他改动\n${OTHERS}\n\n"
+          [ -z "$NOTES" ]    && NOTES="本次发布包含若干内部优化。\n"
+
+          printf "%b" "$NOTES" > RELEASE_NOTES.md
+          echo "--- 生成的版本说明 ---"
+          cat RELEASE_NOTES.md
+
+      - name: 5. 配置 Node 环境
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: 3. 安装 Expo 和 EAS CLI (使用秘钥)
+
+      - name: 6. 安装 Expo 和 EAS CLI
         uses: expo/expo-github-action@v8
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
-      - name: 4. 安装项目依赖
+
+      - name: 7. 安装项目依赖
         run: npm install
-      - name: 5. 触发 EAS 云端打包并抓取 APK
+
+      - name: 8. 触发 EAS 云端打包并抓取 APK
         id: eas-build
         run: |
           echo "开始提交云端构建任务..."
-          # 执行云端打包，等待完成，并以 JSON 格式输出结果
           BUILD_JSON=$(eas build --platform android --profile preview --non-interactive --json)
-          
-          # 使用 jq 解析出真实的 APK 下载链接
-          APK_URL=$(echo $BUILD_JSON | jq -r '.[0].artifacts.buildUrl')
+          APK_URL=$(echo "$BUILD_JSON" | jq -r '.[0].artifacts.buildUrl')
           echo "云端打包成功！APK 链接: $APK_URL"
-          
-          # 下载 APK 文件到 GitHub 虚拟机本地
-          wget -O jianji-release.apk $APK_URL
-      - name: 6. 提取 app.json 中的版本号
+          wget -O jianji-release.apk "$APK_URL"
+
+      - name: 9. 确认最终版本号
         id: get_version
         run: |
-          # 使用 jq 工具解析 app.json 中的 expo.version 字段
           APP_VERSION=$(jq -r '.expo.version' app.json)
-          echo "解析到的版本号为: $APP_VERSION"
-          # 将版本号存入当前步骤的 output 中，加上 v 前缀
-          echo "version=v$APP_VERSION" >> $GITHUB_OUTPUT
+          echo "version=v${APP_VERSION}" >> $GITHUB_OUTPUT
+          echo "最终版本号: v${APP_VERSION}"
 
-      - name: 7. 自动发布到 GitHub Releases
+      - name: 10. 发布到 GitHub Releases
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || steps.get_version.outputs.version }}
+          tag_name: ${{ steps.get_version.outputs.version }}
+          name: "见机 ${{ steps.get_version.outputs.version }}"
+          body_path: RELEASE_NOTES.md
           files: jianji-release.apk
-          generate_release_notes: true
