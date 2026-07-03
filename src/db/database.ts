@@ -865,4 +865,75 @@ export async function importRecords(
     return storage.importAll(records, options);
 }
 
+/**
+ * 清理记录的 AI 分析字段，重置为初始状态
+ * @param id 记录 ID
+ * @returns 清理后的记录详情，如果记录不存在则返回 null
+ */
+export async function clearAIAnalysis(id: string): Promise<RecordDetail | null> {
+    const record = await getRecord(id);
+    if (!record) {
+        return null;
+    }
+
+    const { engineType, result, isFavorite } = record;
+
+    // 根据引擎类型清理对应的 AI 字段
+    if (engineType === 'liuyao') {
+        const liuyaoResult = result as PanResult;
+        const clearedResult: PanResult = {
+            ...liuyaoResult,
+            aiAnalysis: undefined,
+            aiChatHistory: undefined,
+            quickReplies: undefined,
+        };
+
+        await saveRecord({
+            engineType: 'liuyao',
+            result: clearedResult,
+        });
+
+        return { engineType: 'liuyao', result: clearedResult, isFavorite };
+    } else if (engineType === 'bazi') {
+        const baziResult = result as BaziResult;
+        const clearedResult: BaziResult = {
+            ...baziResult,
+            aiAnalysis: undefined,
+            aiChatHistory: undefined,
+            aiConversationStage: undefined,
+            aiVerificationSummary: undefined,
+            aiConversationDigest: undefined,
+            quickReplies: undefined,
+        };
+
+        await saveRecord({
+            engineType: 'bazi',
+            result: clearedResult,
+        });
+
+        return { engineType: 'bazi', result: clearedResult, isFavorite };
+    } else if (engineType === 'ziwei') {
+        const ziweiResult = result as ZiweiRecordResult;
+        const clearedResult: ZiweiRecordResult = {
+            ...ziweiResult,
+            aiAnalysis: undefined,
+            aiChatHistory: undefined,
+            aiConversationStage: undefined,
+            aiVerificationSummary: undefined,
+            aiConversationDigest: undefined,
+            quickReplies: undefined,
+        };
+
+        await saveRecord({
+            engineType: 'ziwei',
+            result: clearedResult,
+        });
+
+        return { engineType: 'ziwei', result: clearedResult, isFavorite };
+    } else {
+        // 八字合盘或未知类型，原样返回
+        return record;
+    }
+}
+
 export type { DivinationEngine, DivinationRecordEnvelope, RecordSummary } from './record-types';

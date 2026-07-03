@@ -20,7 +20,7 @@ import { BaziFormatterContext, cloneBaziFormatterContext } from '../core/bazi-ai
 import { AIConversationStage, PersistedAIChatMessage } from '../core/ai-meta';
 import { BaziResult } from '../core/bazi-types';
 import { PanResult } from '../core/liuyao-calc';
-import { saveRecord } from '../db/database';
+import { clearAIAnalysis, saveRecord } from '../db/database';
 import { ZiweiFormatterContext } from '../features/ziwei/ai-context';
 import {
     buildZiweiAIConfigSignature,
@@ -64,6 +64,7 @@ import {
 } from '../services/ai';
 import {
     cancelLiuyaoAIJob,
+    clearLiuyaoAIJob,
     getLiuyaoAIJob,
     LiuyaoAIJobState,
     recoverInterruptedLiuyaoAIJob,
@@ -1310,6 +1311,123 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         setMenuVisible(false);
     };
 
+    const handleResetAnalysis = () => {
+        setMenuVisible(false);
+
+        CustomAlert.alert(
+            '确认重置 AI 分析？',
+            '将清空所有会话记录并重新开始分析，排盘数据不受影响。',
+            [
+                { text: '取消', style: 'cancel' },
+                {
+                    text: '重置',
+                    style: 'destructive',
+                    onPress: () => void performResetAnalysis(),
+                },
+            ]
+        );
+    };
+
+    const performResetAnalysis = async () => {
+        try {
+            // 1. 立即清空所有 UI 状态
+            setMessages([]);
+            setQuickReplies([]);
+            setArtifactNotice(null);
+            setPresentationState('idle');
+            setHasFoundationAttempted(false);
+            syncedLiuyaoJobIdRef.current = null;
+            latestMessagesRef.current = [];
+
+            // 2. 中断并清理
+            if (workflowMode === 'liuyao') {
+                await clearLiuyaoAIJob(result.id);
+                setLiuyaoJob(null);
+            } else {
+                invalidateActiveRequest();
+                setIsLoading(false);
+            }
+
+            // 3. 清理数据库记录
+            const clearedRecord = await clearAIAnalysis(result.id);
+            if (!clearedRecord) {
+                throw new Error('记录不存在');
+            }
+
+            // 4. 类型窄化检查
+            const clearedResult = clearedRecord.result;
+            if (clearedRecord.engineType === 'baziCompatibility') {
+                throw new Error('八字合盘暂不支持 AI 分析重置');
+            }
+
+            // 类型断言：已排除 baziCompatibility
+            const typedResult = clearedResult as PanResult | BaziResult | ZiweiRecordResult;
+
+            // 5. 更新 ref 和父组件状态
+            latestResultRef.current = typedResult;
+            onUpdateResult(typedResult);
+
+            // 6. 重置工作流状态
+            if (isBaziResult(typedResult)) {
+                setWorkflowStage('foundation_pending');
+                autoStartPendingRef.current = true;
+            } else if (isZiweiResult(typedResult)) {
+                setWorkflowStage('foundation_pending');
+                autoStartPendingRef.current = true;
+            } else {
+                // 六爻
+                autoStartPendingRef.current = true;
+            }
+
+            // 7. 启动新分析(六爻不通过 handleSend,避免创建用户消息)
+            if (visibleRef.current && !loadingRef.current) {
+                cancelScheduledAutoStart();
+
+                autoStartTaskRef.current = InteractionManager.runAfterInteractions(() => {
+                    autoStartTaskRef.current = null;
+
+                    if (!visibleRef.current || loadingRef.current) {
+                        return;
+                    }
+
+                    // 再次确保清空(防止 useEffect 干扰)
+                    setMessages([]);
+                    latestMessagesRef.current = [];
+
+                    if (workflowMode === 'liuyao') {
+                        // 六爻: 直接启动 job,不创建用户消息
+                        setPresentationState('preparing_request');
+                        const job = startLiuyaoAIJob({
+                            result: latestResultRef.current as PanResult,
+                            messages: [],  // 空消息列表
+                            phase: 'initial',
+                        });
+                        setLiuyaoJob(job);
+                    } else {
+                        // 八字/紫微: 使用隐藏消息启动工作流
+                        void handleSend(
+                            workflowMode === 'bazi'
+                                ? getBaziFoundationPrompt()
+                                : getZiweiFoundationPrompt(),
+                            {
+                                isAutoInitial: true,
+                                hiddenUser: true,
+                                baseMessagesOverride: [],  // 强制空基础消息
+                                expectedCompletion: stagedMode ? 'foundation' : undefined,
+                                nextWorkflowStage: stagedMode ? 'foundation_ready' : undefined,
+                            },
+                        );
+                    }
+                });
+            }
+
+            CustomAlert.alert('重置成功', '已清空 AI 会话，正在重新分析...');
+        } catch (error: any) {
+            const message = typeof error?.message === 'string' ? error.message : '重置失败，请稍后重试';
+            CustomAlert.alert('重置失败', message);
+        }
+    };
+
     const menuItems: OverflowMenuItem[] = [
         ...(workflowMode === 'liuyao' && isActiveLiuyaoJob(liuyaoJob)
             ? [{ key: 'cancel-liuyao', label: '取消本次分析', onPress: handleCancelLiuyaoJob, destructive: true }]
@@ -1317,6 +1435,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         { key: 'copy', label: '复制回复', onPress: handleCopyLatestAssistant, disabled: isLoading },
         { key: 'retry', label: '重试上一问', onPress: handleRetryLastQuestion, disabled: isLoading || ziweiAnalysisStale || (stagedMode && workflowStage !== 'followup_ready') },
         { key: 'export', label: '导出会话', onPress: handleExportChat, disabled: isLoading },
+        { key: 'reset', label: '重置分析', onPress: handleResetAnalysis, disabled: isLoading, destructive: true },
     ];
     const showFoundationAction = stagedMode
         && !ziweiAnalysisStale

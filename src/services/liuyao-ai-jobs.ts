@@ -310,6 +310,26 @@ export function cancelLiuyaoAIJob(recordId: string): void {
     }
 }
 
+/**
+ * 彻底清理六爻 AI 任务状态(用于重置分析)
+ * 清理内存和持久化存储,但不触发监听器
+ */
+export async function clearLiuyaoAIJob(recordId: string): Promise<void> {
+    // 1. 取消正在进行的任务
+    activeControllers.get(recordId)?.abort();
+    activeControllers.delete(recordId);
+    clearScheduledEmit(recordId);
+
+    // 2. 清理内存状态
+    jobStates.delete(recordId);
+
+    // 3. 清理持久化存储
+    await clearPersistedJob(recordId);
+
+    // 4. 通知监听器任务已清空
+    publish(recordId);
+}
+
 export function startLiuyaoAIJob({ result, messages, phase }: StartLiuyaoAIJobParams): LiuyaoAIJobState {
     const existing = jobStates.get(result.id);
     if (existing && isActiveStatus(existing.status)) {
