@@ -291,6 +291,8 @@ function formatAIFailureMessage(failure?: Pick<AIFailureInfo, 'code' | 'message'
             return 'AI 返回格式无效，请重试。';
         case 'empty_response':
             return failure.message || 'AI 推理结束但没有返回可见正文，请重试。';
+        case 'token_limit':
+            return '输出内容超出模型单次 Token 限制，分析被截断，请重试。';
         case 'aborted':
             return 'AI 请求已取消。';
         default:

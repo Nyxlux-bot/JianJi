@@ -146,7 +146,8 @@ export type AIErrorCode =
     | 'timeout'
     | 'aborted'
     | 'invalid_response'
-    | 'empty_response';
+    | 'empty_response'
+    | 'token_limit';
 
 export interface AIFailureInfo {
     code: AIErrorCode;
@@ -1433,7 +1434,10 @@ export function getChatRequestOptions(
             : { temperature: 0.4, maxTokens: 3800 };
     }
 
-    return {};
+    // 六爻：完整解盘涵盖整体卦意、世应、用神、动变、应期、趋避，汉字密度高，需要足够的 token 空间
+    return phase === 'initial'
+        ? { temperature: 0.7, maxTokens: 3200 }
+        : { temperature: 0.7, maxTokens: 3600 };
 }
 
 function getStreamIdleTimeoutMs(stage: string): number {
@@ -1846,6 +1850,7 @@ export async function analyzeWithAIChatStream(
     return new Promise((resolve) => {
         let isAborted = false;
         let hasReasoningSignal = false;
+        let lastFinishReason: string | null = null;
         let heartbeatTimer: NodeJS.Timeout;
         const streamIdleTimeoutMs = getStreamIdleTimeoutMs(stage);
         const handleAbort = () => {
@@ -1939,13 +1944,30 @@ export async function analyzeWithAIChatStream(
                     });
                     return;
                 }
+                // finish_reason === 'length' 表示模型被 max_tokens 截断，内容不完整
+                if (lastFinishReason === 'length') {
+                    resolve({
+                        success: false,
+                        error: '输出内容超出模型单次 Token 限制，分析被截断，请重试。',
+                        code: 'token_limit',
+                        stage,
+                        recoverable: true,
+                        usedFallback: false,
+                    });
+                    return;
+                }
                 resolve({ success: true, content: fullContent });
                 return;
             }
 
             try {
                 const parsed = JSON.parse(dataStr);
-                const delta = parsed.choices?.[0]?.delta || {};
+                const choice = parsed.choices?.[0];
+                const delta = choice?.delta || {};
+                // 记录 finish_reason，用于在 [DONE] 时检测截断
+                if (choice?.finish_reason) {
+                    lastFinishReason = choice.finish_reason;
+                }
                 const reasoningChunk = typeof delta.reasoning_content === 'string' ? delta.reasoning_content : '';
                 const chunk = typeof delta.content === 'string' ? delta.content : '';
                 if (reasoningChunk && !hasReasoningSignal) {
