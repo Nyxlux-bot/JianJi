@@ -83,8 +83,8 @@ jobs:
             CURRENT_TAG="${{ github.ref_name }}"
           fi
 
-          # 找上一个 tag（按时间倒序排，排除当前 tag）
-          PREV_TAG=$(git tag --sort=-creatordate | grep -v "^${CURRENT_TAG}$" | head -1)
+          # 用 git describe 沿提交历史找上一个 tag，避免按时间排序出现重复
+          PREV_TAG=$(git describe --tags --abbrev=0 "${CURRENT_TAG}^" 2>/dev/null || echo "")
 
           if [ -n "$PREV_TAG" ]; then
             echo "变更范围：${PREV_TAG} → ${CURRENT_TAG}"
@@ -115,9 +115,9 @@ jobs:
           done <<< "$COMMITS"
 
           NOTES=""
-          [ -n "$FEATURES" ] && NOTES="${NOTES}## ✨ 新增功能\n${FEATURES}\n\n"
-          [ -n "$FIXES" ]    && NOTES="${NOTES}## 🐛 问题修复\n${FIXES}\n\n"
-          [ -n "$OTHERS" ]   && NOTES="${NOTES}## 🔧 其他改动\n${OTHERS}\n\n"
+          [ -n "$FEATURES" ] && NOTES="${NOTES}## 新增功能\n${FEATURES}\n\n"
+          [ -n "$FIXES" ]    && NOTES="${NOTES}## 问题修复\n${FIXES}\n\n"
+          [ -n "$OTHERS" ]   && NOTES="${NOTES}## 其他改动\n${OTHERS}\n\n"
           [ -z "$NOTES" ]    && NOTES="本次发布包含若干内部优化。\n"
 
           printf "%b" "$NOTES" > RELEASE_NOTES.md
