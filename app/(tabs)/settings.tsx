@@ -35,6 +35,7 @@ import {
     mergeImportedSettings,
     saveSettings,
 } from '../../src/services/settings';
+import { exportDiagnosticLogFile, recordDiagnosticLog } from '../../src/services/diagnostics';
 import { fetchAvailableModels } from '../../src/services/ai-models';
 import { resolveChatCompletionsUrl } from '../../src/services/ai-endpoints';
 import { CloseIcon, ChevronRightIcon } from '../../src/components/Icons';
@@ -156,6 +157,7 @@ export default function SettingsPage() {
     const [isSaving, setIsSaving] = useState(false);
     const [isBackingUp, setIsBackingUp] = useState(false);
     const [isRestoring, setIsRestoring] = useState(false);
+    const [isExportingDiagnostics, setIsExportingDiagnostics] = useState(false);
     const [fetchingModels, setFetchingModels] = useState(false);
     const [testingAI, setTestingAI] = useState(false);
     const [availableModels, setAvailableModels] = useState<string[]>([]);
@@ -305,9 +307,32 @@ export default function SettingsPage() {
             }
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : '备份失败';
+            void recordDiagnosticLog({
+                level: 'error',
+                source: 'settings:backup',
+                message,
+            });
             CustomAlert.alert('备份失败', message);
         } finally {
             setIsBackingUp(false);
+        }
+    };
+
+    const handleExportDiagnostics = async () => {
+        try {
+            setIsExportingDiagnostics(true);
+            await exportDiagnosticLogFile();
+            CustomAlert.alert('故障日志已导出', '日志文件不包含接口密钥。');
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : '导出故障日志失败';
+            void recordDiagnosticLog({
+                level: 'error',
+                source: 'settings:exportDiagnostics',
+                message,
+            });
+            CustomAlert.alert('导出失败', message);
+        } finally {
+            setIsExportingDiagnostics(false);
         }
     };
 
@@ -340,6 +365,11 @@ export default function SettingsPage() {
             setPreviewVisible(true);
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : '文件解析错误';
+            void recordDiagnosticLog({
+                level: 'error',
+                source: 'settings:restorePreview',
+                message,
+            });
             CustomAlert.alert('恢复失败', message);
         }
     };
@@ -369,6 +399,11 @@ export default function SettingsPage() {
             CustomAlert.alert('恢复成功', `导入完成：新增 ${stats.inserted} 条，覆盖 ${stats.updated} 条，跳过 ${stats.skipped} 条。`);
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : '文件解析错误';
+            void recordDiagnosticLog({
+                level: 'error',
+                source: 'settings:restoreConfirm',
+                message,
+            });
             CustomAlert.alert('恢复失败', message);
         } finally {
             setIsRestoring(false);
@@ -490,6 +525,13 @@ export default function SettingsPage() {
                     <View style={styles.sheetBlock}>
                         <ActionButton label={isBackingUp ? '导出中...' : '导出备份'} Colors={Colors} onPress={handleBackup} disabled={isBackingUp} />
                         <ActionButton label="导入档案" Colors={Colors} onPress={handleRestore} variant="secondary" />
+                        <ActionButton
+                            label={isExportingDiagnostics ? '导出中...' : '导出故障日志'}
+                            Colors={Colors}
+                            onPress={handleExportDiagnostics}
+                            disabled={isExportingDiagnostics}
+                            variant="secondary"
+                        />
                     </View>
                 )}
                 {activeSheet === 'about' && (

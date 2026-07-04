@@ -9,6 +9,7 @@ import { BaziResult } from '../core/bazi-types';
 import { PanResult } from '../core/liuyao-calc';
 import { BaziCompatibilityResult } from '../features/bazi/match/types';
 import { ZiweiRecordResult } from '../features/ziwei/record';
+import { recordDiagnosticLog } from '../services/diagnostics';
 import { validateImportRecords } from './import-validation';
 import { resolveImportAction } from './import-strategy';
 import {
@@ -201,6 +202,11 @@ function setWebRecords(records: WebRecord[]): void {
         localStorage.setItem(WEB_STORAGE_KEY_V2, JSON.stringify(records));
     } catch (e) {
         console.warn('Web storage limit exceeded', e);
+        void recordDiagnosticLog({
+            level: 'warn',
+            source: 'database:webStorage',
+            message: e,
+        });
     }
 }
 

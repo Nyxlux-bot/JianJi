@@ -42,6 +42,7 @@ import OverflowMenu, { OverflowMenuItem } from '../../src/components/OverflowMen
 import StatusBarDecor from '../../src/components/StatusBarDecor';
 import { CustomAlert } from '../../src/components/CustomAlertProvider';
 import { deleteRecord, getRecord, saveRecord, toggleFavorite } from '../../src/db/database';
+import { recordDiagnosticLog } from '../../src/services/diagnostics';
 import { cloneZiweiFormatterContext } from '../../src/features/ziwei/ai-context';
 import { computeZiweiTileStarsLayout } from '../../src/features/ziwei/brightness/tile-layout';
 import ZiweiConfigPanel from '../../src/features/ziwei/components/ZiweiConfigPanel';
@@ -196,6 +197,11 @@ function logZiweiRuntimeWarning(scope: string, error: unknown): void {
 
     const message = error instanceof Error ? error.message : String(error);
     console.warn(`[ziwei][${scope}]`, message);
+    void recordDiagnosticLog({
+        level: 'warn',
+        source: `ziwei:${scope}`,
+        message,
+    });
 }
 
 function firstStarName(palace: ZiweiPalaceAnalysisView): string | null {

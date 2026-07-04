@@ -336,13 +336,16 @@ export function startLiuyaoAIJob({ result, messages, phase }: StartLiuyaoAIJobPa
         return existing;
     }
 
+    const jobMessages = phase === 'initial' && messages.length === 0
+        ? [{ role: 'user' as const, content: '请帮我全面分析一下此卦！', hidden: true }]
+        : messages;
     const now = new Date().toISOString();
     const job: LiuyaoAIJobState = {
         jobId: createJobId(result.id),
         recordId: result.id,
         status: 'running',
         phase,
-        messages,
+        messages: jobMessages,
         draftContent: '',
         validatedContent: '',
         startedAt: now,
@@ -357,7 +360,7 @@ export function startLiuyaoAIJob({ result, messages, phase }: StartLiuyaoAIJobPa
 
     void (async () => {
         try {
-            const requestBundle = await buildRequestBundle(result, messages, undefined, {
+            const requestBundle = await buildRequestBundle(result, jobMessages, undefined, {
                 workflowStage: phase === 'followup' ? 'followup' : undefined,
             });
             const requestOptions = {

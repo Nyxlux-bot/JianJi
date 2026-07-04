@@ -71,6 +71,7 @@ import {
     startLiuyaoAIJob,
     subscribeLiuyaoAIJob,
 } from '../services/liuyao-ai-jobs';
+import { recordDiagnosticLog } from '../services/diagnostics';
 import { shareChatMarkdown } from '../services/share';
 import { BorderRadius, FontSize, Spacing } from '../theme/colors';
 import { useTheme } from '../theme/ThemeContext';
@@ -266,6 +267,17 @@ function logAIClientFailure(scope: string, failure?: AIFailureInfo | null): void
     }
 
     console.warn('[AIChatModal]', scope, JSON.stringify(failure));
+    void recordDiagnosticLog({
+        level: 'warn',
+        source: `AIChatModal:${scope}`,
+        message: failure.message,
+        context: {
+            code: failure.code,
+            stage: failure.stage,
+            recoverable: failure.recoverable,
+            usedFallback: failure.usedFallback,
+        },
+    });
 }
 
 function formatAIFailureMessage(failure?: Pick<AIFailureInfo, 'code' | 'message' | 'usedFallback'> | null): string {
@@ -1109,6 +1121,11 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             }
         } catch (error) {
             console.error(error);
+            void recordDiagnosticLog({
+                level: 'error',
+                source: 'AIChatModal:localProcessing',
+                message: error,
+            });
             if (requestId === activeRequestSeqRef.current) {
                 CustomAlert.alert('AI 请求失败', 'AI 请求在本地处理时发生异常，请稍后重试。');
                 setMessages(baseMessages);
@@ -1294,6 +1311,11 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             await shareChatMarkdown(latestResultRef.current, toPersistedMessages(messages));
         } catch (error: any) {
             const message = typeof error?.message === 'string' ? error.message : '导出失败，请稍后重试';
+            void recordDiagnosticLog({
+                level: 'error',
+                source: 'AIChatModal:exportChat',
+                message,
+            });
             CustomAlert.alert('导出失败', message);
         }
     };

@@ -33,6 +33,7 @@ import { DEFAULT_BAZI_SYSTEM_PROMPT, DEFAULT_LIUYAO_SYSTEM_PROMPT, DEFAULT_ZIWEI
 import { resolveChatCompletionsUrl } from './ai-endpoints';
 import { buildMainAIOutputLimitMessage, resolveMainAIOutputTokens } from './ai-model-limits';
 import { getSettings } from './settings';
+import { recordDiagnosticLog } from './diagnostics';
 import { formatZiweiToText } from './ziwei-formatter';
 
 const ICHING_MAP = new Map<string, string>();
@@ -1220,6 +1221,17 @@ function logAIFailure(label: string, failure?: AIFailureInfo): void {
     }
 
     console.warn('[AI]', label, JSON.stringify(failure));
+    void recordDiagnosticLog({
+        level: 'warn',
+        source: `AI:${label}`,
+        message: failure.message,
+        context: {
+            code: failure.code,
+            stage: failure.stage,
+            recoverable: failure.recoverable,
+            usedFallback: failure.usedFallback,
+        },
+    });
 }
 
 function logAIRequestDebug(meta?: Partial<AIRequestDebugMeta> | null): void {
@@ -1829,6 +1841,17 @@ export async function analyzeWithAIChatStream(
     requestOptions: AIRequestOptions = {},
 ): Promise<AIAnalysisResult> {
     const stage = requestOptions.stage || 'stream';
+    if (!Array.isArray(messages) || messages.length === 0) {
+        return {
+            success: false,
+            error: 'AI 请求缺少消息内容，请重新发起分析。',
+            code: 'invalid_response',
+            stage,
+            recoverable: true,
+            usedFallback: false,
+        };
+    }
+
     if (signal?.aborted) {
         return {
             success: false,
