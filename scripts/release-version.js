@@ -7,10 +7,11 @@ const ALLOWED_BUMPS = new Set(['patch', 'minor', 'major']);
 const bump = process.argv[2] || 'patch';
 
 function run(command, args, options = {}) {
-  return execFileSync(command, args, {
+  const output = execFileSync(command, args, {
     encoding: 'utf8',
     stdio: options.stdio || 'pipe',
-  }).trim();
+  });
+  return typeof output === 'string' ? output.trim() : '';
 }
 
 function readJson(path) {
