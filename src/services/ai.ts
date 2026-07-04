@@ -1870,17 +1870,62 @@ export async function analyzeWithAIChatStream(
 
     return new Promise((resolve) => {
         let isAborted = false;
+        let isSettled = false;
         let hasReasoningSignal = false;
         let lastFinishReason: string | null = null;
         let heartbeatTimer: NodeJS.Timeout;
-        const streamIdleTimeoutMs = getStreamIdleTimeoutMs(stage);
-        const handleAbort = () => {
+        const cleanupStream = () => {
             if (heartbeatTimer) {
                 clearTimeout(heartbeatTimer);
             }
-            isAborted = true;
+            if (signal) {
+                signal.removeEventListener('abort', handleAbort);
+            }
             eventSource.close();
-            resolve({
+        };
+        const resolveOnce = (result: AIAnalysisResult) => {
+            if (isSettled) {
+                return;
+            }
+            isSettled = true;
+            cleanupStream();
+            resolve(result);
+        };
+        const finishStream = () => {
+            if (!fullContent.trim()) {
+                resolveOnce({
+                    success: false,
+                    error: '模型推理已结束，但没有返回可见正文，请重试。',
+                    code: 'empty_response',
+                    stage,
+                    recoverable: true,
+                    usedFallback: false,
+                });
+                return;
+            }
+
+            if (lastFinishReason === 'length') {
+                resolveOnce({
+                    success: false,
+                    error: tokenLimitError,
+                    code: 'token_limit',
+                    stage,
+                    recoverable: true,
+                    usedFallback: false,
+                    content: fullContent || undefined,
+                });
+                return;
+            }
+
+            resolveOnce({ success: true, content: fullContent });
+        };
+        const streamIdleTimeoutMs = getStreamIdleTimeoutMs(stage);
+        const handleAbort = () => {
+            if (isSettled) {
+                return;
+            }
+            isAborted = true;
+            resolveOnce({
                 success: false,
                 error: 'ABORTED',
                 code: 'aborted',
@@ -1894,12 +1939,11 @@ export async function analyzeWithAIChatStream(
                 clearTimeout(heartbeatTimer);
             }
             heartbeatTimer = setTimeout(() => {
-                if (isAborted) {
+                if (isAborted || isSettled) {
                     return;
                 }
                 isAborted = true;
-                eventSource.close();
-                resolve({
+                resolveOnce({
                     success: false,
                     error: '连接超时：服务器长时间无响应',
                     code: 'timeout',
@@ -1931,6 +1975,7 @@ export async function analyzeWithAIChatStream(
                 max_tokens: effectiveMaxTokens,
                 stream: true,
             }),
+            pollingInterval: 0,
         });
 
         if (signal) {
@@ -1947,74 +1992,16 @@ export async function analyzeWithAIChatStream(
                 return;
             }
             if (dataStr === '[DONE]') {
-                if (heartbeatTimer) {
-                    clearTimeout(heartbeatTimer);
-                }
-                if (signal) {
-                    signal.removeEventListener('abort', handleAbort);
-                }
-                eventSource.close();
-                if (!fullContent.trim()) {
-                    resolve({
-                        success: false,
-                        error: '模型推理已结束，但没有返回可见正文，请重试。',
-                        code: 'empty_response',
-                        stage,
-                        recoverable: true,
-                        usedFallback: false,
-                    });
-                    return;
-                }
-                // finish_reason === 'length' 表示模型被 max_tokens 截断，内容不完整
-                if (lastFinishReason === 'length') {
-                    resolve({
-                        success: false,
-                        error: tokenLimitError,
-                        code: 'token_limit',
-                        stage,
-                        recoverable: true,
-                        usedFallback: false,
-                        content: fullContent || undefined,
-                    });
-                    return;
-                }
-                resolve({ success: true, content: fullContent });
+                finishStream();
                 return;
             }
 
             for (const payload of splitStreamEventPayload(dataStr)) {
+                if (isSettled) {
+                    return;
+                }
                 if (payload === '[DONE]') {
-                    if (heartbeatTimer) {
-                        clearTimeout(heartbeatTimer);
-                    }
-                    if (signal) {
-                        signal.removeEventListener('abort', handleAbort);
-                    }
-                    eventSource.close();
-                    if (!fullContent.trim()) {
-                        resolve({
-                            success: false,
-                            error: '模型推理已结束，但没有返回可见正文，请重试。',
-                            code: 'empty_response',
-                            stage,
-                            recoverable: true,
-                            usedFallback: false,
-                        });
-                        return;
-                    }
-                    if (lastFinishReason === 'length') {
-                        resolve({
-                            success: false,
-                            error: tokenLimitError,
-                            code: 'token_limit',
-                            stage,
-                            recoverable: true,
-                            usedFallback: false,
-                            content: fullContent || undefined,
-                        });
-                        return;
-                    }
-                    resolve({ success: true, content: fullContent });
+                    finishStream();
                     return;
                 }
 
@@ -2040,30 +2027,35 @@ export async function analyzeWithAIChatStream(
                     fullContent += chunk;
                     onChunk(chunk);
                 }
+                if (lastFinishReason === 'stop' || lastFinishReason === 'length') {
+                    finishStream();
+                    return;
+                }
             }
         });
 
         eventSource.addEventListener('error', (error: any) => {
-            if (isAborted) {
+            if (isAborted || isSettled) {
                 return;
             }
-            if (heartbeatTimer) {
-                clearTimeout(heartbeatTimer);
-            }
-            if (signal) {
-                signal.removeEventListener('abort', handleAbort);
-            }
-            eventSource.close();
             const xhrStatus = typeof error.xhrStatus === 'number' && error.xhrStatus > 0
                 ? error.xhrStatus
                 : 0;
+            if (xhrStatus === 200 && lastFinishReason === 'stop' && fullContent.trim()) {
+                finishStream();
+                return;
+            }
+            if (lastFinishReason === 'length') {
+                finishStream();
+                return;
+            }
             const errorStatus = xhrStatus > 0
                 ? `HTTP ${xhrStatus}`
                 : '';
             const errorMessage = xhrStatus === 524
                 ? '模型强推理耗时较长，接口网关返回 524 超时，请重试。'
                 : (error.message || JSON.stringify(error));
-            resolve({
+            resolveOnce({
                 success: false,
                 error: xhrStatus === 524
                     ? errorMessage
