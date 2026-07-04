@@ -395,7 +395,8 @@ function isActiveLiuyaoJob(job?: LiuyaoAIJobState | null): boolean {
     return job?.status === 'running'
         || job?.status === 'reasoning'
         || job?.status === 'streaming'
-        || job?.status === 'validating';
+        || job?.status === 'validating'
+        || job?.status === 'postprocessing';
 }
 
 function buildLiuyaoJobPendingMessage(job: LiuyaoAIJobState): UIChatMessage | null {
@@ -405,6 +406,8 @@ function buildLiuyaoJobPendingMessage(job: LiuyaoAIJobState): UIChatMessage | nu
             ? '强推理模型正在深度分析...\n首段正文可能需要等待较久，可关闭弹窗稍后回来查看。'
             : job.status === 'validating'
                 ? '正在校验盘据...\n校验通过后才会写入正式 AI 分析结果。'
+                : job.status === 'postprocessing'
+                    ? '正在整理追问与保存结果...\n很快就会写入正式 AI 分析结果。'
                 : '';
 
     if (!content) {
@@ -421,7 +424,7 @@ function buildLiuyaoJobPendingMessage(job: LiuyaoAIJobState): UIChatMessage | nu
 
 function buildLiuyaoJobMessages(job: LiuyaoAIJobState): UIChatMessage[] {
     const baseMessages = hydrateMessages(job.messages, `liuyao-job-${job.jobId}-history`);
-    if (job.status === 'streaming' && job.draftContent) {
+    if ((job.status === 'streaming' || job.status === 'failed' || job.status === 'interrupted') && job.draftContent) {
         return [
             ...baseMessages,
             {
@@ -447,6 +450,9 @@ function getLiuyaoJobPresentationState(job: LiuyaoAIJobState): ChatPresentationS
         return 'reasoning';
     }
     if (job.status === 'streaming' || job.status === 'validating') {
+        return 'streaming';
+    }
+    if (job.status === 'postprocessing') {
         return 'streaming';
     }
     return 'presenting';

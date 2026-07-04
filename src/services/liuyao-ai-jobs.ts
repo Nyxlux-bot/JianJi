@@ -6,9 +6,12 @@ import {
     AIErrorCode,
     analyzeWithAIChatStream,
     buildRequestBundle,
+    generateQuickReplies,
     getChatRequestOptions,
+    getLocalLiuyaoQuickReplies,
     stripThinkingBlocks,
 } from './ai';
+import { recordDiagnosticLog } from './diagnostics';
 
 export type AIJobStatus =
     | 'idle'
@@ -16,6 +19,7 @@ export type AIJobStatus =
     | 'reasoning'
     | 'streaming'
     | 'validating'
+    | 'postprocessing'
     | 'completed'
     | 'failed'
     | 'interrupted'
@@ -67,7 +71,11 @@ function createJobId(recordId: string): string {
 }
 
 function isActiveStatus(status: AIJobStatus): boolean {
-    return status === 'running' || status === 'reasoning' || status === 'streaming' || status === 'validating';
+    return status === 'running'
+        || status === 'reasoning'
+        || status === 'streaming'
+        || status === 'validating'
+        || status === 'postprocessing';
 }
 
 function storageKey(recordId: string): string {
@@ -205,13 +213,43 @@ function buildEvidenceAnchorGroups(result: PanResult): Array<{ label: string; va
     return groups;
 }
 
-export function validateLiuyaoAIContent(result: PanResult, content: string): LiuyaoAIValidationResult {
+export function validateLiuyaoAIContent(
+    result: PanResult,
+    content: string,
+    phase: 'initial' | 'followup' = 'initial',
+): LiuyaoAIValidationResult {
     const normalized = stripThinkingBlocks(content).trim();
+    const anchorGroups = buildEvidenceAnchorGroups(result);
+    const hitCount = anchorGroups.filter((group) => hasAny(normalized, group.values)).length;
+    const missingEvidenceAnchors = phase === 'initial'
+        ? anchorGroups
+            .filter((group) => group.required && !hasAny(normalized, group.values))
+            .map((group) => group.label)
+        : [];
+
+    if (phase === 'followup') {
+        const issues = [
+            ...(normalized.length < 80 ? ['正文过短'] : []),
+            ...(hitCount < 2 ? [`盘面锚点不足（${hitCount}/2）`] : []),
+        ];
+
+        return {
+            success: issues.length === 0,
+            issues,
+            missingSections: [],
+            missingEvidenceAnchors: issues.filter((item) => item.includes('盘面锚点')),
+        };
+    }
+
+    const movingLabels = result.movingYaoPositions.flatMap((position) => [`${yaoPositionName(position)}爻`, `第${position}爻`]);
+    const movingYaoPattern = result.movingYaoPositions.length > 0
+        ? new RegExp(`动爻|动变|变卦|变爻|发动|化出|化为|之卦|${movingLabels.join('|')}`, 'u')
+        : /无动爻|静卦|不变/u;
     const sectionChecks: Array<{ label: string; pattern: RegExp }> = [
         { label: '整体卦意', pattern: /整体|总断|卦意|本卦/u },
         { label: '世应关系', pattern: /世应|世爻|应爻/u },
         { label: '用神忌神', pattern: /用神|忌神/u },
-        { label: '动变分析', pattern: result.movingYaoPositions.length > 0 ? /动爻|动变|变卦/u : /无动爻|静卦|不变/u },
+        { label: '动变分析', pattern: movingYaoPattern },
         { label: '应期推算', pattern: /应期|时间|月份|日期|日辰|时机/u },
         { label: '趋避建议', pattern: /建议|趋避|行动|风险|提醒/u },
     ];
@@ -219,11 +257,6 @@ export function validateLiuyaoAIContent(result: PanResult, content: string): Liu
         .filter((item) => !item.pattern.test(normalized))
         .map((item) => item.label);
 
-    const anchorGroups = buildEvidenceAnchorGroups(result);
-    const missingEvidenceAnchors = anchorGroups
-        .filter((group) => group.required && !hasAny(normalized, group.values))
-        .map((group) => group.label);
-    const hitCount = anchorGroups.filter((group) => hasAny(normalized, group.values)).length;
     const minAnchorHitCount = Math.min(4, anchorGroups.length);
     if (hitCount < minAnchorHitCount) {
         missingEvidenceAnchors.push(`盘面锚点不足（${hitCount}/${minAnchorHitCount}）`);
@@ -402,8 +435,10 @@ export function startLiuyaoAIJob({ result, messages, phase }: StartLiuyaoAIJobPa
             }
 
             if (!response.success || !response.content) {
+                const draftContent = stripThinkingBlocks(response.content || current.draftContent).trim();
                 setJobState(result.id, {
                     status: response.code === 'aborted' ? 'cancelled' : 'failed',
+                    draftContent: draftContent || current.draftContent,
                     failure: {
                         code: response.code ?? 'network_error',
                         message: response.error || 'AI 请求失败，请稍后重试。',
@@ -418,8 +453,20 @@ export function startLiuyaoAIJob({ result, messages, phase }: StartLiuyaoAIJobPa
                 draftContent: cleanContent,
             });
 
-            const validation = validateLiuyaoAIContent(result, cleanContent);
+            const validation = validateLiuyaoAIContent(result, cleanContent, phase);
             if (!validation.success) {
+                void recordDiagnosticLog({
+                    level: 'warn',
+                    source: 'AI:liuyaoValidation',
+                    message: 'validation_failed',
+                    context: {
+                        phase,
+                        issues: validation.issues,
+                        missingSections: validation.missingSections,
+                        missingEvidenceAnchors: validation.missingEvidenceAnchors,
+                        contentChars: cleanContent.length,
+                    },
+                });
                 setJobState(result.id, {
                     status: 'failed',
                     validation,
@@ -432,14 +479,45 @@ export function startLiuyaoAIJob({ result, messages, phase }: StartLiuyaoAIJobPa
             }
 
             const finalMessages: PersistedAIChatMessage[] = [
-                ...messages,
+                ...jobMessages,
                 { role: 'assistant', content: cleanContent },
             ];
+            setJobState(result.id, {
+                status: 'postprocessing',
+                draftContent: cleanContent,
+                validation,
+            });
+
+            let quickReplies: string[] = [];
+            try {
+                const quickReplyOutcome = await generateQuickReplies(result, finalMessages);
+                quickReplies = quickReplyOutcome.value;
+                if (quickReplyOutcome.failure) {
+                    void recordDiagnosticLog({
+                        level: 'warn',
+                        source: 'AI:liuyaoQuickReplies',
+                        message: quickReplyOutcome.failure.message,
+                        context: {
+                            code: quickReplyOutcome.failure.code,
+                            stage: quickReplyOutcome.failure.stage,
+                            usedFallback: quickReplyOutcome.failure.usedFallback,
+                        },
+                    });
+                }
+            } catch (error) {
+                quickReplies = getLocalLiuyaoQuickReplies(result);
+                void recordDiagnosticLog({
+                    level: 'warn',
+                    source: 'AI:liuyaoQuickReplies',
+                    message: 'quick_reply_exception',
+                    context: { error: error instanceof Error ? error.message : String(error) },
+                });
+            }
             const updatedResult: PanResult = {
                 ...result,
                 aiAnalysis: cleanContent,
                 aiChatHistory: finalMessages,
-                quickReplies: [],
+                quickReplies,
             };
             await saveRecord({
                 engineType: 'liuyao',
@@ -461,8 +539,20 @@ export function startLiuyaoAIJob({ result, messages, phase }: StartLiuyaoAIJobPa
             if (!current || current.status === 'cancelled') {
                 return;
             }
+            const draftContent = stripThinkingBlocks(current.draftContent).trim();
+            void recordDiagnosticLog({
+                level: 'warn',
+                source: 'AI:liuyaoJob',
+                message: 'job_exception',
+                context: {
+                    phase,
+                    error: error instanceof Error ? error.message : String(error),
+                    draftChars: draftContent.length,
+                },
+            });
             setJobState(result.id, {
                 status: 'failed',
+                draftContent: draftContent || current.draftContent,
                 failure: {
                     code: 'network_error',
                     message: error instanceof Error ? error.message : 'AI 请求失败，请稍后重试。',

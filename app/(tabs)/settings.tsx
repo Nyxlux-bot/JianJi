@@ -14,6 +14,7 @@ import {
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
+import * as Clipboard from 'expo-clipboard';
 import Svg, { Circle, Path, Text as SvgText } from 'react-native-svg';
 import { CustomAlert } from '../../src/components/CustomAlertProvider';
 import {
@@ -75,6 +76,22 @@ function SaveIcon({ color, size = 22 }: { color: string; size?: number }) {
             <Path d="M5 3h12l2 2v16H5V3z" stroke={color} strokeWidth="1.7" strokeLinejoin="round" />
             <Path d="M8 3v6h8V3" stroke={color} strokeWidth="1.7" strokeLinejoin="round" />
             <Path d="M8 21v-7h8v7" stroke={color} strokeWidth="1.7" strokeLinejoin="round" />
+        </Svg>
+    );
+}
+
+function EyeIcon({ color, hidden, size = 20 }: { color: string; hidden: boolean; size?: number }) {
+    return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+            <Path
+                d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"
+                stroke={color}
+                strokeWidth="1.7"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+            <Circle cx="12" cy="12" r="3" stroke={color} strokeWidth="1.7" />
+            {hidden && <Path d="M4 20L20 4" stroke={color} strokeWidth="1.9" strokeLinecap="round" />}
         </Svg>
     );
 }
@@ -671,10 +688,39 @@ function AISettingsSheet({
     testAIConnection: () => void;
 }) {
     const [temperatureText, setTemperatureText] = useState(String(settings.temperature));
+    const [apiKeyVisible, setApiKeyVisible] = useState(false);
 
     useEffect(() => {
         setTemperatureText(String(settings.temperature));
     }, [settings.temperature]);
+
+    const copyValue = async (label: string, value: string) => {
+        const text = value.trim();
+        if (!text) {
+            CustomAlert.alert('暂无可复制内容', `请先填写${label}。`);
+            return;
+        }
+        await Clipboard.setStringAsync(text);
+        CustomAlert.alert('复制成功', `${label}已复制。`);
+    };
+
+    const pasteApiUrl = async () => {
+        const text = (await Clipboard.getStringAsync()).trim();
+        if (!text) {
+            CustomAlert.alert('剪贴板为空', '没有可粘贴内容。');
+            return;
+        }
+        setSettings((prev) => ({ ...prev, apiUrl: text }));
+    };
+
+    const pasteApiKey = async () => {
+        const text = (await Clipboard.getStringAsync()).trim();
+        if (!text) {
+            CustomAlert.alert('剪贴板为空', '没有可粘贴内容。');
+            return;
+        }
+        setSettings((prev) => ({ ...prev, apiKey: text }));
+    };
 
     const commitTemperature = () => {
         const normalized = normalizeTemperatureInput(temperatureText);
@@ -685,27 +731,54 @@ function AISettingsSheet({
     return (
         <View style={styles.sheetBlock}>
             <FieldLabel label="接口地址" />
-            <TextInput
-                style={styles.input}
-                value={settings.apiUrl}
-                onChangeText={(value) => setSettings((prev) => ({ ...prev, apiUrl: value }))}
-                placeholder="https://api.openai.com/v1/chat/completions"
-                placeholderTextColor={Colors.text.tertiary}
-                autoCapitalize="none"
-                autoCorrect={false}
-            />
+            <View style={styles.inputRow}>
+                <TextInput
+                    style={styles.inputInRow}
+                    value={settings.apiUrl}
+                    onChangeText={(value) => setSettings((prev) => ({ ...prev, apiUrl: value }))}
+                    placeholder="https://api.openai.com/v1/chat/completions"
+                    placeholderTextColor={Colors.text.tertiary}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                />
+                <View style={styles.inputActions}>
+                    <Pressable style={styles.inputTextButton} onPress={() => copyValue('接口地址', settings.apiUrl)}>
+                        <Text style={styles.inputTextButtonLabel}>复制</Text>
+                    </Pressable>
+                    <Pressable style={styles.inputTextButton} onPress={pasteApiUrl}>
+                        <Text style={styles.inputTextButtonLabel}>粘贴</Text>
+                    </Pressable>
+                </View>
+            </View>
 
             <FieldLabel label="API Key" />
-            <TextInput
-                style={styles.input}
-                value={settings.apiKey}
-                onChangeText={(value) => setSettings((prev) => ({ ...prev, apiKey: value }))}
-                placeholder="sk-..."
-                placeholderTextColor={Colors.text.tertiary}
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
-            />
+            <View style={styles.inputRow}>
+                <TextInput
+                    style={styles.inputInRow}
+                    value={settings.apiKey}
+                    onChangeText={(value) => setSettings((prev) => ({ ...prev, apiKey: value }))}
+                    placeholder="sk-..."
+                    placeholderTextColor={Colors.text.tertiary}
+                    secureTextEntry={!apiKeyVisible}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                />
+                <View style={styles.inputActions}>
+                    <Pressable
+                        style={styles.inputIconButton}
+                        onPress={() => setApiKeyVisible((prev) => !prev)}
+                        accessibilityLabel={apiKeyVisible ? '隐藏 API Key' : '显示 API Key'}
+                    >
+                        <EyeIcon color={Colors.text.secondary} hidden={!apiKeyVisible} />
+                    </Pressable>
+                    <Pressable style={styles.inputTextButton} onPress={() => copyValue('API Key', settings.apiKey)}>
+                        <Text style={styles.inputTextButtonLabel}>复制</Text>
+                    </Pressable>
+                    <Pressable style={styles.inputTextButton} onPress={pasteApiKey}>
+                        <Text style={styles.inputTextButtonLabel}>粘贴</Text>
+                    </Pressable>
+                </View>
+            </View>
 
             <FieldLabel label="模型名称" />
             <TextInput
@@ -984,6 +1057,51 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         borderRadius: BorderRadius.md,
         borderWidth: 1,
         borderColor: Colors.border.subtle,
+    },
+    inputRow: {
+        minHeight: 46,
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: Colors.bg.elevated,
+        borderRadius: BorderRadius.md,
+        borderWidth: 1,
+        borderColor: Colors.border.subtle,
+        paddingLeft: Spacing.md,
+        paddingRight: Spacing.xs,
+    },
+    inputInRow: {
+        flex: 1,
+        minHeight: 46,
+        color: Colors.text.primary,
+        fontSize: FontSize.md,
+        paddingVertical: 0,
+        paddingRight: Spacing.sm,
+    },
+    inputActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: Spacing.xs,
+    },
+    inputIconButton: {
+        width: 34,
+        height: 34,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: BorderRadius.sm,
+    },
+    inputTextButton: {
+        minHeight: 34,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: Spacing.sm,
+        borderRadius: BorderRadius.sm,
+        borderWidth: 1,
+        borderColor: Colors.border.subtle,
+    },
+    inputTextButtonLabel: {
+        color: Colors.accent.gold,
+        fontSize: FontSize.xs,
+        fontWeight: '700',
     },
     modelDropdown: {
         maxHeight: 190,

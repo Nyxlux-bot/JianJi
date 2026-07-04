@@ -63,6 +63,11 @@ const BAZI_FALLBACK_QUICK_REPLIES = [
     '未来哪年感情波动大',
     '未来五年事业发力点',
 ];
+const LIUYAO_FALLBACK_QUICK_REPLIES = [
+    '此事何时见结果',
+    '目前最大的阻力是什么',
+    '下一步该主动还是等待',
+];
 const LIUYAO_STRONG_REASONING_STREAM_PROMPT = [
     '【强推理流式要求】',
     '本轮会通过流式连接返回。为了避免长时间强推理导致网关误判超时，你必须先尽快输出一行“正在起卦分析...”，随后继续完整解盘。',
@@ -1337,6 +1342,20 @@ export function getLocalBaziQuickReplies(): string[] {
     return [...BAZI_FALLBACK_QUICK_REPLIES];
 }
 
+export function getLocalLiuyaoQuickReplies(result: PanResult): string[] {
+    const question = result.question || '';
+    if (/婚|感情|复合|对象|恋|姻缘/u.test(question)) {
+        return ['这段关系能不能成', '对方现在怎么想', '何时适合推进关系'];
+    }
+    if (/财|钱|投资|生意|工作|事业|项目/u.test(question)) {
+        return ['此事财动利弊如何', '何时适合推进项目', '目前最大的阻力是什么'];
+    }
+    if (/病|健康|身体|手术|药/u.test(question)) {
+        return ['病势近期会缓吗', '哪段时间要多注意', '调养上最忌什么'];
+    }
+    return [...LIUYAO_FALLBACK_QUICK_REPLIES];
+}
+
 export function getLocalBaziVerificationActions(): BaziVerificationAction[] {
     return [
         { id: 'continue', label: '前事较准，继续深解' },
@@ -1842,6 +1861,16 @@ export async function analyzeWithAIChatStream(
 ): Promise<AIAnalysisResult> {
     const stage = requestOptions.stage || 'stream';
     if (!Array.isArray(messages) || messages.length === 0) {
+        void recordDiagnosticLog({
+            level: 'warn',
+            source: 'AI:streamDecision',
+            message: 'invalid_messages',
+            context: {
+                decision: 'invalid_messages',
+                stage,
+                messageCount: Array.isArray(messages) ? messages.length : 'not_array',
+            },
+        });
         return {
             success: false,
             error: 'AI 请求缺少消息内容，请重新发起分析。',
@@ -1866,6 +1895,12 @@ export async function analyzeWithAIChatStream(
     const settings = await getSettings();
 
     if (!settings.apiKey) {
+        void recordDiagnosticLog({
+            level: 'warn',
+            source: 'AI:streamDecision',
+            message: 'missing_api_key',
+            context: { decision: 'missing_api_key', stage, messageCount: messages.length },
+        });
         return {
             success: false,
             error: '请先在设置中配置 API Key',
@@ -1876,6 +1911,12 @@ export async function analyzeWithAIChatStream(
         };
     }
     if (!settings.apiUrl) {
+        void recordDiagnosticLog({
+            level: 'warn',
+            source: 'AI:streamDecision',
+            message: 'missing_api_url',
+            context: { decision: 'missing_api_url', stage, messageCount: messages.length },
+        });
         return {
             success: false,
             error: '请先在设置中配置 API 接口地址',
@@ -1890,6 +1931,16 @@ export async function analyzeWithAIChatStream(
     const tokenLimitError = buildMainAIOutputLimitMessage(effectiveMaxTokens);
     let fullContent = '';
     let eventSource: EventSource;
+    const requestMeta = {
+        mode: requestOptions.debugMeta?.mode,
+        requestType: requestOptions.debugMeta?.requestType,
+        workflowStage: requestOptions.debugMeta?.workflowStage,
+        stage,
+        model: settings.model,
+        maxTokens: effectiveMaxTokens,
+        messageCount: requestOptions.debugMeta?.messageCount ?? messages.length,
+        systemCharCount: requestOptions.debugMeta?.systemCharCount ?? (messages.find((item) => item.role === 'system')?.content.length || 0),
+    };
 
     return new Promise((resolve) => {
         let isAborted = false;
@@ -1897,6 +1948,27 @@ export async function analyzeWithAIChatStream(
         let hasReasoningSignal = false;
         let lastFinishReason: string | null = null;
         let heartbeatTimer: NodeJS.Timeout;
+        const recordStreamDecision = (
+            decision: string,
+            result: AIAnalysisResult,
+            context: Record<string, unknown> = {},
+        ) => {
+            void recordDiagnosticLog({
+                level: result.success ? 'info' : 'warn',
+                source: 'AI:streamDecision',
+                message: decision,
+                context: {
+                    decision,
+                    success: result.success,
+                    code: result.code,
+                    finishReason: lastFinishReason,
+                    contentChars: fullContent.length,
+                    contentTrimmedChars: fullContent.trim().length,
+                    ...requestMeta,
+                    ...context,
+                },
+            });
+        };
         const cleanupStream = () => {
             if (heartbeatTimer) {
                 clearTimeout(heartbeatTimer);
@@ -1916,19 +1988,21 @@ export async function analyzeWithAIChatStream(
         };
         const finishStream = () => {
             if (!fullContent.trim()) {
-                resolveOnce({
+                const result: AIAnalysisResult = {
                     success: false,
                     error: '模型推理已结束，但没有返回可见正文，请重试。',
                     code: 'empty_response',
                     stage,
                     recoverable: true,
                     usedFallback: false,
-                });
+                };
+                recordStreamDecision('empty_response', result);
+                resolveOnce(result);
                 return;
             }
 
             if (lastFinishReason === 'length') {
-                resolveOnce({
+                const result: AIAnalysisResult = {
                     success: false,
                     error: tokenLimitError,
                     code: 'token_limit',
@@ -1936,11 +2010,15 @@ export async function analyzeWithAIChatStream(
                     recoverable: true,
                     usedFallback: false,
                     content: fullContent || undefined,
-                });
+                };
+                recordStreamDecision('finish_reason_length', result);
+                resolveOnce(result);
                 return;
             }
 
-            resolveOnce({ success: true, content: fullContent });
+            const result: AIAnalysisResult = { success: true, content: fullContent };
+            recordStreamDecision(lastFinishReason === 'stop' ? 'finish_reason_stop' : 'done_marker', result);
+            resolveOnce(result);
         };
         const streamIdleTimeoutMs = getStreamIdleTimeoutMs(stage);
         const handleAbort = () => {
@@ -1948,14 +2026,16 @@ export async function analyzeWithAIChatStream(
                 return;
             }
             isAborted = true;
-            resolveOnce({
+            const result: AIAnalysisResult = {
                 success: false,
                 error: 'ABORTED',
                 code: 'aborted',
                 stage,
                 recoverable: true,
                 usedFallback: false,
-            });
+            };
+            recordStreamDecision('aborted', result);
+            resolveOnce(result);
         };
         const resetHeartbeat = () => {
             if (heartbeatTimer) {
@@ -1966,7 +2046,7 @@ export async function analyzeWithAIChatStream(
                     return;
                 }
                 isAborted = true;
-                resolveOnce({
+                const result: AIAnalysisResult = {
                     success: false,
                     error: '连接超时：服务器长时间无响应',
                     code: 'timeout',
@@ -1974,16 +2054,14 @@ export async function analyzeWithAIChatStream(
                     recoverable: true,
                     usedFallback: false,
                     content: fullContent || undefined,
-                });
+                };
+                recordStreamDecision('idle_timeout', result, { idleTimeoutMs: streamIdleTimeoutMs });
+                resolveOnce(result);
             }, streamIdleTimeoutMs);
         };
 
         resetHeartbeat();
-        logAIRequestDebug({
-            ...requestOptions.debugMeta,
-            messageCount: requestOptions.debugMeta?.messageCount ?? messages.length,
-            systemCharCount: requestOptions.debugMeta?.systemCharCount ?? (messages.find((item) => item.role === 'system')?.content.length || 0),
-        });
+        logAIRequestDebug({ ...requestOptions.debugMeta, ...requestMeta });
 
         eventSource = new EventSource(resolveChatCompletionsUrl(settings.apiUrl), {
             method: 'POST',
@@ -2078,7 +2156,7 @@ export async function analyzeWithAIChatStream(
             const errorMessage = xhrStatus === 524
                 ? '模型强推理耗时较长，接口网关返回 524 超时，请重试。'
                 : (error.message || JSON.stringify(error));
-            resolveOnce({
+            const result: AIAnalysisResult = {
                 success: false,
                 error: xhrStatus === 524
                     ? errorMessage
@@ -2088,7 +2166,13 @@ export async function analyzeWithAIChatStream(
                 recoverable: true,
                 usedFallback: false,
                 content: fullContent || undefined,
+            };
+            recordStreamDecision(xhrStatus === 524 ? 'gateway_timeout' : 'stream_error', result, {
+                xhrStatus,
+                xhrState: error.xhrState,
+                errorMessage,
             });
+            resolveOnce(result);
         });
     });
 }
@@ -2337,13 +2421,13 @@ ${recentFocus}
     }
 
     if (!result.question) {
-        return { value: [] };
+        return { value: getLocalLiuyaoQuickReplies(result) };
     }
 
     const settings = await getSettings();
     if (!settings.apiKey || !settings.apiUrl) {
         return {
-            value: [],
+            value: getLocalLiuyaoQuickReplies(result),
             failure: createAIFailure(
                 settings.apiKey ? 'missing_api_url' : 'missing_api_key',
                 'liuyao_quick_replies',
@@ -2365,8 +2449,8 @@ ${recentFocus}
     );
     if (!content.success || !content.content) {
         const outcome = {
-            value: [],
-            failure: content.failure,
+            value: getLocalLiuyaoQuickReplies(result),
+            failure: content.failure ? { ...content.failure, usedFallback: true } : undefined,
         };
         logAIFailure('liuyao_quick_replies', outcome.failure);
         return outcome;
@@ -2376,10 +2460,10 @@ ${recentFocus}
     const outcome = {
         value: parsed && Array.isArray(parsed.quickReplies)
             ? parsed.quickReplies.filter((item): item is string => typeof item === 'string')
-            : [],
+            : getLocalLiuyaoQuickReplies(result),
         failure: parsed && Array.isArray(parsed.quickReplies)
             ? undefined
-            : createAIFailure('invalid_response', 'liuyao_quick_replies', '六爻快捷追问返回格式无效'),
+            : createAIFailure('invalid_response', 'liuyao_quick_replies', '六爻快捷追问返回格式无效', { usedFallback: true }),
     };
     if (outcome.failure) {
         logAIFailure('liuyao_quick_replies', outcome.failure);
