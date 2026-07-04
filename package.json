@@ -1,12 +1,15 @@
 {
   "name": "liuyao-app",
-  "version": "1.5.8",
+  "version": "1.5.9",
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
+    "release:patch": "node scripts/release-version.js patch",
+    "release:minor": "node scripts/release-version.js minor",
+    "release:major": "node scripts/release-version.js major",
     "setup:hooks": "git config core.hooksPath .githooks",
     "guard:no-tests": "sh scripts/guard-no-test-files.sh --staged",
     "typecheck": "tsc --noEmit"
