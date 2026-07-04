@@ -29,18 +29,17 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 2. 配置 Git 身份（仅手动触发时）
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: 3. 自动递增版本号并打 Tag（仅手动触发时）
+      - name: 2. 自动递增版本号并打 Tag（仅手动触发时）
         if: github.event_name == 'workflow_dispatch'
         id: bump_version
         run: |
           BUMP="${{ github.event.inputs.bump }}"
-          CURRENT=$(jq -r '.expo.version' app.json)
+          LATEST_TAG=$(git tag --list 'v[0-9]*' --sort=-v:refname | head -n 1)
+          if [ -n "$LATEST_TAG" ]; then
+            CURRENT="${LATEST_TAG#v}"
+          else
+            CURRENT=$(jq -r '.expo.version' app.json)
+          fi
           IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
 
           case "$BUMP" in
@@ -51,15 +50,14 @@ jobs:
 
           NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
 
-          # versionCode：从现有值递增，不存在则从版本号计算初始值
+          # versionCode：优先按版本号计算；若本地配置更高，则继续递增
           CURRENT_CODE=$(jq -r '.expo.android.versionCode // 0' app.json)
-          if [ "$CURRENT_CODE" = "0" ] || [ "$CURRENT_CODE" = "null" ]; then
-            NEW_CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
-          else
+          NEW_CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
+          if [ "$CURRENT_CODE" != "null" ] && [ "$CURRENT_CODE" -ge "$NEW_CODE" ]; then
             NEW_CODE=$((CURRENT_CODE + 1))
           fi
 
-          # 更新 app.json
+          # 只更新 CI 工作区中的 app.json 用于本次打包，不提交到 main
           jq --arg v "$NEW_VERSION" --argjson c "$NEW_CODE" \
             '.expo.version = $v | .expo.android.versionCode = $c' \
             app.json > app.json.tmp && mv app.json.tmp app.json
@@ -67,13 +65,11 @@ jobs:
           echo "new_version=v${NEW_VERSION}" >> $GITHUB_OUTPUT
           echo "✅ 版本 $CURRENT → $NEW_VERSION，versionCode → $NEW_CODE"
 
-          # 提交版本变更并打 tag（使用 GITHUB_TOKEN 推送，不会触发二次 workflow）
-          git add app.json
-          git commit -m "chore: bump version to ${NEW_VERSION}"
+          # 只推送 tag，不再推送版本提交到 main，避免打包工作流导致本地分支落后远端
           git tag "v${NEW_VERSION}"
-          git push origin HEAD:main "v${NEW_VERSION}"
+          git push origin "v${NEW_VERSION}"
 
-      - name: 4. 生成中文版本说明
+      - name: 3. 生成中文版本说明
         id: changelog
         run: |
           # 当前 tag
@@ -124,21 +120,21 @@ jobs:
           echo "--- 生成的版本说明 ---"
           cat RELEASE_NOTES.md
 
-      - name: 5. 配置 Node 环境
+      - name: 4. 配置 Node 环境
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: 6. 安装 Expo 和 EAS CLI
+      - name: 5. 安装 Expo 和 EAS CLI
         uses: expo/expo-github-action@v8
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: 7. 安装项目依赖
+      - name: 6. 安装项目依赖
         run: npm install
 
-      - name: 8. 触发 EAS 云端打包并抓取 APK
+      - name: 7. 触发 EAS 云端打包并抓取 APK
         id: eas-build
         run: |
           echo "开始提交云端构建任务..."
@@ -147,14 +143,14 @@ jobs:
           echo "云端打包成功！APK 链接: $APK_URL"
           wget -O jianji-release.apk "$APK_URL"
 
-      - name: 9. 确认最终版本号
+      - name: 8. 确认最终版本号
         id: get_version
         run: |
           APP_VERSION=$(jq -r '.expo.version' app.json)
           echo "version=v${APP_VERSION}" >> $GITHUB_OUTPUT
           echo "最终版本号: v${APP_VERSION}"
 
-      - name: 10. 发布到 GitHub Releases
+      - name: 9. 发布到 GitHub Releases
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.get_version.outputs.version }}
