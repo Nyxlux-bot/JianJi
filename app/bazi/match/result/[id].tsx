@@ -191,7 +191,6 @@ export default function BaziMatchResultPage() {
                 undefined,
                 {
                     stage: 'bazi_match',
-                    maxTokens: 2400,
                     debugMeta: {
                         mode: 'bazi',
                         requestType: 'main',

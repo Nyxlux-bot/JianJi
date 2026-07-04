@@ -6,7 +6,6 @@ import { BackIcon, ChevronRightIcon, ReadIcon } from '../../src/components/Icons
 import {
     BAZI_CLASSIC_BOOK_INDEX,
     getBaziClassicBook,
-    type BaziClassicBook,
     type BaziClassicBookMeta,
     type BaziClassicChapter,
 } from '../../src/data/bazi-classics';

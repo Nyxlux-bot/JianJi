@@ -31,6 +31,7 @@ import {
 import { formatBaziToText } from './bazi-formatter';
 import { DEFAULT_BAZI_SYSTEM_PROMPT, DEFAULT_LIUYAO_SYSTEM_PROMPT, DEFAULT_ZIWEI_SYSTEM_PROMPT } from './default-prompts';
 import { resolveChatCompletionsUrl } from './ai-endpoints';
+import { buildMainAIOutputLimitMessage, resolveMainAIOutputTokens } from './ai-model-limits';
 import { getSettings } from './settings';
 import { formatZiweiToText } from './ziwei-formatter';
 
@@ -1431,20 +1432,17 @@ export function getChatRequestOptions(
 ): AIRequestOptions {
     if (isBaziResult(result)) {
         return phase === 'initial'
-            ? { temperature: 0.3, maxTokens: 3200 }
-            : { temperature: 0.4, maxTokens: 3600 };
+            ? { temperature: 0.3 }
+            : { temperature: 0.4 };
     }
 
     if (isZiweiResult(result)) {
         return phase === 'initial'
-            ? { temperature: 0.3, maxTokens: 3400 }
-            : { temperature: 0.4, maxTokens: 3800 };
+            ? { temperature: 0.3 }
+            : { temperature: 0.4 };
     }
 
-    // 六爻：完整解盘涵盖整体卦意、世应、用神、动变、应期、趋避，汉字密度高，需要足够的 token 空间
-    return phase === 'initial'
-        ? { temperature: 0.7, maxTokens: 3200 }
-        : { temperature: 0.7, maxTokens: 3600 };
+    return { temperature: 0.7 };
 }
 
 function getStreamIdleTimeoutMs(stage: string): number {
@@ -1865,6 +1863,8 @@ export async function analyzeWithAIChatStream(
         };
     }
 
+    const effectiveMaxTokens = requestOptions.maxTokens ?? resolveMainAIOutputTokens(settings.apiUrl, settings.model);
+    const tokenLimitError = buildMainAIOutputLimitMessage(effectiveMaxTokens);
     let fullContent = '';
     let eventSource: EventSource;
 
@@ -1928,7 +1928,7 @@ export async function analyzeWithAIChatStream(
                 model: settings.model,
                 messages,
                 temperature: requestOptions.temperature ?? settings.temperature,
-                max_tokens: requestOptions.maxTokens ?? 2000,
+                max_tokens: effectiveMaxTokens,
                 stream: true,
             }),
         });
@@ -1969,7 +1969,7 @@ export async function analyzeWithAIChatStream(
                 if (lastFinishReason === 'length') {
                     resolve({
                         success: false,
-                        error: '输出内容超出模型单次 Token 限制，分析被截断，请重试。',
+                        error: tokenLimitError,
                         code: 'token_limit',
                         stage,
                         recoverable: true,
@@ -2005,7 +2005,7 @@ export async function analyzeWithAIChatStream(
                     if (lastFinishReason === 'length') {
                         resolve({
                             success: false,
-                            error: '输出内容超出模型单次 Token 限制，分析被截断，请重试。',
+                            error: tokenLimitError,
                             code: 'token_limit',
                             stage,
                             recoverable: true,

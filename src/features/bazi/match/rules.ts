@@ -35,7 +35,7 @@ import {
 import type { BaziMatchClassicReferenceId } from './classic-references';
 
 const ELEMENTS: WuXing[] = ['木', '火', '土', '金', '水'];
-const STAR_NAMES: ShiShenName[] = ['比肩', '劫财', '食神', '伤官', '偏财', '正财', '七杀', '正官', '偏印', '正印'];
+const STAR_NAMES: readonly ShiShenName[] = ['比肩', '劫财', '食神', '伤官', '偏财', '正财', '七杀', '正官', '偏印', '正印'];
 const DIMENSION_WEIGHTS: Record<BaziMatchDimensionScore['key'], number> = {
     harmony: 0.32,
     supportHusband: 0.22,
@@ -103,7 +103,7 @@ function splitPillars(fourPillars: BaziResult['fourPillars']): {
 }
 
 function countStar(starCounts: Partial<Record<ShiShenName, number>>, star: ShiShenName | undefined): void {
-    if (!star || star === '日主') {
+    if (!star || !STAR_NAMES.includes(star)) {
         return;
     }
     starCounts[star] = (starCounts[star] ?? 0) + 1;
@@ -347,7 +347,9 @@ function scoreHarmony(male: BaziMatchProfile, female: BaziMatchProfile): BaziMat
 }
 
 function starTotal(profile: BaziMatchProfile, names: ShiShenName[]): number {
-    return names.reduce((sum, name) => sum + (profile.starCounts[name] ?? 0), 0);
+    return STAR_NAMES
+        .filter((name) => names.includes(name))
+        .reduce((sum, name) => sum + (profile.starCounts[name] ?? 0), 0);
 }
 
 function scoreSupportHusband(male: BaziMatchProfile, female: BaziMatchProfile): BaziMatchDimensionScore {

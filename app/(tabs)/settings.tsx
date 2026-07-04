@@ -149,7 +149,7 @@ function TaijiHub({
 
 export default function SettingsPage() {
     const { Colors, theme, setTheme } = useTheme();
-    const styles = makeStyles(Colors, theme);
+    const styles = makeStyles(Colors);
     const themeProgress = useRef(new Animated.Value(theme === 'yang' ? 1 : 0)).current;
     const [settings, setSettings] = useState<AISettings>(DEFAULT_SETTINGS);
     const [isInitializing, setIsInitializing] = useState(true);
@@ -882,7 +882,7 @@ const makeSheetStyles = (Colors: any) => StyleSheet.create({
     },
 });
 
-const makeStyles = (Colors: any, theme: ThemeType) => StyleSheet.create({
+const makeStyles = (Colors: any) => StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: Colors.bg.primary,
