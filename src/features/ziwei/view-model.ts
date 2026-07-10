@@ -1,5 +1,6 @@
 import '../../polyfills/intl';
 import { star } from 'iztro';
+import { getHeavenlyStemAndEarthlyBranchBySolarDate } from 'lunar-lite';
 import type { IFunctionalAstrolabe } from 'iztro/lib/astro/FunctionalAstrolabe';
 import type { IFunctionalHoroscope } from 'iztro/lib/astro/FunctionalHoroscope';
 import type { IFunctionalPalace } from 'iztro/lib/astro/FunctionalPalace';
@@ -8,6 +9,7 @@ import type { IFunctionalStar } from 'iztro/lib/star/FunctionalStar';
 import { formatLocalDateTime } from '../../core/bazi-local-time';
 import { getSolarTermDate, solarToLunar } from '../../core/lunar';
 import { measureZiweiPerf } from './perf';
+import { getCachedHoroscopeStar } from './iztro-optimizer';
 import {
     ZiweiActiveScope,
     ZiweiAlgorithm,
@@ -139,8 +141,21 @@ const PALACE_SHORT_LABELS: Record<string, string> = {
 };
 const ZIWEI_DECORATION_CACHE_LIMIT = 48;
 const ZIWEI_DECADAL_ASSIGNMENT_CACHE_LIMIT = 24;
+const ZIWEI_DIRECT_SCOPE_CACHE_LIMIT = 64;
 const ziweiBoardDecorationsCache = new Map<string, ZiweiBoardDecorationModel>();
 const ziweiDecadalAssignmentsCache = new Map<string, Record<string, ZiweiPalaceYearAssignmentView[]>>();
+const ziweiDirectHoroscopeScopeCache = new WeakMap<IFunctionalAstrolabe, Map<string, ZiweiDirectHoroscopeScopeView>>();
+
+function getLruValue<T>(cache: Map<string, T>, key: string): T | undefined {
+    const value = cache.get(key);
+    if (value === undefined) {
+        return undefined;
+    }
+
+    cache.delete(key);
+    cache.set(key, value);
+    return value;
+}
 
 function formatMutagen(mutagen?: string): string {
     return mutagen ? `化${mutagen}` : '';
@@ -183,7 +198,9 @@ function buildHoroscopeMutagenStars(mutagenStars: string[]) {
 
 function buildActiveScopes(index: number, horoscope: IFunctionalHoroscope): ZiweiActiveScope[] {
     const result: ZiweiActiveScope[] = [];
-    const agePalaceIndex = horoscope.agePalace()?.index;
+    const agePalaceIndex = horoscope.age.index >= 0 && horoscope.age.index <= 11
+        ? horoscope.age.index
+        : null;
 
     if (horoscope.decadal.index === index) {
         result.push('decadal');
@@ -387,8 +404,10 @@ function formatHoroscopeItem(astrolabe: IFunctionalAstrolabe, item: { index: num
     return `${item.name} · ${palaceName} · ${item.heavenlyStem}${item.earthlyBranch}`;
 }
 
-export function buildZiweiBoardMetrics(screenWidth: number): ZiweiBoardMetrics {
+export function buildZiweiBoardMetrics(screenWidth: number, screenHeight?: number): ZiweiBoardMetrics {
     const safeScreenWidth = Number.isFinite(screenWidth) && screenWidth > 0 ? screenWidth : 393;
+    const safeScreenHeight = Number.isFinite(screenHeight) && screenHeight && screenHeight > 0 ? screenHeight : 844;
+
     const chromeInset = safeScreenWidth <= 360 ? 2 : safeScreenWidth <= 430 ? 3 : 4;
     const boardInset = safeScreenWidth <= 375 ? 4 : 6;
     const gap = safeScreenWidth <= 375 ? 4 : 6;
@@ -397,7 +416,59 @@ export function buildZiweiBoardMetrics(screenWidth: number): ZiweiBoardMetrics {
     const cellWidth = Math.round(usableWidth / 4);
     const centerWidth = cellWidth * 2 + gap;
     const boardWidth = boardInset * 2 + cellWidth * 4 + gap * 3;
-    const cellHeight = Math.max(150, Math.round(cellWidth * 1.72));
+
+    // 🔥 自适应高度计算
+    let cellHeight: number;
+
+    if (screenHeight && screenHeight > 0) {
+        // 计算可用高度（已移除运限横条 + 合并顶栏，总共节省 ~120px）
+        const statusBarHeight = 44;
+        const navBarHeight = 48;      // 紧凑顶栏（原来是 56 + 60 = 116）
+        const buttonHeight = 44;      // "展开运限"按钮 + 间距（减少到 44）
+        const bottomSafeArea = 34;    // Home Indicator
+        const verticalMargin = 8;     // 上下留白（减少到 8，给命盘更多空间）
+
+        const availableHeight = safeScreenHeight
+            - statusBarHeight
+            - navBarHeight
+            - buttonHeight
+            - bottomSafeArea
+            - verticalMargin;
+
+        // 反推最大宫位高度
+        const maxCellHeight = (availableHeight - boardInset * 2 - gap * 3) / 4;
+
+        // 计算理想宽高比
+        const idealAspectRatio = maxCellHeight / cellWidth;
+
+        // 钳制在合理范围（不能太扁或太细长）
+        const MIN_ASPECT_RATIO = 1.3;
+        const MAX_ASPECT_RATIO = 1.85;  // 从 1.72 提高到 1.85，允许宫位更高
+        const finalAspectRatio = Math.max(
+            MIN_ASPECT_RATIO,
+            Math.min(idealAspectRatio, MAX_ASPECT_RATIO),
+        );
+
+        cellHeight = Math.max(150, Math.round(cellWidth * finalAspectRatio));
+
+        // 开发环境调试日志
+        if (typeof globalThis !== 'undefined' && '__DEV__' in globalThis && (globalThis as any).__DEV__) {
+            console.info('[ziwei-metrics] 自适应计算:', {
+                screenHeight: safeScreenHeight,
+                availableHeight,
+                cellWidth,
+                maxCellHeight,
+                idealAspectRatio: idealAspectRatio.toFixed(2),
+                finalAspectRatio: finalAspectRatio.toFixed(2),
+                cellHeight,
+                boardHeight: boardInset * 2 + cellHeight * 4 + gap * 3,
+            });
+        }
+    } else {
+        // 回退到固定宽高比（兼容旧调用）
+        cellHeight = Math.max(150, Math.round(cellWidth * 1.72));
+    }
+
     const centerHeight = cellHeight * 2 + gap;
     const centerTopHeight = Math.max(104, Math.round(centerHeight * 0.33));
     const tilePadding = safeScreenWidth <= 375 ? 4 : 5;
@@ -551,8 +622,20 @@ function buildDirectHoroscopeScopeView(
     item: IFunctionalHoroscope[ZiweiDynamicScope],
     algorithm: ZiweiAlgorithm,
 ): ZiweiDirectHoroscopeScopeView {
-    const palaceStars = star
-        .getHoroscopeStar(item.heavenlyStem as any, item.earthlyBranch as any, scope)
+    let astrolabeCache = ziweiDirectHoroscopeScopeCache.get(astrolabe);
+    if (!astrolabeCache) {
+        astrolabeCache = new Map<string, ZiweiDirectHoroscopeScopeView>();
+        ziweiDirectHoroscopeScopeCache.set(astrolabe, astrolabeCache);
+    }
+    const cacheKey = `${algorithm}|${scope}|${item.heavenlyStem}|${item.earthlyBranch}`;
+    const cached = astrolabeCache.get(cacheKey);
+    if (cached) {
+        astrolabeCache.delete(cacheKey);
+        astrolabeCache.set(cacheKey, cached);
+        return cached;
+    }
+
+    const palaceStars = getCachedHoroscopeStar(item.heavenlyStem, item.earthlyBranch, scope)
         .map((starsAtPalace, palaceIndex) => ({
             palaceName: astrolabe.palaces[palaceIndex]?.name || `第${palaceIndex + 1}宫`,
             palaceIndex,
@@ -560,13 +643,22 @@ function buildDirectHoroscopeScopeView(
             stars: starsAtPalace.map((directStar) => toStarViewModel(directStar, astrolabe.palaces[palaceIndex]?.earthlyBranch || '', algorithm)),
         }));
 
-    return {
+    const result: ZiweiDirectHoroscopeScopeView = {
         scope,
         heavenlyStem: item.heavenlyStem,
         earthlyBranch: item.earthlyBranch,
         palaceStars,
         byPalaceName: Object.fromEntries(palaceStars.map((entry) => [entry.palaceName, entry])),
     };
+
+    astrolabeCache.set(cacheKey, result);
+    if (astrolabeCache.size > ZIWEI_DIRECT_SCOPE_CACHE_LIMIT) {
+        const oldestKey = astrolabeCache.keys().next().value;
+        if (oldestKey) {
+            astrolabeCache.delete(oldestKey);
+        }
+    }
+    return result;
 }
 
 export function buildZiweiDirectHoroscopeScopeViewByScope(
@@ -597,7 +689,7 @@ export function buildZiweiHoroscopeScopeViews(
     horoscope: IFunctionalHoroscope,
     directHoroscopeByScope: Partial<Record<ZiweiDynamicScope, ZiweiDirectHoroscopeScopeView>> = {},
 ): ZiweiHoroscopeScopeView[] {
-    const agePalace = horoscope.agePalace();
+    const agePalace = astrolabe.palaces[horoscope.age.index];
 
     const scoped = (
         scope: Exclude<ZiweiActiveScope, 'age'>,
@@ -695,6 +787,58 @@ export function buildZiweiHoroscopePalaceView(
     };
 }
 
+function buildZiweiHoroscopePalaceViewFromDynamic(
+    staticChart: ZiweiStaticChartResult,
+    dynamic: ZiweiDynamicHoroscopeResult,
+    palaceName: string,
+    scope: ZiweiDynamicScope,
+    directHoroscope?: ZiweiDirectHoroscopeScopeView | null,
+): ZiweiHoroscopePalaceView | null {
+    const scopeSnapshot = dynamic.runtimeSnapshot.scopes[scope];
+    const resolvedPalaceIndex = scopeSnapshot.palaceNames.indexOf(palaceName);
+    const resolvedPalace = staticChart.palaces[resolvedPalaceIndex];
+    const requestedPalace = staticChart.palaceByName[palaceName];
+    if (!resolvedPalace || !requestedPalace) {
+        return null;
+    }
+
+    const directHoroscopeStars = directHoroscope?.byPalaceName[resolvedPalace.name]?.starNames || [];
+    const mergedHoroscopeStarNames = new Set([
+        ...(dynamic.runtimeSnapshot.scopes.decadal.starNamesByPalaceIndex[resolvedPalaceIndex] || []),
+        ...(dynamic.runtimeSnapshot.scopes.yearly.starNamesByPalaceIndex[resolvedPalaceIndex] || []),
+    ]);
+    const activeMutagens = scopeSnapshot.mutagensByPalaceIndex[requestedPalace.palaceIndex] || [];
+
+    return {
+        scope,
+        requestedPalaceName: palaceName,
+        resolvedPalaceName: resolvedPalace.name,
+        heavenlyStem: resolvedPalace.heavenlyStem,
+        earthlyBranch: resolvedPalace.earthlyBranch,
+        mutagen: scopeSnapshot.mutagen,
+        mutagenStars: buildHoroscopeMutagenStars(scopeSnapshot.mutagen),
+        stars: flattenHoroscopeStars(dynamic.horoscopeNow[scope].stars),
+        directHoroscopeStars,
+        directHoroscopeAllPresent:
+            directHoroscopeStars.length > 0
+                ? directHoroscopeStars.every((starName) => mergedHoroscopeStarNames.has(starName))
+                : false,
+        directHoroscopeAnyPresent:
+            directHoroscopeStars.length > 0
+                ? directHoroscopeStars.some((starName) => mergedHoroscopeStarNames.has(starName))
+                : false,
+        directHoroscopeAllAbsent:
+            directHoroscopeStars.length > 0
+                ? directHoroscopeStars.every((starName) => !mergedHoroscopeStarNames.has(starName))
+                : false,
+        surrounded: resolvedPalace.surrounded,
+        hasLu: activeMutagens.includes('禄'),
+        hasQuan: activeMutagens.includes('权'),
+        hasKe: activeMutagens.includes('科'),
+        hasJi: activeMutagens.includes('忌'),
+    };
+}
+
 function trimOldestCacheEntry<T>(cache: Map<string, T>, limit: number) {
     if (cache.size <= limit) {
         return;
@@ -722,15 +866,15 @@ function buildZiweiDecadalAssignmentsCacheKey(
 }
 
 function getScopeOverlayPalaceName(
-    horoscope: IFunctionalHoroscope,
+    dynamic: ZiweiDynamicHoroscopeResult,
     palaceIndex: number,
     scope: ZiweiActiveScope,
 ): string {
     if (scope === 'age') {
-        return horoscope.age.palaceNames[palaceIndex] || '';
+        return dynamic.horoscopeNow.age.palaceNames[palaceIndex] || '';
     }
 
-    return horoscope[scope].palaceNames[palaceIndex] || '';
+    return dynamic.runtimeSnapshot.scopes[scope].palaceNames[palaceIndex] || '';
 }
 
 function getPalaceShortLabel(palaceName: string): string {
@@ -742,11 +886,11 @@ function getPalaceShortLabel(palaceName: string): string {
 }
 
 function buildScopeOverlayLabel(
-    horoscope: IFunctionalHoroscope,
+    dynamic: ZiweiDynamicHoroscopeResult,
     palaceIndex: number,
     scope: ZiweiActiveScope,
 ): string {
-    const palaceName = getScopeOverlayPalaceName(horoscope, palaceIndex, scope);
+    const palaceName = getScopeOverlayPalaceName(dynamic, palaceIndex, scope);
     return `${SCOPE_PREFIX_LABELS[scope]}${getPalaceShortLabel(palaceName)}`;
 }
 
@@ -756,7 +900,7 @@ function buildVisibleScopes(activeScope: ZiweiActiveScope): ZiweiActiveScope[] {
 
 function buildOverlayMutagens(
     palace: ZiweiPalaceAnalysisView,
-    horoscope: IFunctionalHoroscope,
+    dynamic: ZiweiDynamicHoroscopeResult,
     scope: ZiweiActiveScope,
 ): ZiweiMutagen[] {
     if (scope === 'age') {
@@ -765,7 +909,7 @@ function buildOverlayMutagens(
             ...palace.minorStars,
             ...palace.adjectiveStars,
         ].map((star) => star.name);
-        const [lu = '', quan = '', ke = '', ji = ''] = horoscope.age.mutagen || [];
+        const [lu = '', quan = '', ke = '', ji = ''] = dynamic.horoscopeNow.age.mutagen || [];
 
         return [
             { key: '禄' as ZiweiMutagen, starName: lu },
@@ -775,11 +919,11 @@ function buildOverlayMutagens(
         ].filter((item) => item.starName && palaceStarNames.includes(item.starName)).map((item) => item.key);
     }
 
-    return ZIWEI_MUTAGENS.filter((mutagen) => horoscope.hasHoroscopeMutagen(palace.name as any, scope as any, mutagen as any));
+    return dynamic.runtimeSnapshot.scopes[scope].mutagensByPalaceIndex[palace.palaceIndex] || [];
 }
 
 function buildOverlayStars(
-    horoscope: IFunctionalHoroscope,
+    dynamic: ZiweiDynamicHoroscopeResult,
     palaceIndex: number,
     scope: ZiweiActiveScope,
 ): string[] {
@@ -787,12 +931,12 @@ function buildOverlayStars(
         return [];
     }
 
-    return (horoscope[scope].stars?.[palaceIndex] || []).map((star) => star.name);
+    return dynamic.runtimeSnapshot.scopes[scope].starNamesByPalaceIndex[palaceIndex] || [];
 }
 
 function buildPalaceOverlays(
     palace: ZiweiPalaceAnalysisView,
-    horoscope: IFunctionalHoroscope,
+    dynamic: ZiweiDynamicHoroscopeResult,
     activeScope: ZiweiActiveScope,
 ): ZiweiPalaceOverlayView[] {
     const visibleScopes = new Set(buildVisibleScopes(activeScope));
@@ -801,11 +945,11 @@ function buildPalaceOverlays(
         .filter((scope) => visibleScopes.has(scope))
         .map((scope) => ({
             key: scope,
-            label: buildScopeOverlayLabel(horoscope, palace.palaceIndex, scope),
+            label: buildScopeOverlayLabel(dynamic, palace.palaceIndex, scope),
             tone: scope,
             active: scope === activeScope,
-            stars: buildOverlayStars(horoscope, palace.palaceIndex, scope),
-            mutagens: buildOverlayMutagens(palace, horoscope, scope),
+            stars: buildOverlayStars(dynamic, palace.palaceIndex, scope),
+            mutagens: buildOverlayMutagens(palace, dynamic, scope),
         }));
 }
 
@@ -837,7 +981,7 @@ function buildDecadalYearAssignments(
     ) => ZiweiDynamicHoroscopeResult,
 ): Record<string, ZiweiPalaceYearAssignmentView[]> {
     const cacheKey = buildZiweiDecadalAssignmentsCacheKey(staticChart, dynamic);
-    const cached = ziweiDecadalAssignmentsCache.get(cacheKey);
+    const cached = getLruValue(ziweiDecadalAssignmentsCache, cacheKey);
 
     if (cached) {
         return cached;
@@ -854,8 +998,12 @@ function buildDecadalYearAssignments(
         for (let nominalAge = startAge; nominalAge <= endAge; nominalAge += 1) {
             const year = birthYear + nominalAge - 1;
             const cursorDate = buildNominalAgeCursorDate(birthYear, nominalAge, horoscopeDivide);
-            const yearlyDynamic = resolveDynamicHoroscope(staticChart, cursorDate);
-            const yearlyPalace = staticChart.astrolabe.palaces[yearlyDynamic.horoscopeNow.yearly.index];
+            const [, yearlyBranch] = getHeavenlyStemAndEarthlyBranchBySolarDate(cursorDate, 0, {
+                year: horoscopeDivide,
+                month: horoscopeDivide,
+            }).yearly;
+            const yearlyPalaceIndex = (EARTHLY_BRANCH_TO_SLOT[yearlyBranch] - 2 + 12) % 12;
+            const yearlyPalace = staticChart.astrolabe.palaces[yearlyPalaceIndex];
 
             if (!yearlyPalace) {
                 continue;
@@ -873,6 +1021,7 @@ function buildDecadalYearAssignments(
         return nextAssignments;
     });
 
+    ziweiDecadalAssignmentsCache.delete(cacheKey);
     ziweiDecadalAssignmentsCache.set(cacheKey, assignments);
     trimOldestCacheEntry(ziweiDecadalAssignmentsCache, ZIWEI_DECADAL_ASSIGNMENT_CACHE_LIMIT);
     return assignments;
@@ -888,18 +1037,20 @@ export function buildZiweiBoardDecorations(
     ) => ZiweiDynamicHoroscopeResult,
 ): ZiweiBoardDecorationModel {
     const cacheKey = buildZiweiBoardDecorationCacheKey(staticChart, dynamic, activeScope);
-    const cached = ziweiBoardDecorationsCache.get(cacheKey);
+    const cached = getLruValue(ziweiBoardDecorationsCache, cacheKey);
 
     if (cached) {
         return cached;
     }
 
+    // 🔥 优化：大限年份分配只在 scope === 'decadal' 时才计算（节省 ~400ms）
     const baseAssignments = activeScope === 'decadal'
         ? buildDecadalYearAssignments(staticChart, dynamic, resolveDynamicHoroscope)
         : null;
+
     const currentYear = dynamic.cursorDate.getFullYear();
     const byPalaceName = Object.fromEntries(staticChart.palaces.map((palace) => {
-        const overlays = buildPalaceOverlays(palace, dynamic.horoscopeNow, activeScope);
+        const overlays = buildPalaceOverlays(palace, dynamic, activeScope);
         const activeOverlay = overlays.find((overlay) => overlay.key === activeScope) || null;
         const historyOverlayLabels = buildHistoryOverlayLabels(overlays, activeScope);
         const baseYearAssignments = baseAssignments?.[palace.name] || [];
@@ -928,6 +1079,7 @@ export function buildZiweiBoardDecorations(
         byPalaceName,
     };
 
+    ziweiBoardDecorationsCache.delete(cacheKey);
     ziweiBoardDecorationsCache.set(cacheKey, nextDecorationModel);
     trimOldestCacheEntry(ziweiBoardDecorationsCache, ZIWEI_DECORATION_CACHE_LIMIT);
     return nextDecorationModel;
@@ -960,37 +1112,37 @@ function buildPalaceScopeTags(
     const tags: ZiweiScopeTagView[] = [
         {
             key: 'decadal',
-            label: `大${(dynamic.horoscopeNow.decadal.palaceNames[palace.palaceIndex] || '').replace(/\s/g, '').slice(0, 1) || palace.name.slice(0, 1)}`,
+            label: `大${(dynamic.runtimeSnapshot.scopes.decadal.palaceNames[palace.palaceIndex] || '').replace(/\s/g, '').slice(0, 1) || palace.name.slice(0, 1)}`,
             tone: 'decadal',
             active: activeScope === 'decadal',
         },
         {
             key: 'yearly',
-            label: `年${(dynamic.horoscopeNow.yearly.palaceNames[palace.palaceIndex] || '').replace(/\s/g, '').slice(0, 1) || palace.name.slice(0, 1)}`,
+            label: `年${(dynamic.runtimeSnapshot.scopes.yearly.palaceNames[palace.palaceIndex] || '').replace(/\s/g, '').slice(0, 1) || palace.name.slice(0, 1)}`,
             tone: 'yearly',
             active: activeScope === 'yearly',
         },
         {
             key: 'monthly',
-            label: `月${(dynamic.horoscopeNow.monthly.palaceNames[palace.palaceIndex] || '').replace(/\s/g, '').slice(0, 1) || palace.name.slice(0, 1)}`,
+            label: `月${(dynamic.runtimeSnapshot.scopes.monthly.palaceNames[palace.palaceIndex] || '').replace(/\s/g, '').slice(0, 1) || palace.name.slice(0, 1)}`,
             tone: 'monthly',
             active: activeScope === 'monthly',
         },
         {
             key: 'daily',
-            label: `日${(dynamic.horoscopeNow.daily.palaceNames[palace.palaceIndex] || '').replace(/\s/g, '').slice(0, 1) || palace.name.slice(0, 1)}`,
+            label: `日${(dynamic.runtimeSnapshot.scopes.daily.palaceNames[palace.palaceIndex] || '').replace(/\s/g, '').slice(0, 1) || palace.name.slice(0, 1)}`,
             tone: 'daily',
             active: activeScope === 'daily',
         },
         {
             key: 'hourly',
-            label: `时${(dynamic.horoscopeNow.hourly.palaceNames[palace.palaceIndex] || '').replace(/\s/g, '').slice(0, 1) || palace.name.slice(0, 1)}`,
+            label: `时${(dynamic.runtimeSnapshot.scopes.hourly.palaceNames[palace.palaceIndex] || '').replace(/\s/g, '').slice(0, 1) || palace.name.slice(0, 1)}`,
             tone: 'hourly',
             active: activeScope === 'hourly',
         },
     ];
 
-    if (dynamic.horoscopeNow.agePalace()?.name === palace.name) {
+    if (dynamic.runtimeSnapshot.agePalaceName === palace.name) {
         tags.unshift({
             key: 'age',
             label: `小${dynamic.horoscopeNow.age.nominalAge}`,
@@ -1104,15 +1256,15 @@ function buildZiweiScopeRenderByPalaceName(
 ): Record<string, ZiweiPalaceScopeRenderModel> {
     return Object.fromEntries(staticChart.palaces.map((palace) => {
         const scopeOverlayText = activeScope === 'age'
-            ? (dynamic.horoscopeNow.agePalace()?.name === palace.name ? `${dynamic.horoscopeNow.age.nominalAge}虚岁` : '')
-            : dynamic.horoscopeNow[activeScope].palaceNames[palace.palaceIndex];
+            ? (dynamic.runtimeSnapshot.agePalaceName === palace.name ? `${dynamic.horoscopeNow.age.nominalAge}虚岁` : '')
+            : dynamic.runtimeSnapshot.scopes[activeScope].palaceNames[palace.palaceIndex];
 
         return [
             palace.name,
             {
                 palaceName: palace.name,
                 scopeTags: buildPalaceScopeTags(palace, dynamic, activeScope),
-                isAgePalace: dynamic.horoscopeNow.agePalace()?.name === palace.name,
+                isAgePalace: dynamic.runtimeSnapshot.agePalaceName === palace.name,
                 scopeOverlayText: scopeOverlayText || '',
                 footerText: buildZiweiPalaceFooterText(palace, scopeOverlayText || ''),
             },
@@ -1157,8 +1309,9 @@ export function buildZiweiBoardRenderModelFromScopeModel(params: {
     const highlightSurrounded = selectedPalace.surrounded;
     const selectedScopePalace = scopeModel.activeScope === 'age'
         ? null
-        : buildZiweiHoroscopePalaceView(
-            dynamic.horoscopeNow,
+        : buildZiweiHoroscopePalaceViewFromDynamic(
+            staticChart,
+            dynamic,
             selectedPalace.name,
             scopeModel.activeScope,
             scopeModel.selectedDirectScope,
@@ -1190,7 +1343,7 @@ export function buildZiweiBoardRenderModelFromScopeModel(params: {
             mutagenStars: centerMutagenStars,
             selectedScopePalace,
             ageSummary: scopeModel.activeScope === 'age'
-                ? `小限 · ${dynamic.horoscopeNow.agePalace()?.name || selectedPalace.name} · 虚岁 ${dynamic.horoscopeNow.age.nominalAge}`
+                ? `小限 · ${dynamic.runtimeSnapshot.agePalaceName || selectedPalace.name} · 虚岁 ${dynamic.horoscopeNow.age.nominalAge}`
                 : undefined,
         }),
     };
@@ -1658,7 +1811,7 @@ export function buildZiweiHoroscopeSummary(
     astrolabe: IFunctionalAstrolabe,
     horoscope: IFunctionalHoroscope,
 ): ZiweiHoroscopeSummary {
-    const agePalace = horoscope.agePalace();
+    const agePalace = astrolabe.palaces[horoscope.age.index];
     const agePalaceName = agePalace?.name || astrolabe.palaces[horoscope.age.index]?.name || '未知宫位';
 
     return {

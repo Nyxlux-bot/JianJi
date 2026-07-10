@@ -308,7 +308,8 @@ function buildStaticSelectedPalaceLine(palace: ZiweiPalaceAnalysisView): string 
 }
 
 function buildAgeScopeMatrixLine(staticChart: ZiweiStaticChartResult, dynamic: ZiweiDynamicHoroscopeResult, focusPalace: ZiweiPalaceAnalysisView): string {
-    const resolvedPalaceName = dynamic.horoscopeNow.age.palaceNames[focusPalace.palaceIndex] || dynamic.horoscopeNow.agePalace()?.name || focusPalace.name;
+    const agePalaceName = staticChart.astrolabe.palaces[dynamic.horoscopeNow.age.index]?.name;
+    const resolvedPalaceName = dynamic.horoscopeNow.age.palaceNames[focusPalace.palaceIndex] || agePalaceName || focusPalace.name;
     const resolvedPalace = staticChart.palaceByName[resolvedPalaceName] || focusPalace;
     const [lu = '', quan = '', ke = '', ji = ''] = dynamic.horoscopeNow.age.mutagen || [];
 

@@ -68,7 +68,6 @@ import { isAIConfigured } from '../../src/services/settings';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { BorderRadius, FontSize, Spacing } from '../../src/theme/colors';
 import { formatLocalDateTime } from '../../src/core/bazi-local-time';
-import { useDebounce } from '../../src/hooks/useDebounce';
 import {
     getZiweiStaticStarInsights,
     ZIWEI_DEFAULT_CONFIG,
@@ -80,7 +79,7 @@ import {
 import {
     buildZiweiBoardMetrics,
     buildZiweiBoardRenderModelFromScopeModel,
-    buildZiweiHoroscopePalaceView,
+    hydrateZiweiBoardSnapshotModel,
     getCurrentScopeSummary,
     buildZiweiZoomMotion,
 } from '../../src/features/ziwei/view-model';
@@ -90,7 +89,9 @@ import type {
     ZiweiBoardMetrics,
     ZiweiBoardRenderModel,
     ZiweiBoardScopeModel,
+    ZiweiBoardSnapshotModel,
     ZiweiBranchSlotCell,
+    ZiweiChartSnapshotV1,
     ZiweiDynamicHoroscopeResult,
     ZiweiHoroscopePalaceView,
     ZiweiHoroscopeMutagenStars,
@@ -134,6 +135,39 @@ const ACTIVE_SCOPE_LABELS: Record<ZiweiActiveScope, string> = {
     daily: '流日',
     hourly: '流时',
 };
+
+function buildRuntimePrewarmRequests(
+    orbitState: ZiweiOrbitDrawerState,
+    activeScope: ZiweiActiveScope,
+    cursorDate: Date,
+) {
+    const requests = [{
+        cursorDate,
+        scope: activeScope,
+    }];
+
+    const orderedRows = [...orbitState.rows].sort((left, right) => (
+        Number(right.key === activeScope) - Number(left.key === activeScope)
+    ));
+
+    orderedRows.forEach((row) => {
+        const activeIndex = row.items.findIndex((item) => item.active);
+        const items = row.key === 'hourly'
+            ? row.items
+            : activeIndex >= 0
+                ? row.items.slice(Math.max(0, activeIndex - 2), activeIndex + 3)
+                : [];
+
+        items.forEach((item) => {
+            requests.push({
+                cursorDate: item.cursorDate,
+                scope: row.key,
+            });
+        });
+    });
+
+    return requests;
+}
 
 const DRAWER_PEEK_HEIGHT = 40;
 const DRAWER_TRACK_ITEM_WIDTH = 96;
@@ -387,19 +421,6 @@ function buildPillarColumns(chart: ZiweiStaticChartResult) {
     return buildPillarColumnsFromChineseDate(chart.astrolabe.chineseDate);
 }
 
-function buildChartStatusLine(
-    chart: ZiweiStaticChartResult,
-    activeScope: ZiweiActiveScope,
-    selectedPalace: ZiweiPalaceAnalysisView,
-): string {
-    return [
-        chart.astrolabe.fiveElementsClass,
-        `命主${chart.astrolabe.soul} / 身主${chart.astrolabe.body}`,
-        `当前${ACTIVE_SCOPE_LABELS[activeScope]}`,
-        `焦点${selectedPalace.name}`,
-    ].join(' · ');
-}
-
 function getZiweiRuleDriftMessage(record: ZiweiRecordResult | null, hasSnapshot: boolean): string | null {
     if (!record) {
         return null;
@@ -468,7 +489,7 @@ export default function ZiweiResultPage() {
     const { Colors } = useTheme();
     const insets = useSafeAreaInsets();
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
-    const boardMetrics = useMemo(() => buildZiweiBoardMetrics(screenWidth), [screenWidth]);
+    const boardMetrics = useMemo(() => buildZiweiBoardMetrics(screenWidth, screenHeight), [screenWidth, screenHeight]);
     const styles = useMemo(() => makeStyles(Colors, boardMetrics), [Colors, boardMetrics]);
     const compactBoard = boardMetrics.cellWidth < 88;
     const params = useLocalSearchParams<{
@@ -511,14 +532,13 @@ export default function ZiweiResultPage() {
         bundle: null,
         error: '',
     });
-
-    const deferredCursorDate = useDebounce(cursorDate, 300);
     const isPersisting = persistStatus === 'saving';
     const hasPersistedRecord = persistStatus === null || persistStatus === 'saved';
     const zoomProgress = useSharedValue(0);
     const chartScrollOffsetRef = useRef(0);
     const zoomCardTapRef = useRef(0);
     const zoomStateRef = useRef<ZiweiZoomRuntimeState>(ZIWEI_ZOOM_CLOSED_STATE);
+    const runtimeRequestIdRef = useRef(0);
 
     useEffect(() => {
         let cancelled = false;
@@ -583,6 +603,10 @@ export default function ZiweiResultPage() {
         }
 
         const loadRecord = async () => {
+            if (session) {
+                return;
+            }
+
             const detail = await getRecord(recordId);
             if (cancelled) {
                 return;
@@ -638,6 +662,10 @@ export default function ZiweiResultPage() {
             return;
         }
 
+        if (staticState.status === 'error') {
+            return;
+        }
+
         const activeChart = staticState.chart;
         if (
             staticState.status === 'ready'
@@ -665,7 +693,6 @@ export default function ZiweiResultPage() {
             bundle: null,
             error: '',
         });
-
         void ZiweiChartEngine.prepareStaticChart(activePayload)
             .then((chart) => {
                 if (!cancelled) {
@@ -696,6 +723,8 @@ export default function ZiweiResultPage() {
 
     useEffect(() => {
         let cancelled = false;
+        const requestId = runtimeRequestIdRef.current + 1;
+        runtimeRequestIdRef.current = requestId;
 
         if (!staticChart) {
             setRuntimeState({
@@ -706,17 +735,31 @@ export default function ZiweiResultPage() {
             });
             return;
         }
+        const displayedBundle = runtimeState.chartKey === staticChart.cacheKey
+            ? runtimeState.bundle
+            : null;
 
-        setRuntimeState((prev) => ({
+        const cachedBundle = ZiweiChartEngine.getRuntimeBundle(staticChart, cursorDate, activeScope);
+        if (cachedBundle) {
+            setRuntimeState({
+                status: 'ready',
+                chartKey: staticChart.cacheKey,
+                bundle: cachedBundle,
+                error: '',
+            });
+            return;
+        }
+
+        setRuntimeState((current) => ({
             status: 'loading',
             chartKey: staticChart.cacheKey,
-            bundle: prev.chartKey === staticChart.cacheKey && prev.bundle?.scope === activeScope ? prev.bundle : null,
+            bundle: current.chartKey === staticChart.cacheKey ? current.bundle : null,
             error: '',
         }));
 
-        void ZiweiChartEngine.prepareRuntimeBundle(staticChart, deferredCursorDate, activeScope)
+        void ZiweiChartEngine.prepareRuntimeBundle(staticChart, cursorDate, activeScope)
             .then((bundle) => {
-                if (!cancelled) {
+                if (!cancelled && runtimeRequestIdRef.current === requestId) {
                     setRuntimeState({
                         status: 'ready',
                         chartKey: staticChart.cacheKey,
@@ -727,20 +770,24 @@ export default function ZiweiResultPage() {
             })
             .catch((error: unknown) => {
                 logZiweiRuntimeWarning('prepareRuntimeBundle', error);
-                if (!cancelled) {
-                    setRuntimeState((prev) => ({
+                if (!cancelled && runtimeRequestIdRef.current === requestId) {
+                    setRuntimeState((current) => ({
                         status: 'error',
                         chartKey: staticChart.cacheKey,
-                        bundle: prev.chartKey === staticChart.cacheKey && prev.bundle?.scope === activeScope ? prev.bundle : null,
+                        bundle: current.chartKey === staticChart.cacheKey ? current.bundle : null,
                         error: error instanceof Error ? error.message : '当前运限视图计算失败。',
                     }));
+                    if (displayedBundle) {
+                        setActiveScope(displayedBundle.scope);
+                        setCursorDate(new Date(displayedBundle.dynamic.cursorDate));
+                    }
                 }
             });
 
         return () => {
             cancelled = true;
         };
-    }, [activeScope, deferredCursorDate, staticChart]);
+    }, [activeScope, cursorDate, staticChart]);
 
     const currentScopeBundle = useMemo(() => (
         runtimeState.bundle && runtimeState.chartKey === staticChart?.cacheKey
@@ -757,9 +804,6 @@ export default function ZiweiResultPage() {
     const currentOrbitDrawerState = useMemo<ZiweiOrbitDrawerState | null>(() => (
         currentScopeBundle?.orbitDrawerState ?? null
     ), [currentScopeBundle]);
-    const currentSelectedDirectScope = useMemo(() => (
-        currentScopeBundle?.selectedDirectScope ?? null
-    ), [currentScopeBundle]);
     const renderedScope = currentScopeModel?.activeScope || activeScope;
     const effectiveTopTab: ZiweiTopTab = staticChart && renderedDynamic ? activeTopTab : 'chart';
     const starInsights = useMemo(() => {
@@ -774,7 +818,16 @@ export default function ZiweiResultPage() {
         starInsights?.starByName || {}
     ), [starInsights]);
 
-    const displayPalaceByName = staticChart?.palaceByName || null;
+    const chartSnapshot = recordResult?.chartSnapshot?.version === 1 ? recordResult.chartSnapshot : null;
+    const snapshotBoardModel = useMemo<ZiweiBoardSnapshotModel | null>(() => (
+        chartSnapshot ? hydrateZiweiBoardSnapshotModel(chartSnapshot, selectedPalaceName) : null
+    ), [chartSnapshot, selectedPalaceName]);
+    const snapshotPalaceByName = useMemo(() => (
+        chartSnapshot
+            ? Object.fromEntries(chartSnapshot.palaces.map((palace) => [palace.name, palace])) as Record<string, ZiweiPalaceAnalysisView>
+            : null
+    ), [chartSnapshot]);
+    const displayPalaceByName = staticChart?.palaceByName || snapshotPalaceByName || null;
     const zoomVisible = zoomState.phase !== 'closed';
     const zoomTarget = zoomState.target;
     const zoomMotion = zoomState.motion;
@@ -796,17 +849,12 @@ export default function ZiweiResultPage() {
         });
     }, [currentScopeModel, renderedDynamic, selectedPalaceName, staticChart]);
     const selectedScopePalace = useMemo(() => {
-        if (!staticChart || !renderedDynamic || !selectedPalace || renderedScope === 'age') {
+        if (renderedScope === 'age') {
             return null;
         }
 
-        return buildZiweiHoroscopePalaceView(
-            renderedDynamic.horoscopeNow,
-            selectedPalace.name,
-            renderedScope,
-            currentSelectedDirectScope,
-        );
-    }, [currentSelectedDirectScope, renderedDynamic, renderedScope, selectedPalace, staticChart]);
+        return boardRenderModel?.selectedScopePalace || null;
+    }, [boardRenderModel, renderedScope]);
     const analysisCards = useMemo(() => (
         effectiveTopTab === 'pattern' && selectedPalace
             ? buildAnalysisCards(selectedPalace, selectedStar, selectedScopePalace)
@@ -814,7 +862,7 @@ export default function ZiweiResultPage() {
     ), [effectiveTopTab, selectedPalace, selectedScopePalace, selectedStar]);
     const currentName = staticChart?.input.name?.trim() || recordResult?.name?.trim() || '匿名命盘';
     const ruleDriftMessage = useMemo(() => (
-        getZiweiRuleDriftMessage(recordResult, false)
+        getZiweiRuleDriftMessage(recordResult, Boolean(recordResult?.chartSnapshot))
     ), [recordResult]);
     const persistNotice = useMemo(() => buildPersistStatusNotice(persistStatus, persistError), [persistError, persistStatus]);
     const aiConfigStale = useMemo(() => isZiweiAIConfigStale(recordResult), [recordResult]);
@@ -834,6 +882,7 @@ export default function ZiweiResultPage() {
         paddingHorizontal: Spacing.lg,
     }), [insets.bottom, insets.top, screenHeight, screenWidth]);
     const liveBoardReady = Boolean(staticChart && renderedDynamic && selectedPalace && boardRenderModel);
+    const snapshotBoardReady = Boolean(!liveBoardReady && chartSnapshot && snapshotBoardModel);
     const zoomDisplayLayout = useMemo(() => (
         zoomTarget ? buildZiweiZoomDisplayLayout(zoomTarget.rect, zoomViewport) : null
     ), [zoomTarget, zoomViewport]);
@@ -850,10 +899,10 @@ export default function ZiweiResultPage() {
         selectedStarName,
         activeTopTab: effectiveTopTab,
     }), [activeScope, cursorDate, effectiveTopTab, selectedPalaceName, selectedStarName]);
-    const showPlaceholderShell = !liveBoardReady && staticState.status !== 'error';
-    const staticFatalError = staticState.status === 'error';
-    const liveBundleWarning = runtimeState.status === 'error' && liveBoardReady
-        ? '当前运限切换失败，页面保留上一份结果。'
+    const showPlaceholderShell = !liveBoardReady && !snapshotBoardReady && staticState.status !== 'error';
+    const staticFatalError = staticState.status === 'error' && !snapshotBoardReady;
+    const liveBundleWarning = runtimeState.status === 'error'
+        ? runtimeState.error || '当前运限切换失败。'
         : null;
 
     const zoomAnimatedStyle = useAnimatedStyle(() => {
@@ -964,19 +1013,30 @@ export default function ZiweiResultPage() {
     }, []);
 
     const handleSelectCursor = useCallback((item: ZiweiOrbitTrackItem, scope: ZiweiActiveScope) => {
-        startTransition(() => {
-            if (scope !== activeScope) {
-                setActiveScope(scope);
-            }
-            setCursorDate(item.cursorDate);
-        });
+        if (scope !== activeScope) {
+            setActiveScope(scope);
+        }
+        setCursorDate(item.cursorDate);
     }, [activeScope]);
 
     const handleScopeChange = useCallback((scope: ZiweiActiveScope) => {
-        startTransition(() => {
-            setActiveScope(scope);
-        });
+        setActiveScope(scope);
     }, []);
+
+    useEffect(() => {
+        if (!drawerExpanded || !staticChart || !currentOrbitDrawerState || !currentScopeBundle) {
+            return;
+        }
+
+        const prewarmHandle = ZiweiChartEngine.prewarmRuntimeSets(
+            staticChart,
+            buildRuntimePrewarmRequests(currentOrbitDrawerState, activeScope, currentScopeBundle.dynamic.cursorDate),
+        );
+
+        return () => {
+            prewarmHandle.cancel();
+        };
+    }, [activeScope, currentOrbitDrawerState, currentScopeBundle, drawerExpanded, staticChart]);
 
     const handleToggleDrawer = useCallback(() => {
         startTransition(() => {
@@ -1099,8 +1159,9 @@ export default function ZiweiResultPage() {
                 ...activePayload,
                 config: settingsDraftConfig,
             };
-            const nextStaticChart = await ZiweiChartEngine.prepareStaticChart(nextPayload);
-            const nextRuntimeBundle = await ZiweiChartEngine.prepareRuntimeBundle(nextStaticChart, cursorDate, activeScope);
+            const nextPreparedChart = await ZiweiChartEngine.preparePreparedChart(nextPayload, cursorDate, activeScope);
+            const nextStaticChart = nextPreparedChart.staticChart;
+            const nextRuntimeBundle = nextPreparedChart.initialBundle;
             const nextRecord = buildUpdatedZiweiRecord({
                 baseRecord: recordResult,
                 staticChart: nextStaticChart,
@@ -1179,12 +1240,6 @@ export default function ZiweiResultPage() {
         { key: 'delete', label: '删除记录', onPress: () => setDeleteVisible(true), destructive: true, disabled: !recordId || !recordResult || !hasPersistedRecord },
     ];
     const hasEnabledMenuItems = menuItems.some((item) => !item.disabled);
-    const chartStatusLine = liveBoardReady && staticChart && selectedPalace
-        ? buildChartStatusLine(staticChart, activeScope, selectedPalace)
-        : staticState.status === 'loading'
-            ? '紫微命盘加载中'
-            : '紫微斗数';
-
     if (staticFatalError) {
         return (
             <View style={styles.container}>
@@ -1210,30 +1265,50 @@ export default function ZiweiResultPage() {
     return (
         <View style={styles.container}>
             <StatusBarDecor />
-            <View style={styles.header}>
+            <View style={styles.compactHeader}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
                     <BackIcon size={24} />
                 </TouchableOpacity>
-                <View style={styles.headerCenter}>
-                    <TouchableOpacity
-                        onPress={handleOpenAIChat}
-                        style={[styles.aiHeaderBtn, (!aiConfigured || !recordResult) && styles.aiHeaderBtnDisabled]}
-                        activeOpacity={0.82}
-                        disabled={!aiConfigured || !recordResult}
-                    >
-                        <SparklesIcon size={18} color={Colors.text.inverse} />
-                        <Text style={styles.aiHeaderBtnText}>AI 分析</Text>
-                    </TouchableOpacity>
+
+                <View style={styles.compactTabsRow}>
+                    {TOP_TABS.map((tab) => {
+                        const active = effectiveTopTab === tab.key;
+                        const disabled = !liveBoardReady && tab.key !== 'chart';
+                        return (
+                            <TouchableOpacity
+                                key={tab.key}
+                                style={[styles.compactTabBtn, active && styles.compactTabBtnActive, disabled && styles.compactTabBtnDisabled]}
+                                onPress={() => {
+                                    if (!disabled) {
+                                        handleTopTabChange(tab.key);
+                                    }
+                                }}
+                                activeOpacity={0.84}
+                                disabled={disabled}
+                            >
+                                <Text style={[styles.compactTabText, active && styles.compactTabTextActive, disabled && styles.compactTabTextDisabled]}>{tab.label}</Text>
+                            </TouchableOpacity>
+                        );
+                    })}
                 </View>
-                <View style={styles.headerActions}>
-                    <TouchableOpacity
-                        onPress={() => setMenuVisible((prev) => !prev)}
-                        style={[styles.headerBtn, !hasEnabledMenuItems && styles.headerBtnDisabled]}
-                        disabled={!hasEnabledMenuItems}
-                    >
-                        <MoreVerticalIcon size={20} />
-                    </TouchableOpacity>
-                </View>
+
+                <TouchableOpacity
+                    onPress={handleOpenAIChat}
+                    style={[styles.aiCompactBtn, (!aiConfigured || !recordResult) && styles.aiCompactBtnDisabled]}
+                    activeOpacity={0.82}
+                    disabled={!aiConfigured || !recordResult}
+                >
+                    <SparklesIcon size={16} color={Colors.text.inverse} />
+                    <Text style={styles.aiCompactBtnText}>AI</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    onPress={() => setMenuVisible((prev) => !prev)}
+                    style={[styles.headerBtn, !hasEnabledMenuItems && styles.headerBtnDisabled]}
+                    disabled={!hasEnabledMenuItems}
+                >
+                    <MoreVerticalIcon size={20} />
+                </TouchableOpacity>
             </View>
             <OverflowMenu
                 visible={menuVisible}
@@ -1243,31 +1318,6 @@ export default function ZiweiResultPage() {
                 onClose={() => setMenuVisible(false)}
             />
 
-            <View style={styles.topTabsWrap}>
-                {TOP_TABS.map((tab) => {
-                    const active = effectiveTopTab === tab.key;
-                    const disabled = !liveBoardReady && tab.key !== 'chart';
-                    return (
-                        <TouchableOpacity
-                            key={tab.key}
-                            style={[styles.topTabBtn, active && styles.topTabBtnActive, disabled && styles.topTabBtnDisabled]}
-                            onPress={() => {
-                                if (!disabled) {
-                                    handleTopTabChange(tab.key);
-                                }
-                            }}
-                            activeOpacity={0.84}
-                            disabled={disabled}
-                        >
-                            <Text style={[styles.topTabText, active && styles.topTabTextActive, disabled && styles.topTabTextDisabled]}>{tab.label}</Text>
-                        </TouchableOpacity>
-                    );
-                })}
-            </View>
-
-            <View style={styles.screenSubtitleWrap}>
-                <Text style={styles.screenSubtitle}>{chartStatusLine}</Text>
-            </View>
             {ruleDriftMessage ? (
                 <View style={styles.ruleDriftCard}>
                     <Text style={styles.ruleDriftText}>{ruleDriftMessage}</Text>
@@ -1301,7 +1351,7 @@ export default function ZiweiResultPage() {
                     <ScrollView
                         style={styles.chartScroll}
                         contentContainerStyle={{
-                            paddingBottom: Math.max(0, DRAWER_PEEK_HEIGHT + insets.bottom - 6),
+                            paddingBottom: Math.max(0, DRAWER_PEEK_HEIGHT - 4),
                             paddingTop: 0,
                         }}
                         onScroll={handleChartScroll}
@@ -1313,13 +1363,21 @@ export default function ZiweiResultPage() {
                                 metrics={boardMetrics}
                                 styles={styles}
                             />
+                        ) : snapshotBoardReady && chartSnapshot && snapshotBoardModel ? (
+                            <ZiweiSnapshotBoard
+                                snapshot={chartSnapshot}
+                                snapshotBoardModel={snapshotBoardModel}
+                                metrics={boardMetrics}
+                                currentName={currentName}
+                                onSelectPalace={handleSelectPalace}
+                            />
                         ) : (
                             <ZiweiBoard
                                 staticChart={staticChart!}
                                 boardRenderModel={boardRenderModel}
                                 boardDecorations={currentBoardDecorations}
                                 metrics={boardMetrics}
-                                activeScope={activeScope}
+                                activeScope={renderedScope}
                                 selectedPalaceName={selectedPalace!.name}
                                 currentHoroscope={renderedDynamic!}
                                 currentName={currentName}
@@ -1334,6 +1392,7 @@ export default function ZiweiResultPage() {
                         <ZiweiOrbitDrawer
                             orbitState={currentOrbitDrawerState}
                             activeScope={activeScope}
+                            requestedCursorDate={cursorDate}
                             drawerExpanded={drawerExpanded}
                             onToggleExpanded={handleToggleDrawer}
                             onExpandedChange={handleDrawerExpandedChange}
@@ -1765,6 +1824,118 @@ const ZiweiBoardPlaceholder = memo(function ZiweiBoardPlaceholder({
         </View>
     );
 });
+
+const ZiweiSnapshotBoard = memo(function ZiweiSnapshotBoard({
+    snapshot,
+    snapshotBoardModel,
+    metrics,
+    currentName,
+    onSelectPalace,
+}: {
+    snapshot: ZiweiChartSnapshotV1;
+    snapshotBoardModel: ZiweiBoardSnapshotModel;
+    metrics: ZiweiBoardMetrics;
+    currentName: string;
+    onSelectPalace: (palaceName: string) => void;
+}) {
+    const { Colors } = useTheme();
+    const styles = useMemo(() => makeStyles(Colors, metrics), [Colors, metrics]);
+    const compactBoard = metrics.cellWidth < 88;
+    const palaceByName = useMemo(() => (
+        Object.fromEntries(snapshot.palaces.map((palace) => [palace.name, palace])) as Record<string, ZiweiPalaceAnalysisView>
+    ), [snapshot.palaces]);
+    const selectedPalace = palaceByName[snapshotBoardModel.selectedPalaceName] || palaceByName.命宫 || snapshot.palaces[0];
+
+    return (
+        <View style={styles.boardWrap}>
+            <View style={styles.boardShell}>
+                {snapshot.workbenchLayout.ringCells.map((cell) => {
+                    const palace = palaceByName[cell.palaceName];
+                    if (!palace) {
+                        return null;
+                    }
+
+                    return (
+                        <ZiweiPalaceTile
+                            key={`${cell.row}-${cell.col}`}
+                            palace={palace}
+                            scopeModel={snapshotBoardModel.byPalaceName[cell.palaceName]}
+                            frame={getBoardCellFrame(cell, metrics)}
+                            tilePadding={metrics.tilePadding}
+                            compactBoard={compactBoard}
+                            onSingleTap={onSelectPalace}
+                            onDoubleTap={() => {}}
+                        />
+                    );
+                })}
+
+                {selectedPalace ? (
+                    <ZiweiSnapshotCenterCard
+                        snapshot={snapshot}
+                        centerPanel={snapshotBoardModel.centerPanel}
+                        selectedPalace={selectedPalace}
+                        currentName={currentName}
+                        frame={getCenterPanelFrame(metrics)}
+                        styles={styles}
+                    />
+                ) : null}
+            </View>
+        </View>
+    );
+});
+
+function ZiweiSnapshotCenterCard({
+    snapshot,
+    centerPanel,
+    selectedPalace,
+    currentName,
+    frame,
+    styles,
+}: {
+    snapshot: ZiweiChartSnapshotV1;
+    centerPanel: ZiweiBoardSnapshotModel['centerPanel'];
+    selectedPalace: ZiweiPalaceAnalysisView;
+    currentName: string;
+    frame: { left: number; top: number; width: number; height: number };
+    styles: ReturnType<typeof makeStyles>;
+}) {
+    const staticMeta = snapshot.staticMeta;
+    const pillarColumns = buildPillarColumnsFromChineseDate(staticMeta.chineseDate);
+
+    return (
+        <View style={[styles.centerCard, frame]}>
+            <View style={styles.centerCardTop}>
+                <Text style={styles.centerName} numberOfLines={1}>{currentName}</Text>
+                <Text style={styles.centerLine} numberOfLines={1}>{staticMeta.fiveElementsClass}</Text>
+                <Text style={styles.centerLine} numberOfLines={1}>{staticMeta.birthLocal.replace('T', ' ')}</Text>
+                <Text style={styles.centerLine} numberOfLines={1}>真太阳时 {staticMeta.trueSolarDateTimeLocal.replace('T', ' ')}</Text>
+            </View>
+
+            <View style={styles.centerCardMiddle}>
+                <Text style={styles.centerFocusTitle} numberOfLines={1}>{centerPanel.focusTitle}</Text>
+                <Text style={styles.centerScopeState} numberOfLines={1}>{centerPanel.scopeState}</Text>
+                <Text style={styles.centerFocusMeta} numberOfLines={2}>{centerPanel.scopeSummary}</Text>
+                <Text style={styles.centerBadgeRowText} numberOfLines={1}>
+                    {centerPanel.summaryItems.join(' · ')}
+                </Text>
+            </View>
+
+            <View style={styles.centerCardBottom}>
+                <View style={styles.centerPillarsRow}>
+                    {pillarColumns.map((column) => (
+                        <View key={column.key} style={styles.pillarColumn}>
+                            <Text style={styles.pillarHead}>{column.header}</Text>
+                            <Text style={styles.pillarValue}>{column.value}</Text>
+                        </View>
+                    ))}
+                </View>
+                <Text style={styles.centerSnapshotFooter} numberOfLines={1}>
+                    {selectedPalace.decadalRange} · 快照先显，运限后台刷新
+                </Text>
+            </View>
+        </View>
+    );
+}
 
 function ZiweiPalaceTile({
     palace,
@@ -2202,6 +2373,7 @@ const ZiweiCenterCard = memo(function ZiweiCenterCard({
 const ZiweiOrbitDrawer = memo(function ZiweiOrbitDrawer({
     orbitState,
     activeScope,
+    requestedCursorDate,
     drawerExpanded,
     onToggleExpanded,
     onExpandedChange,
@@ -2213,6 +2385,7 @@ const ZiweiOrbitDrawer = memo(function ZiweiOrbitDrawer({
 }: {
     orbitState: ZiweiOrbitDrawerState;
     activeScope: ZiweiActiveScope;
+    requestedCursorDate: Date;
     drawerExpanded: boolean;
     onToggleExpanded: () => void;
     onExpandedChange: (expanded: boolean) => void;
@@ -2328,6 +2501,8 @@ const ZiweiOrbitDrawer = memo(function ZiweiOrbitDrawer({
                             key={row.key}
                             row={row}
                             scope={row.key}
+                            activeScope={activeScope}
+                            requestedCursorDate={requestedCursorDate}
                             styles={styles}
                             onSelectItem={onSelectItem}
                         />
@@ -2376,11 +2551,15 @@ const OrbitTrackItemButton = memo(function OrbitTrackItemButton({
 function OrbitRow({
     row,
     scope,
+    activeScope,
+    requestedCursorDate,
     styles,
     onSelectItem,
 }: {
     row: ZiweiOrbitDrawerRow;
     scope: ZiweiActiveScope;
+    activeScope: ZiweiActiveScope;
+    requestedCursorDate: Date;
     styles: ReturnType<typeof makeStyles>;
     onSelectItem: (item: ZiweiOrbitTrackItem, scope: ZiweiActiveScope) => void;
 }) {
@@ -2403,17 +2582,22 @@ function OrbitRow({
         index,
     }), []);
     const initialNumToRender = useMemo(() => Math.min(row.items.length, 8), [row.items.length]);
+    const requestedCursorTime = requestedCursorDate.getTime();
+    const hasExactRequestedItem = scope === activeScope
+        && row.items.some((item) => item.cursorDate.getTime() === requestedCursorTime);
 
     const renderItem = useCallback(({ item }: { item: ZiweiOrbitTrackItem }) => (
         <OrbitTrackItemButton
             itemKey={item.key}
             label={item.label}
             secondary={item.secondary}
-            active={item.active}
+            active={hasExactRequestedItem
+                ? item.cursorDate.getTime() === requestedCursorTime
+                : item.active}
             styles={styles}
             onPress={handleSelectItemByKey}
         />
-    ), [handleSelectItemByKey, styles]);
+    ), [handleSelectItemByKey, hasExactRequestedItem, requestedCursorTime, styles]);
 
     return (
         <View style={styles.drawerRowSection}>
@@ -2690,16 +2874,64 @@ const makeStyles = (Colors: any, metrics: ZiweiBoardMetrics) => {
             paddingHorizontal: Spacing.md,
             paddingVertical: Spacing.sm,
         },
-        headerCenter: {
+        compactHeader: {
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingHorizontal: Spacing.xs,
+            paddingVertical: Spacing.xs,
+            height: 48,
+            gap: 4,
+        },
+        compactTabsRow: {
             flex: 1,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 2,
+            marginHorizontal: 4,
+        },
+        compactTabBtn: {
+            flex: 1,
+            height: 32,
+            borderRadius: BorderRadius.md,
             alignItems: 'center',
             justifyContent: 'center',
-            marginHorizontal: Spacing.sm,
+            paddingHorizontal: 4,
         },
-        headerActions: {
-            width: 44,
-            alignItems: 'flex-end',
+        compactTabBtnActive: {
+            backgroundColor: 'rgba(191,203,231,0.48)',
+        },
+        compactTabBtnDisabled: {
+            opacity: 0.42,
+        },
+        compactTabText: {
+            fontSize: FontSize.xs,
+            color: Colors.text.secondary,
+            fontWeight: '500',
+        },
+        compactTabTextActive: {
+            color: Colors.text.heading,
+            fontWeight: '700',
+        },
+        compactTabTextDisabled: {
+            color: Colors.text.tertiary,
+        },
+        aiCompactBtn: {
+            height: 32,
+            paddingHorizontal: 8,
+            borderRadius: BorderRadius.md,
+            backgroundColor: Colors.accent.gold,
+            alignItems: 'center',
             justifyContent: 'center',
+            flexDirection: 'row',
+            gap: 4,
+        },
+        aiCompactBtnDisabled: {
+            opacity: 0.5,
+        },
+        aiCompactBtnText: {
+            fontSize: FontSize.xs,
+            color: Colors.text.inverse,
+            fontWeight: '700',
         },
         headerBtn: {
             width: 44,
@@ -2711,78 +2943,10 @@ const makeStyles = (Colors: any, metrics: ZiweiBoardMetrics) => {
         headerBtnDisabled: {
             opacity: 0.45,
         },
-        aiHeaderBtn: {
-            minHeight: 40,
-            paddingHorizontal: Spacing.md,
-            borderRadius: BorderRadius.round,
-            backgroundColor: Colors.accent.gold,
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexDirection: 'row',
-            gap: Spacing.xs,
-        },
-        aiHeaderBtnDisabled: {
-            opacity: 0.5,
-        },
-        aiHeaderBtnText: {
-            fontSize: FontSize.sm,
-            color: Colors.text.inverse,
-            fontWeight: '700',
-        },
         headerTitle: {
             fontSize: FontSize.lg,
             color: Colors.text.heading,
             fontWeight: '500',
-        },
-        topTabsWrap: {
-            flexDirection: 'row',
-            marginHorizontal: Spacing.lg,
-            marginTop: Spacing.xs,
-            padding: 4,
-            borderRadius: BorderRadius.round,
-            backgroundColor: Colors.bg.card,
-            borderWidth: 1,
-            borderColor: Colors.border.subtle,
-        },
-        topTabBtn: {
-            flex: 1,
-            minHeight: 44,
-            borderRadius: BorderRadius.round,
-            alignItems: 'center',
-            justifyContent: 'center',
-        },
-        topTabBtnActive: {
-            backgroundColor: 'rgba(191,203,231,0.48)',
-        },
-        topTabBtnDisabled: {
-            opacity: 0.42,
-        },
-        topTabText: {
-            fontSize: FontSize.md,
-            color: Colors.text.secondary,
-        },
-        topTabTextActive: {
-            color: Colors.text.heading,
-            fontWeight: '700',
-        },
-        topTabTextDisabled: {
-            color: Colors.text.tertiary,
-        },
-        screenSubtitleWrap: {
-            marginTop: Spacing.sm,
-            marginHorizontal: Spacing.lg,
-            borderRadius: BorderRadius.round,
-            borderWidth: 1,
-            borderColor: Colors.border.subtle,
-            backgroundColor: Colors.bg.card,
-            paddingHorizontal: Spacing.md,
-            paddingVertical: Spacing.sm,
-        },
-        screenSubtitle: {
-            fontSize: FontSize.sm,
-            color: Colors.text.secondary,
-            textAlign: 'center',
-            lineHeight: 20,
         },
         ruleDriftCard: {
             marginTop: Spacing.sm,
@@ -3110,9 +3274,10 @@ const makeStyles = (Colors: any, metrics: ZiweiBoardMetrics) => {
             justifyContent: 'center',
         },
         centerFocusTitle: {
-            fontSize: FontSize.md,
-            color: Colors.text.heading,
+            fontSize: FontSize.md + 1,
+            color: Colors.accent.gold,
             fontWeight: '700',
+            textAlign: 'center',
         },
         centerScopeState: {
             marginTop: 4,

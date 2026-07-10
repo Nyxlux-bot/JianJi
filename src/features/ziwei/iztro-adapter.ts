@@ -1,4 +1,10 @@
 import '../../polyfills/intl';
+
+// 🔥 Monkey-patch iztro's kot() function BEFORE any iztro `astro` usage.
+// patchIztroKot() 在模块初始化时建立反向索引，避免 kot() 重复遍历翻译表。
+import { patchIztroKot, logIztroOptimizerStats } from './iztro-optimizer';
+patchIztroKot();
+
 import { astro } from 'iztro';
 import type { IFunctionalAstrolabe } from 'iztro/lib/astro/FunctionalAstrolabe';
 import type { IFunctionalHoroscope } from 'iztro/lib/astro/FunctionalHoroscope';
@@ -36,6 +42,9 @@ import {
     ZiweiStaticChartResult,
     ZiweiAlgorithm,
     ZiweiDayDivide,
+    ZiweiDynamicRuntimeSnapshot,
+    ZiweiDynamicScope,
+    ZiweiMutagen,
     ZiweiYearDivide,
 } from './types';
 
@@ -45,7 +54,7 @@ export const ZIWEI_FIX_LEAP = true;
 const ZIWEI_STATIC_CACHE_LIMIT = 8;
 const ziweiStaticChartCache = new Map<string, ZiweiStaticChartResult>();
 const ziweiStaticChartInFlight = new Map<string, Promise<ZiweiStaticChartResult>>();
-const ZIWEI_DYNAMIC_CACHE_LIMIT = 36;
+const ZIWEI_DYNAMIC_CACHE_LIMIT = 128;
 const ziweiDynamicHoroscopeCache = new Map<string, ZiweiDynamicHoroscopeResult>();
 export const ZIWEI_DEFAULT_CONFIG: ZiweiConfigOptions = {
     algorithm: 'default',
@@ -86,6 +95,84 @@ const ZIWEI_TIME_RANGES = [
     '21:00~23:00',
     '23:00~00:00',
 ] as const;
+const ZIWEI_TIME_ANCHOR_HOURS = [0, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23] as const;
+const ZIWEI_DYNAMIC_SCOPES: ZiweiDynamicScope[] = ['decadal', 'yearly', 'monthly', 'daily', 'hourly'];
+const ZIWEI_MUTAGENS: ZiweiMutagen[] = ['禄', '权', '科', '忌'];
+
+function getLruValue<T>(cache: Map<string, T>, key: string): T | undefined {
+    const value = cache.get(key);
+    if (value === undefined) {
+        return undefined;
+    }
+
+    cache.delete(key);
+    cache.set(key, value);
+    return value;
+}
+
+function buildZiweiRuntimeIndex(palaces: ZiweiStaticChartResult['palaces']): NonNullable<ZiweiStaticChartResult['lazy']['runtimeIndex']> {
+    return {
+        palaceNameByIndex: palaces.map((palace) => palace.name),
+        palaceIndexByName: Object.fromEntries(palaces.map((palace) => [palace.name, palace.palaceIndex])),
+        birthStarNamesByPalaceIndex: palaces.map((palace) => new Set([
+            ...palace.majorStars.map((star) => star.name),
+            ...palace.minorStars.map((star) => star.name),
+        ])),
+    };
+}
+
+function getZiweiRuntimeIndex(staticChart: ZiweiStaticChartResult): NonNullable<ZiweiStaticChartResult['lazy']['runtimeIndex']> {
+    if (!staticChart.lazy.runtimeIndex) {
+        staticChart.lazy.runtimeIndex = buildZiweiRuntimeIndex(staticChart.palaces);
+    }
+
+    return staticChart.lazy.runtimeIndex;
+}
+
+function buildZiweiDynamicRuntimeSnapshot(
+    staticChart: ZiweiStaticChartResult,
+    horoscope: IFunctionalHoroscope,
+): ZiweiDynamicRuntimeSnapshot {
+    const runtimeIndex = getZiweiRuntimeIndex(staticChart);
+    const scopes = Object.fromEntries(ZIWEI_DYNAMIC_SCOPES.map((scope) => {
+        const item = horoscope[scope];
+        const mappedPalaceIndexByName = Object.fromEntries(
+            item.palaceNames.map((palaceName, palaceIndex) => [palaceName, palaceIndex]),
+        ) as Record<string, number>;
+        const mutagensByPalaceIndex = runtimeIndex.palaceNameByIndex.map((palaceName) => {
+            const mappedPalaceIndex = mappedPalaceIndexByName[palaceName];
+            const birthStarNames = runtimeIndex.birthStarNamesByPalaceIndex[mappedPalaceIndex];
+            if (!birthStarNames) {
+                return [];
+            }
+
+            return ZIWEI_MUTAGENS.filter((_, mutagenIndex) => {
+                const mutagenStarName = item.mutagen[mutagenIndex];
+                return Boolean(mutagenStarName && birthStarNames.has(mutagenStarName));
+            });
+        });
+
+        return [
+            scope,
+            {
+                index: item.index,
+                palaceNames: [...item.palaceNames],
+                mutagen: [...item.mutagen],
+                starNamesByPalaceIndex: (item.stars || []).map((stars) => stars.map((star) => star.name)),
+                mutagensByPalaceIndex,
+            },
+        ];
+    })) as ZiweiDynamicRuntimeSnapshot['scopes'];
+    const agePalaceIndex = horoscope.age.index >= 0 && horoscope.age.index < runtimeIndex.palaceNameByIndex.length
+        ? horoscope.age.index
+        : null;
+
+    return {
+        agePalaceIndex,
+        agePalaceName: agePalaceIndex === null ? null : runtimeIndex.palaceNameByIndex[agePalaceIndex] || null,
+        scopes,
+    };
+}
 
 /**
  * `iztro` v2.5.8 的源码和官方测试确认：
@@ -228,6 +315,21 @@ export function toZiweiTimeIndex(date: Date): number {
     return Math.floor((hour + 1) / 2);
 }
 
+export function normalizeZiweiHoroscopeCursorDate(date: Date): Date {
+    const timeIndex = toZiweiTimeIndex(date);
+    const anchorHour = ZIWEI_TIME_ANCHOR_HOURS[timeIndex] ?? date.getHours();
+
+    return new Date(
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate(),
+        anchorHour,
+        0,
+        0,
+        0,
+    );
+}
+
 export function computeZiweiDerivedInput(payload: ZiweiInputPayload): ZiweiComputedInput {
     const birthLocalDate = parseLocalDateTime(payload.birthLocal);
     if (!birthLocalDate) {
@@ -311,6 +413,7 @@ export function buildZiweiStaticCacheKey(payload: ZiweiInputPayload): string {
 }
 
 function rememberZiweiStaticChart(cacheKey: string, chart: ZiweiStaticChartResult): ZiweiStaticChartResult {
+    ziweiStaticChartCache.delete(cacheKey);
     ziweiStaticChartCache.set(cacheKey, chart);
 
     if (ziweiStaticChartCache.size > ZIWEI_STATIC_CACHE_LIMIT) {
@@ -319,6 +422,9 @@ function rememberZiweiStaticChart(cacheKey: string, chart: ZiweiStaticChartResul
             ziweiStaticChartCache.delete(oldestKey);
         }
     }
+
+    // Log optimizer stats in dev mode
+    logIztroOptimizerStats();
 
     return chart;
 }
@@ -348,7 +454,7 @@ function normalizeCachedZiweiStaticChart(
 export function computeZiweiStaticChart(payload: ZiweiInputPayload): ZiweiStaticChartResult {
     const computed = computeZiweiDerivedInput(payload);
     const cacheKey = buildZiweiStaticCacheKey(payload);
-    const cached = ziweiStaticChartCache.get(cacheKey);
+    const cached = getLruValue(ziweiStaticChartCache, cacheKey);
 
     if (cached) {
         return normalizeCachedZiweiStaticChart(cached, computed);
@@ -356,6 +462,7 @@ export function computeZiweiStaticChart(payload: ZiweiInputPayload): ZiweiStatic
 
     const astrolabe = buildAstrolabe(computed);
     const palaces = buildZiweiStaticPalaceAnalysisViews(astrolabe, computed.config.algorithm);
+    const runtimeIndex = buildZiweiRuntimeIndex(palaces);
 
     return rememberZiweiStaticChart(cacheKey, {
         cacheKey,
@@ -364,14 +471,16 @@ export function computeZiweiStaticChart(payload: ZiweiInputPayload): ZiweiStatic
         workbenchLayout: buildZiweiBoardLayout(astrolabe),
         palaces,
         palaceByName: Object.fromEntries(palaces.map((item) => [item.name, item])),
-        lazy: {},
+        lazy: {
+            runtimeIndex,
+        },
     });
 }
 
 export async function loadZiweiStaticChartAsync(payload: ZiweiInputPayload): Promise<ZiweiStaticChartResult> {
     const computed = computeZiweiDerivedInput(payload);
     const cacheKey = buildZiweiStaticCacheKey(payload);
-    const cached = ziweiStaticChartCache.get(cacheKey);
+    const cached = getLruValue(ziweiStaticChartCache, cacheKey);
 
     if (cached) {
         return normalizeCachedZiweiStaticChart(cached, computed);
@@ -393,13 +502,16 @@ export async function loadZiweiStaticChartAsync(payload: ZiweiInputPayload): Pro
 }
 
 function buildZiweiDynamicCacheKey(staticChart: ZiweiStaticChartResult, cursorDate: Date): string {
-    return `${staticChart.cacheKey}|${cursorDate.getTime()}`;
+    const normalizedCursorDate = normalizeZiweiHoroscopeCursorDate(cursorDate);
+
+    return `${staticChart.cacheKey}|${normalizedCursorDate.getFullYear()}-${normalizedCursorDate.getMonth() + 1}-${normalizedCursorDate.getDate()}-${toZiweiTimeIndex(normalizedCursorDate)}`;
 }
 
 function rememberZiweiDynamicHoroscope(
     cacheKey: string,
     result: ZiweiDynamicHoroscopeResult,
 ): ZiweiDynamicHoroscopeResult {
+    ziweiDynamicHoroscopeCache.delete(cacheKey);
     ziweiDynamicHoroscopeCache.set(cacheKey, result);
 
     if (ziweiDynamicHoroscopeCache.size > ZIWEI_DYNAMIC_CACHE_LIMIT) {
@@ -416,9 +528,9 @@ export function computeZiweiDynamicHoroscope(
     staticChart: ZiweiStaticChartResult,
     targetDate?: Date,
 ): ZiweiDynamicHoroscopeResult {
-    const cursorDate = targetDate ?? new Date();
+    const cursorDate = normalizeZiweiHoroscopeCursorDate(targetDate ?? new Date());
     const cacheKey = buildZiweiDynamicCacheKey(staticChart, cursorDate);
-    const cached = ziweiDynamicHoroscopeCache.get(cacheKey);
+    const cached = getLruValue(ziweiDynamicHoroscopeCache, cacheKey);
 
     if (cached) {
         return cached;
@@ -435,6 +547,7 @@ export function computeZiweiDynamicHoroscope(
         cursorDate,
         horoscopeNow,
         horoscopeSummary: buildZiweiHoroscopeSummary(staticChart.astrolabe, horoscopeNow),
+        runtimeSnapshot: buildZiweiDynamicRuntimeSnapshot(staticChart, horoscopeNow),
     });
 }
 

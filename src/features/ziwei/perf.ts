@@ -6,6 +6,8 @@ function getNow(): number {
     return Date.now();
 }
 
+const ZIWEI_PERF_LOG_THRESHOLD_MS = 3;
+
 function logDuration(label: string, durationMs: number): void {
     const devFlag = typeof globalThis !== 'undefined'
         && '__DEV__' in globalThis
@@ -13,6 +15,10 @@ function logDuration(label: string, durationMs: number): void {
         : false;
 
     if (!devFlag) {
+        return;
+    }
+
+    if (durationMs < ZIWEI_PERF_LOG_THRESHOLD_MS) {
         return;
     }
 

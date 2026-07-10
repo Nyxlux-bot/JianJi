@@ -340,13 +340,33 @@ export interface ZiweiStaticChartResult {
         starByName?: Record<string, ZiweiStarInsightView>;
         dynamicAstrolabe?: IFunctionalAstrolabe;
         chartSnapshot?: ZiweiChartSnapshotV1;
+        runtimeIndex?: {
+            palaceNameByIndex: string[];
+            palaceIndexByName: Record<string, number>;
+            birthStarNamesByPalaceIndex: Array<Set<string>>;
+        };
     };
+}
+
+export interface ZiweiDynamicScopeSnapshot {
+    index: number;
+    palaceNames: string[];
+    mutagen: string[];
+    starNamesByPalaceIndex: string[][];
+    mutagensByPalaceIndex: ZiweiMutagen[][];
+}
+
+export interface ZiweiDynamicRuntimeSnapshot {
+    agePalaceIndex: number | null;
+    agePalaceName: string | null;
+    scopes: Record<ZiweiDynamicScope, ZiweiDynamicScopeSnapshot>;
 }
 
 export interface ZiweiDynamicHoroscopeResult {
     cursorDate: Date;
     horoscopeNow: IFunctionalHoroscope;
     horoscopeSummary: ZiweiHoroscopeSummary;
+    runtimeSnapshot: ZiweiDynamicRuntimeSnapshot;
 }
 
 export interface ZiweiScopeTagView {

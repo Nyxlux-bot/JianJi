@@ -33,7 +33,7 @@ import {
 } from '../../src/features/ziwei/record';
 import { buildZiweiResultRoute } from '../../src/features/ziwei/result-route';
 import { primeZiweiSession } from '../../src/features/ziwei/result-session';
-import { ZiweiChartEngine } from '../../src/features/ziwei/chart-engine';
+import { ZiweiPrepareStore } from '../../src/features/ziwei/prepare-store';
 import {
     ZiweiConfigOptions,
     ZiweiGender,
@@ -132,6 +132,47 @@ export default function ZiweiInputPage() {
         };
     }, [editId]);
 
+    const prewarmPayload = useMemo(() => {
+        if (!location || initializing || loading) {
+            return null;
+        }
+
+        try {
+            return buildZiweiInputPayload({
+                birthDate,
+                longitude: location.longitude,
+                gender,
+                daylightSavingEnabled,
+                calendarType: birthSelection.calendarType,
+                lunar: birthSelection.lunar,
+                config,
+                cityLabel: buildRegionDisplayName(location),
+                name,
+                tzOffsetMinutes: ZIWEI_STANDARD_TIMEZONE_OFFSET_MINUTES,
+            });
+        } catch {
+            return null;
+        }
+    }, [birthDate, birthSelection.calendarType, birthSelection.lunar, config, daylightSavingEnabled, gender, initializing, loading, location, name]);
+
+    useEffect(() => {
+        if (!prewarmPayload) {
+            return;
+        }
+
+        let cancelled = false;
+        const handle = setTimeout(() => {
+            if (!cancelled) {
+                ZiweiPrepareStore.prewarm(prewarmPayload, new Date());
+            }
+        }, 300);
+
+        return () => {
+            cancelled = true;
+            clearTimeout(handle);
+        };
+    }, [prewarmPayload]);
+
     const handleStart = async () => {
         if (loading) {
             return;
@@ -167,15 +208,15 @@ export default function ZiweiInputPage() {
             const nextRecordId = editingRecordId || createZiweiRecordId();
             const nextCreatedAt = editingCreatedAt || new Date().toISOString();
             const cursorDate = new Date();
-            const staticChart = await ZiweiChartEngine.prepareStaticChart(payload);
-            const runtimeBundle = await ZiweiChartEngine.prepareRuntimeBundle(staticChart, cursorDate, 'yearly');
+            const preparedChart = await ZiweiPrepareStore.prepareForNavigation(payload, cursorDate, 'yearly');
+            const staticChart = preparedChart.staticChart;
+            const runtimeBundle = preparedChart.initialBundle;
             const nextRecord = buildZiweiRecordResult({
                 staticChart,
                 dynamic: runtimeBundle.dynamic,
                 id: nextRecordId,
                 createdAt: nextCreatedAt,
             });
-
             await saveRecord({
                 engineType: 'ziwei',
                 result: nextRecord,

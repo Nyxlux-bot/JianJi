@@ -12,6 +12,7 @@ import {
     ZIWEI_BRIGHTNESS_BASELINE_VERSION,
     ZIWEI_IZTRO_VERSION,
 } from './runtime-meta';
+import { buildZiweiChartSnapshot } from './view-model';
 import type {
     ZiweiChartSnapshotV1,
     ZiweiDynamicHoroscopeResult,
@@ -213,6 +214,7 @@ export function buildZiweiRecordResult(params: {
         body: staticChart.astrolabe.body,
         aiContextSnapshot: buildZiweiAIContextSnapshot(staticChart, dynamic),
         ruleSignature: buildCurrentZiweiRuleSignature(),
+        chartSnapshot: buildZiweiChartSnapshot(staticChart),
     };
 }
 
