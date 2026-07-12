@@ -24,6 +24,7 @@ import { useTheme } from "../../src/theme/ThemeContext";
 import GuaXiangBottomSheet from '../../src/components/GuaXiangBottomSheet';
 import AIChatModal from '../../src/components/AIChatModal';
 import { shareResultMarkdown } from '../../src/services/share';
+import { clearAIAnalysisJob } from '../../src/services/ai-analysis-jobs';
 import OverflowMenu, { OverflowMenuItem } from '../../src/components/OverflowMenu';
 
 const METHOD_CN: Record<string, string> = {
@@ -102,6 +103,7 @@ export default function ResultPage() {
     const confirmDelete = async () => {
         setDeleteModalVisible(false);
         if (id) {
+            await clearAIAnalysisJob('liuyao', id);
             await deleteRecord(id);
             router.back();
         }

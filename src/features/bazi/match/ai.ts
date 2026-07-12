@@ -45,3 +45,18 @@ export function buildBaziMatchAIMessages(result: BaziCompatibilityResult): AICha
         },
     ];
 }
+
+export function validateBaziMatchAIContent(content: string): string[] {
+    const requiredSections = [
+        '合婚总断',
+        '最合之处',
+        '最大冲突',
+        '能不能成',
+        '婚后相处',
+        '婚期应期',
+        '一句话取法',
+    ];
+    return requiredSections
+        .filter((section) => !content.includes(section))
+        .map((section) => `缺少${section}`);
+}

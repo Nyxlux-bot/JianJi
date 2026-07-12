@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     ScrollView,
     StyleSheet,
@@ -6,7 +6,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
     BackIcon,
@@ -48,6 +48,7 @@ import {
 } from '../../../src/features/bazi/pending-result-cache';
 import { shareBaziResultMarkdown } from '../../../src/services/share';
 import { isAIConfigured } from '../../../src/services/settings';
+import { clearAIAnalysisJob } from '../../../src/services/ai-analysis-jobs';
 
 const MATRIX_COLORS: Record<string, string> = {
     木: '#2E9B47',
@@ -285,7 +286,7 @@ export default function BaziResultPage() {
         };
     }, [id]);
 
-    useEffect(() => {
+    useFocusEffect(useCallback(() => {
         let cancelled = false;
         const loadAIConfig = async () => {
             const configured = await isAIConfigured();
@@ -297,7 +298,7 @@ export default function BaziResultPage() {
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, []));
 
     const proChartView = useMemo(() => (
         result ? buildBaziProChartViewModel(result, fortuneSelection) : null
@@ -419,6 +420,7 @@ export default function BaziResultPage() {
     const handleDelete = async () => {
         if (!id || !hasPersistedRecord) return;
         setDeleteVisible(false);
+        await clearAIAnalysisJob('bazi', id);
         await deleteRecord(id);
         router.back();
     };

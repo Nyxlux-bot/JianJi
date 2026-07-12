@@ -75,11 +75,11 @@ export default function OverflowMenu({
 
 const makeStyles = (Colors: any) => StyleSheet.create({
     wrapper: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
         zIndex: 50,
     },
     backdrop: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
         backgroundColor: 'transparent',
     },
     menu: {

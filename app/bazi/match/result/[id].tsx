@@ -18,11 +18,21 @@ import OverflowMenu, { OverflowMenuItem } from '../../../../src/components/Overf
 import { CustomAlert } from '../../../../src/components/CustomAlertProvider';
 import { BaziCompatibilityResult, BaziMatchDimensionScore } from '../../../../src/features/bazi/match/types';
 import { buildBaziMatchAIMessages } from '../../../../src/features/bazi/match/ai';
-import { buildBaziMatchSummarySubtitle, buildBaziMatchSummaryTitle, getDisplayMarriageYears } from '../../../../src/features/bazi/match/formatter';
+import { getDisplayMarriageYears } from '../../../../src/features/bazi/match/formatter';
 import { getBaziMatchClassicRefs, getBaziMatchDimensionReferenceFallbackIds } from '../../../../src/features/bazi/match/classic-references';
 import type { BaziMatchClassicReferenceId } from '../../../../src/features/bazi/match/classic-references';
-import { deleteRecord, getRecord, saveRecord, toggleFavorite } from '../../../../src/db/database';
-import { analyzeWithAIChatStream, stripThinkingBlocks } from '../../../../src/services/ai';
+import { deleteRecord, getRecord, toggleFavorite } from '../../../../src/db/database';
+import {
+    AIAnalysisJobState,
+    cancelAIAnalysisJob,
+    clearAIAnalysisJob,
+    getAIAnalysisJob,
+    isActiveAIAnalysisJob,
+    isCancellableAIAnalysisJob,
+    recoverInterruptedAIAnalysisJob,
+    startAIAnalysisJob,
+    subscribeAIAnalysisJob,
+} from '../../../../src/services/ai-analysis-jobs';
 import { isAIConfigured } from '../../../../src/services/settings';
 import { BorderRadius, FontSize, Spacing } from '../../../../src/theme/colors';
 import { useTheme } from '../../../../src/theme/ThemeContext';
@@ -91,6 +101,8 @@ export default function BaziMatchResultPage() {
     const styles = useMemo(() => makeStyles(Colors), [Colors]);
     const markdownStyles = useMemo(() => makeMarkdownStyles(Colors), [Colors]);
     const mountedRef = useRef(true);
+    const syncedJobIdRef = useRef<string | null>(null);
+    const reportedFailureJobIdRef = useRef<string | null>(null);
     const [result, setResult] = useState<BaziCompatibilityResult | null>(null);
     const [screenState, setScreenState] = useState<'loading' | 'ready' | 'missing'>('loading');
     const [aiConfigured, setAiConfigured] = useState(false);
@@ -102,6 +114,7 @@ export default function BaziMatchResultPage() {
     const [menuVisible, setMenuVisible] = useState(false);
     const [deleteVisible, setDeleteVisible] = useState(false);
     const [isFavorite, setIsFavorite] = useState(false);
+    const [analysisJob, setAnalysisJob] = useState<AIAnalysisJobState | null>(null);
 
     const displayDimensions = useMemo(() => normalizeDimensions(result?.dimensions || []), [result]);
     const displayMarriageYears = useMemo(() => (result ? getDisplayMarriageYears(result) : []), [result]);
@@ -145,20 +158,48 @@ export default function BaziMatchResultPage() {
         };
     }, [load]);
 
-    const persistResult = async (nextResult: BaziCompatibilityResult) => {
-        await saveRecord({
-            engineType: 'baziCompatibility',
-            result: nextResult,
-            summary: {
-                method: 'baziCompatibility',
-                title: buildBaziMatchSummaryTitle(nextResult),
-                subtitle: buildBaziMatchSummarySubtitle(nextResult),
-            },
-        });
-    };
+    useEffect(() => {
+        if (!id) {
+            return undefined;
+        }
+        void recoverInterruptedAIAnalysisJob('baziCompatibility', id);
+        return subscribeAIAnalysisJob('baziCompatibility', id, setAnalysisJob);
+    }, [id]);
+
+    useEffect(() => {
+        if (!analysisJob) {
+            return;
+        }
+        setAiLoading(isActiveAIAnalysisJob(analysisJob));
+        if (analysisJob.status === 'streaming' || analysisJob.status === 'postprocessing') {
+            setAiDraft(analysisJob.draftContent || '正在起盘详批...');
+            return;
+        }
+        if (analysisJob.status === 'completed' && analysisJob.result && syncedJobIdRef.current !== analysisJob.jobId) {
+            const nextResult = analysisJob.result as BaziCompatibilityResult;
+            syncedJobIdRef.current = analysisJob.jobId;
+            setResult(nextResult);
+            setAiDraft(nextResult.aiAnalysis || '');
+            return;
+        }
+        if (analysisJob.status === 'failed' || analysisJob.status === 'cancelled' || analysisJob.status === 'interrupted') {
+            setAiDraft(result?.aiAnalysis || '');
+            if (analysisJob.status !== 'cancelled'
+                && aiSheetVisible
+                && analysisJob.failure
+                && reportedFailureJobIdRef.current !== analysisJob.jobId) {
+                reportedFailureJobIdRef.current = analysisJob.jobId;
+                CustomAlert.alert('详批生成失败', analysisJob.failure.message);
+            }
+        }
+    }, [aiSheetVisible, analysisJob, result?.aiAnalysis]);
 
     const handleAI = async (forceRegenerate = false) => {
-        if (!result || aiLoading) {
+        if (!result) {
+            return;
+        }
+        if (isActiveAIAnalysisJob(getAIAnalysisJob('baziCompatibility', result.id))) {
+            setAiSheetVisible(true);
             return;
         }
         if (!aiConfigured) {
@@ -177,59 +218,17 @@ export default function BaziMatchResultPage() {
         setAiSheetVisible(true);
         setAiLoading(true);
         setAiDraft('正在起盘详批...');
-        let rawContent = '';
-        try {
-            const messages = buildBaziMatchAIMessages(result);
-            const response = await analyzeWithAIChatStream(
-                messages,
-                (chunk) => {
-                    rawContent += chunk;
-                    if (mountedRef.current) {
-                        setAiDraft(stripEmoji(stripThinkingBlocks(rawContent)).trim() || '正在起盘详批...');
-                    }
-                },
-                undefined,
-                {
-                    stage: 'bazi_match',
-                    debugMeta: {
-                        mode: 'bazi',
-                        requestType: 'main',
-                        workflowStage: 'followup',
-                        usedDynamicEvidencePack: true,
-                        usedDigest: false,
-                        systemCharCount: messages[0]?.content.length || 0,
-                        messageCount: messages.length,
-                    },
-                },
-            );
-            if (!response.success) {
-                CustomAlert.alert('详批生成失败', response.error || '详批生成失败，请稍后重试。');
-                setAiDraft(stripEmoji(result.aiAnalysis || ''));
-                return;
-            }
-            const cleanContent = stripEmoji(stripThinkingBlocks(response.content || rawContent)).trim();
-            const nextResult: BaziCompatibilityResult = {
-                ...result,
-                aiAnalysis: cleanContent,
-                aiChatHistory: [
-                    { role: 'user', content: '请进行八字合盘详批', hidden: true, requestContent: messages[1]?.content },
-                    { role: 'assistant', content: cleanContent },
-                ],
-            };
-            await persistResult(nextResult);
-            if (mountedRef.current) {
-                setResult(nextResult);
-                setAiDraft(cleanContent);
-            }
-        } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : '详批生成失败，请稍后重试。';
-            CustomAlert.alert('详批生成失败', message);
-            setAiDraft(stripEmoji(result.aiAnalysis || ''));
-        } finally {
-            if (mountedRef.current) {
-                setAiLoading(false);
-            }
-        }
+        const messages = buildBaziMatchAIMessages(result);
+        const job = startAIAnalysisJob({
+            engineType: 'baziCompatibility',
+            result,
+            baseMessages: result.aiChatHistory ?? [],
+            requestMessages: [
+                { role: 'user', content: '请进行八字合盘详批', hidden: true, requestContent: messages[1]?.content },
+            ],
+            phase: 'initial',
+        });
+        setAnalysisJob(job);
     };
 
     const handleToggleFavorite = async () => {
@@ -251,8 +250,14 @@ export default function BaziMatchResultPage() {
     const handleDelete = async () => {
         if (!id) return;
         setDeleteVisible(false);
+        await clearAIAnalysisJob('baziCompatibility', id);
         await deleteRecord(id);
         router.back();
+    };
+
+    const handleCancelAI = () => {
+        if (!id) return;
+        cancelAIAnalysisJob('baziCompatibility', id);
     };
 
     const menuItems: OverflowMenuItem[] = [
@@ -288,9 +293,8 @@ export default function BaziMatchResultPage() {
                 <View style={styles.headerCenter}>
                     <TouchableOpacity
                         onPress={() => void handleAI()}
-                        style={[styles.aiHeaderBtn, aiLoading && styles.aiHeaderBtnDisabled]}
+                        style={styles.aiHeaderBtn}
                         activeOpacity={0.82}
-                        disabled={aiLoading}
                     >
                         <SparklesIcon size={18} color={Colors.text.inverse} />
                         <Text style={styles.aiHeaderBtnText}>{aiLoading ? '批盘中' : '合盘详批'}</Text>
@@ -386,7 +390,9 @@ export default function BaziMatchResultPage() {
                 visible={aiSheetVisible}
                 content={stripEmoji(aiDraft || result.aiAnalysis || '')}
                 loading={aiLoading}
+                cancellable={isCancellableAIAnalysisJob(analysisJob)}
                 onRegenerate={() => void handleAI(true)}
+                onCancel={handleCancelAI}
                 onCopy={() => void handleCopyAnalysis()}
                 onClose={() => setAiSheetVisible(false)}
                 styles={styles}
@@ -553,12 +559,14 @@ const AnalysisSheet: React.FC<{
     visible: boolean;
     content: string;
     loading: boolean;
+    cancellable: boolean;
     onRegenerate: () => void;
+    onCancel: () => void;
     onCopy: () => void;
     onClose: () => void;
     styles: ReturnType<typeof makeStyles>;
     markdownStyles: ReturnType<typeof makeMarkdownStyles>;
-}> = ({ visible, content, loading, onRegenerate, onCopy, onClose, styles, markdownStyles }) => (
+}> = ({ visible, content, loading, cancellable, onRegenerate, onCancel, onCopy, onClose, styles, markdownStyles }) => (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
         <View style={styles.sheetRoot}>
             <TouchableOpacity style={styles.sheetScrim} activeOpacity={1} onPress={onClose} />
@@ -573,8 +581,12 @@ const AnalysisSheet: React.FC<{
                         <TouchableOpacity onPress={onCopy} disabled={!content.trim()} style={[styles.sheetCloseBtn, !content.trim() && styles.aiHeaderBtnDisabled]}>
                             <Text style={styles.sheetCloseText}>复制</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity onPress={onRegenerate} disabled={loading} style={[styles.sheetCloseBtn, loading && styles.aiHeaderBtnDisabled]}>
-                            <Text style={styles.sheetCloseText}>重批</Text>
+                        <TouchableOpacity
+                            onPress={loading ? onCancel : onRegenerate}
+                            disabled={loading && !cancellable}
+                            style={[styles.sheetCloseBtn, loading && !cancellable && styles.aiHeaderBtnDisabled]}
+                        >
+                            <Text style={styles.sheetCloseText}>{loading ? (cancellable ? '取消' : '保存中') : '重批'}</Text>
                         </TouchableOpacity>
                         <TouchableOpacity onPress={onClose} style={styles.sheetCloseBtn}>
                             <Text style={styles.sheetCloseText}>关闭</Text>
@@ -788,7 +800,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     yearReason: { color: Colors.text.secondary, fontSize: FontSize.sm, lineHeight: 21 },
     noticeText: { color: Colors.text.secondary, fontSize: FontSize.sm, lineHeight: 21 },
     sheetRoot: { flex: 1, justifyContent: 'flex-end' },
-    sheetScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: Colors.bg.overlay },
+    sheetScrim: { ...StyleSheet.absoluteFill, backgroundColor: Colors.bg.overlay },
     sheetPanel: {
         maxHeight: '78%',
         borderTopLeftRadius: BorderRadius.xl,

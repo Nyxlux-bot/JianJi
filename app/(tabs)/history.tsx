@@ -24,6 +24,7 @@ import { deleteRecord, getAllRecords, RecordSummary, toggleFavorite } from '../.
 import { buildZiweiHistoryRestoreRoute } from '../../src/features/ziwei/result-route';
 import { BorderRadius, FontSize, Spacing } from '../../src/theme/colors';
 import { useTheme } from '../../src/theme/ThemeContext';
+import { clearAIAnalysisJob } from '../../src/services/ai-analysis-jobs';
 import {
     BaziHistoryCategory,
     BaziCompatibilityHistoryCategory,
@@ -103,7 +104,7 @@ interface HistoryRecordRowProps {
     styles: HistoryStyles;
     onOpenRecord: (id: string, engineType: RecordSummary['engineType']) => void;
     onToggleFavorite: (id: string) => Promise<void>;
-    onRequestDelete: (id: string, title: string) => void;
+    onRequestDelete: (id: string, title: string, engineType: RecordSummary['engineType']) => void;
 }
 
 const HistoryRecordRow = memo(function HistoryRecordRow({
@@ -133,8 +134,8 @@ const HistoryRecordRow = memo(function HistoryRecordRow({
 
     const handleDeletePress = useCallback((event: GestureResponderEvent) => {
         event.stopPropagation();
-        onRequestDelete(id, title);
-    }, [id, onRequestDelete, title]);
+        onRequestDelete(id, title, engineType);
+    }, [engineType, id, onRequestDelete, title]);
 
     return (
         <Pressable
@@ -251,7 +252,7 @@ export default function HistoryPage() {
     const [filters, setFilters] = useState<HistoryFilterState>(DEFAULT_HISTORY_FILTER);
     const [filtersReady, setFiltersReady] = useState(false);
     const [deleteModalVisible, setDeleteModalVisible] = useState(false);
-    const [deletingRecord, setDeletingRecord] = useState<{ id: string; name: string } | null>(null);
+    const [deletingRecord, setDeletingRecord] = useState<{ id: string; name: string; engineType: RecordSummary['engineType'] } | null>(null);
     const deferredKeyword = useDeferredValue(filters.keyword);
 
     useEffect(() => {
@@ -298,14 +299,15 @@ export default function HistoryPage() {
         if (!deletingRecord?.id) {
             return;
         }
+        await clearAIAnalysisJob(deletingRecord.engineType, deletingRecord.id);
         await deleteRecord(deletingRecord.id);
         setDeleteModalVisible(false);
         setDeletingRecord(null);
         await loadRecords();
     };
 
-    const handleRequestDelete = useCallback((id: string, name: string) => {
-        setDeletingRecord({ id, name });
+    const handleRequestDelete = useCallback((id: string, name: string, engineType: RecordSummary['engineType']) => {
+        setDeletingRecord({ id, name, engineType });
         setDeleteModalVisible(true);
     }, []);
 

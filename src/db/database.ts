@@ -830,6 +830,52 @@ export async function saveRecord(payload: DivinationRecordEnvelope): Promise<voi
     return storage.save(payload);
 }
 
+/** 仅在记录仍存在时，基于数据库中的最新结果原子更新。 */
+export async function updateExistingRecordResult(
+    id: string,
+    engineType: DivinationEngine,
+    updater: (current: DivinationResult) => DivinationResult | null,
+): Promise<DivinationResult | null> {
+    if (isWeb) {
+        const records = getWebRecords();
+        const index = records.findIndex((record) => record.id === id && record.engineType === engineType);
+        if (index < 0) {
+            return null;
+        }
+        const nextResult = updater(records[index].fullResult);
+        if (!nextResult || inferEngineFromResult(nextResult) !== engineType) {
+            return null;
+        }
+        records[index] = { ...records[index], fullResult: nextResult };
+        setWebRecords(records);
+        return nextResult;
+    }
+
+    const database = await getNativeDatabase();
+    let updatedResult: DivinationResult | null = null;
+    await database.withTransactionAsync(async () => {
+        const row = await database.getFirstAsync(
+            `SELECT engine_type, method, question, title, subtitle, full_result, is_favorite
+             FROM records WHERE id = ?`,
+            [id],
+        ) as RecordDetailRow | null;
+        const detail = row ? toRecordDetail(row) : null;
+        if (!detail || detail.engineType !== engineType) {
+            return;
+        }
+        const nextResult = updater(detail.result);
+        if (!nextResult || inferEngineFromResult(nextResult) !== engineType) {
+            return;
+        }
+        await database.runAsync(
+            `UPDATE records SET full_result = ? WHERE id = ?`,
+            [JSON.stringify(nextResult), id],
+        );
+        updatedResult = nextResult;
+    });
+    return updatedResult;
+}
+
 /** 用新结果覆盖旧记录，并继承旧收藏状态 */
 export async function replaceRecord(oldId: string, payload: DivinationRecordEnvelope): Promise<void> {
     if (oldId === payload.result.id) {

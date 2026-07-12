@@ -16,7 +16,7 @@ import {
 import * as Clipboard from 'expo-clipboard';
 import Markdown from 'react-native-markdown-display';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BaziFormatterContext, cloneBaziFormatterContext } from '../core/bazi-ai-context';
+import { BaziFormatterContext } from '../core/bazi-ai-context';
 import { AIConversationStage, PersistedAIChatMessage } from '../core/ai-meta';
 import { BaziResult } from '../core/bazi-types';
 import { PanResult } from '../core/liuyao-calc';
@@ -30,47 +30,33 @@ import {
 import {
     AIRequestDebugMeta,
     AIWorkflowResponseKind,
-    AIRequestOptions,
-    analyzeWithAIChatStream,
     buildBaziFiveYearPrompt,
     buildBaziFollowUpPrompt,
     buildBaziVerificationPrompt,
-    buildRequestBundle,
     BaziVerificationAction,
     buildZiweiFiveYearPrompt,
     buildZiweiFollowUpPrompt,
     buildZiweiVerificationPrompt,
     getBaziConversationStage,
     getBaziFoundationPrompt,
-    getChatRequestOptions,
     getLocalBaziFoundationActionLabel,
     getLocalBaziVerificationActions,
-    generateBaziConversationDigest,
-    generateQuickReplies,
-    generateZiweiConversationDigest,
-    sanitizeBaziStreamingContent,
-    sanitizeZiweiStreamingContent,
-    stripThinkingBlocks,
-    shouldGeneratePostResponseArtifacts,
-    stripBaziStageMarkers,
-    stripZiweiStageMarkers,
-    validateBaziWorkflowResponse,
-    validateZiweiWorkflowResponse,
     getZiweiConversationStage,
     getZiweiFoundationPrompt,
     getLocalZiweiFoundationActionLabel,
     getLocalZiweiVerificationActions,
-    type AIFailureInfo,
 } from '../services/ai';
 import {
-    cancelLiuyaoAIJob,
-    clearLiuyaoAIJob,
-    getLiuyaoAIJob,
-    LiuyaoAIJobState,
-    recoverInterruptedLiuyaoAIJob,
-    startLiuyaoAIJob,
-    subscribeLiuyaoAIJob,
-} from '../services/liuyao-ai-jobs';
+    AIAnalysisJobState,
+    cancelAIAnalysisJob,
+    clearAIAnalysisJob,
+    getAIAnalysisJob,
+    isActiveAIAnalysisJob,
+    isCancellableAIAnalysisJob,
+    recoverInterruptedAIAnalysisJob,
+    startAIAnalysisJob,
+    subscribeAIAnalysisJob,
+} from '../services/ai-analysis-jobs';
 import { recordDiagnosticLog } from '../services/diagnostics';
 import { shareChatMarkdown } from '../services/share';
 import { BorderRadius, FontSize, Spacing } from '../theme/colors';
@@ -81,7 +67,6 @@ import {
     buildBaziVerificationRetryPlan,
     buildRetryPlan,
     getLastAssistantContent,
-    shouldRollbackFailedWorkflowResponse,
     shouldShowBaziFoundationRetryAction,
     trimWorkflowMessages,
 } from './ai-chat-actions';
@@ -216,24 +201,6 @@ function buildHeaderMeta(result: PanResult | BaziResult | ZiweiRecordResult): { 
     };
 }
 
-function resolveRequestWorkflowStage(
-    mode: 'liuyao' | 'bazi' | 'ziwei',
-    options: {
-        isAutoInitial?: boolean;
-        expectedCompletion?: AIWorkflowResponseKind;
-    },
-): 'foundation' | 'verification' | 'five_year' | 'followup' | undefined {
-    if (mode === 'liuyao') {
-        return undefined;
-    }
-
-    if (options.expectedCompletion) {
-        return options.expectedCompletion;
-    }
-
-    return options.isAutoInitial ? 'foundation' : 'followup';
-}
-
 function formatRequestEvidenceNotice(meta: AIRequestDebugMeta | null): string | null {
     if (!meta || meta.mode !== 'ziwei') {
         return null;
@@ -261,57 +228,6 @@ function buildZiweiStaleNotice(isStale: boolean): { title: string; body: string 
     };
 }
 
-function logAIClientFailure(scope: string, failure?: AIFailureInfo | null): void {
-    if (!failure) {
-        return;
-    }
-
-    console.warn('[AIChatModal]', scope, JSON.stringify(failure));
-    void recordDiagnosticLog({
-        level: 'warn',
-        source: `AIChatModal:${scope}`,
-        message: failure.message,
-        context: {
-            code: failure.code,
-            stage: failure.stage,
-            recoverable: failure.recoverable,
-            usedFallback: failure.usedFallback,
-        },
-    });
-}
-
-function formatAIFailureMessage(failure?: Pick<AIFailureInfo, 'code' | 'message' | 'usedFallback'> | null): string {
-    if (!failure) {
-        return 'AI 请求失败，请稍后重试。';
-    }
-
-    if (failure.usedFallback) {
-        return `${failure.message}，已自动回退到本地默认结果。`;
-    }
-
-    switch (failure.code) {
-        case 'missing_api_key':
-        case 'missing_api_url':
-            return failure.message;
-        case 'timeout':
-            return 'AI 请求超时，请稍后重试。';
-        case 'network_error':
-            return 'AI 请求中断，请检查网络或接口服务后重试。';
-        case 'http_error':
-            return failure.message;
-        case 'invalid_response':
-            return 'AI 返回格式无效，请重试。';
-        case 'empty_response':
-            return failure.message || 'AI 推理结束但没有返回可见正文，请重试。';
-        case 'token_limit':
-            return failure.message || '输出达到当前模型配置的最大输出上限，内容未完整写完，请重试。';
-        case 'aborted':
-            return 'AI 请求已取消。';
-        default:
-            return failure.message || 'AI 请求失败，请稍后重试。';
-    }
-}
-
 function buildWorkflowNotice(
     mode: 'bazi' | 'ziwei' | 'liuyao',
     stage: AIConversationStage | null,
@@ -328,7 +244,7 @@ function buildWorkflowNotice(
         return {
             title: isLoading ? `正在生成${foundationLabel}` : `${foundationLabel}尚未完成`,
             body: isLoading
-                ? `系统当前只会输出${foundationLabel}；没有拿到阶段完成标记前，不会进入前事核验。`
+                ? `系统当前只会输出${foundationLabel}；没有通过阶段结构校验前，不会进入前事核验。`
                 : `${foundationLabel}还未完整结束。你可以重试当前阶段，但此时不会开放前事核验或后续追问。`,
             tone: 'neutral',
         };
@@ -357,58 +273,23 @@ function buildWorkflowNotice(
     };
 }
 
-function buildPendingAssistantMessage(
-    mode: 'liuyao' | 'bazi' | 'ziwei',
-    options: {
-        isAutoInitial?: boolean;
-        expectedCompletion?: AIWorkflowResponseKind;
-    } = {},
-): UIChatMessage {
-    const keepOpenTip = mode === 'liuyao'
-        ? '可关闭弹窗，分析会在应用内继续；如需停止，请点右上角取消。'
-        : '请保持弹窗打开，关闭会取消本次请求。';
-    const content = options.expectedCompletion === 'foundation'
-        ? (mode === 'ziwei'
-            ? `正在读取命盘并生成基础命盘分析...\n${keepOpenTip}`
-            : (mode === 'bazi'
-                ? `正在读取四柱并生成基础定局...\n${keepOpenTip}`
-                : `正在生成首轮分析...\n${keepOpenTip}`))
-        : options.expectedCompletion === 'verification'
-            ? `正在生成前事核验...\n${keepOpenTip}`
-            : options.expectedCompletion === 'five_year'
-                ? (mode === 'ziwei'
-                    ? `正在展开今年与未来五年解析...\n${keepOpenTip}`
-                    : `正在展开未来五年分析...\n${keepOpenTip}`)
-                : (options.isAutoInitial
-                    ? `正在准备 AI 分析...\n${keepOpenTip}`
-                    : `正在连接 AI 并整理回复...\n${keepOpenTip}`);
-
-    return {
-        role: 'assistant',
-        content,
-        pending: true,
-        uiId: generateMessageId('assistant'),
-    };
-}
-
-function isActiveLiuyaoJob(job?: LiuyaoAIJobState | null): boolean {
-    return job?.status === 'running'
-        || job?.status === 'reasoning'
-        || job?.status === 'streaming'
-        || job?.status === 'validating'
-        || job?.status === 'postprocessing';
-}
-
-function buildLiuyaoJobPendingMessage(job: LiuyaoAIJobState): UIChatMessage | null {
+function buildAnalysisJobPendingMessage(job: AIAnalysisJobState): UIChatMessage | null {
+    const subject = job.engineType === 'liuyao'
+        ? '六爻分析'
+        : job.engineType === 'bazi'
+            ? '八字分析'
+            : '紫微分析';
     const content = job.status === 'running'
-        ? '正在提交六爻分析...\n可关闭弹窗，分析会在应用内继续；如需停止，请点右上角取消。'
+        ? `正在提交${subject}...\n可关闭弹窗，分析会在应用内继续；如需停止，请点右上角取消。`
         : job.status === 'reasoning'
             ? '强推理模型正在深度分析...\n首段正文可能需要等待较久，可关闭弹窗稍后回来查看。'
             : job.status === 'validating'
                 ? '正在校验盘据...\n校验通过后才会写入正式 AI 分析结果。'
                 : job.status === 'postprocessing'
                     ? '正在整理追问与保存结果...\n很快就会写入正式 AI 分析结果。'
-                : '';
+                    : job.status === 'saving'
+                        ? '正在保存正式分析结果...\n此时将完成本次写入。'
+                    : '';
 
     if (!content) {
         return null;
@@ -418,31 +299,31 @@ function buildLiuyaoJobPendingMessage(job: LiuyaoAIJobState): UIChatMessage | nu
         role: 'assistant',
         content,
         pending: true,
-        uiId: `liuyao-job-${job.jobId}-${job.status}`,
+        uiId: `ai-job-${job.jobId}-${job.status}`,
     };
 }
 
-function buildLiuyaoJobMessages(job: LiuyaoAIJobState): UIChatMessage[] {
-    const baseMessages = hydrateMessages(job.messages, `liuyao-job-${job.jobId}-history`);
-    if ((job.status === 'streaming' || job.status === 'failed' || job.status === 'interrupted') && job.draftContent) {
+function buildAnalysisJobMessages(job: AIAnalysisJobState): UIChatMessage[] {
+    const baseMessages = hydrateMessages(job.messages, `ai-job-${job.jobId}-history`);
+    if (job.status === 'streaming' && job.draftContent) {
         return [
             ...baseMessages,
             {
                 role: 'assistant',
                 content: job.draftContent,
                 pending: false,
-                uiId: `liuyao-job-${job.jobId}-draft`,
+                uiId: `ai-job-${job.jobId}-draft`,
             },
         ];
     }
     if (job.status === 'completed' && job.validatedContent) {
-        return hydrateMessages(job.messages, `liuyao-job-${job.jobId}-history`);
+        return hydrateMessages(job.messages, `ai-job-${job.jobId}-history`);
     }
-    const pendingMessage = buildLiuyaoJobPendingMessage(job);
+    const pendingMessage = buildAnalysisJobPendingMessage(job);
     return pendingMessage ? [...baseMessages, pendingMessage] : baseMessages;
 }
 
-function getLiuyaoJobPresentationState(job: LiuyaoAIJobState): ChatPresentationState {
+function getAnalysisJobPresentationState(job: AIAnalysisJobState): ChatPresentationState {
     if (job.status === 'running') {
         return 'preparing_request';
     }
@@ -452,13 +333,13 @@ function getLiuyaoJobPresentationState(job: LiuyaoAIJobState): ChatPresentationS
     if (job.status === 'streaming' || job.status === 'validating') {
         return 'streaming';
     }
-    if (job.status === 'postprocessing') {
+    if (job.status === 'postprocessing' || job.status === 'saving') {
         return 'streaming';
     }
     return 'presenting';
 }
 
-function getLiuyaoJobNotice(job?: LiuyaoAIJobState | null): string | null {
+function getAnalysisJobNotice(job?: AIAnalysisJobState | null): string | null {
     if (!job) {
         return null;
     }
@@ -466,7 +347,7 @@ function getLiuyaoJobNotice(job?: LiuyaoAIJobState | null): string | null {
         return '正文生成中，完成盘据校验后才会写入正式结果。';
     }
     if (job.status === 'failed') {
-        return job.failure?.message || '六爻分析失败，请重试。';
+        return job.failure?.message || '分析失败，请重试当前阶段。';
     }
     if (job.status === 'interrupted') {
         return '上次分析已中断，未写入正式结果，可以重新开始。';
@@ -483,7 +364,6 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     const markdownStyles = useMemo(() => makeMarkdownStyles(Colors), [Colors]);
     const insets = useSafeAreaInsets();
     const flatListRef = useRef<FlatList>(null);
-    const isMounted = useRef(true);
     const latestResultRef = useRef<PanResult | BaziResult | ZiweiRecordResult>(result);
     const latestBaziContextRef = useRef<BaziFormatterContext | undefined>(baziContext);
     const latestZiweiContextRef = useRef<ZiweiFormatterContext | undefined>(ziweiContext);
@@ -493,9 +373,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     const modalShownRef = useRef(false);
     const autoStartPendingRef = useRef(false);
     const autoStartTaskRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
-    const activeAbortControllerRef = useRef<AbortController | null>(null);
-    const activeRequestSeqRef = useRef(0);
-    const syncedLiuyaoJobIdRef = useRef<string | null>(null);
+    const syncedAnalysisJobIdRef = useRef<string | null>(null);
 
     const [messages, setMessages] = useState<UIChatMessage[]>([]);
     const [inputText, setInputText] = useState('');
@@ -506,7 +384,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     const [menuVisible, setMenuVisible] = useState(false);
     const [hasFoundationAttempted, setHasFoundationAttempted] = useState(false);
     const [presentationState, setPresentationState] = useState<ChatPresentationState>('idle');
-    const [liuyaoJob, setLiuyaoJob] = useState<LiuyaoAIJobState | null>(null);
+    const [analysisJob, setAnalysisJob] = useState<AIAnalysisJobState | null>(null);
     const workflowMode: 'liuyao' | 'bazi' | 'ziwei' = isBaziResult(result)
         ? 'bazi'
         : (isZiweiResult(result) ? 'ziwei' : 'liuyao');
@@ -537,23 +415,9 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         autoStartTaskRef.current = null;
     };
 
-    const invalidateActiveRequest = () => {
-        activeRequestSeqRef.current += 1;
-        const controller = activeAbortControllerRef.current;
-        activeAbortControllerRef.current = null;
-        if (controller) {
-            controller.abort();
-        }
-    };
-
     useEffect(() => {
-        isMounted.current = true;
         return () => {
             cancelScheduledAutoStart();
-            if (workflowMode !== 'liuyao') {
-                invalidateActiveRequest();
-            }
-            isMounted.current = false;
         };
     }, []);
 
@@ -581,21 +445,16 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     }, [messages]);
 
     useEffect(() => {
-        if (workflowMode !== 'liuyao') {
-            setLiuyaoJob(null);
-            return undefined;
-        }
-
-        void recoverInterruptedLiuyaoAIJob(result.id);
-        return subscribeLiuyaoAIJob(result.id, setLiuyaoJob);
+        void recoverInterruptedAIAnalysisJob(workflowMode, result.id);
+        return subscribeAIAnalysisJob(workflowMode, result.id, setAnalysisJob);
     }, [workflowMode, result.id]);
 
     useEffect(() => {
-        if (workflowMode !== 'liuyao' || !liuyaoJob) {
+        if (!analysisJob) {
             return;
         }
 
-        const jobMessages = buildLiuyaoJobMessages(liuyaoJob);
+        const jobMessages = buildAnalysisJobMessages(analysisJob);
         setMessages((currentMessages) => {
             if (areMessagesEqual(currentMessages, jobMessages)) {
                 latestMessagesRef.current = currentMessages;
@@ -604,52 +463,49 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             latestMessagesRef.current = jobMessages;
             return jobMessages;
         });
-        setIsLoading(isActiveLiuyaoJob(liuyaoJob));
-        setArtifactNotice(getLiuyaoJobNotice(liuyaoJob));
-        setPresentationState(getLiuyaoJobPresentationState(liuyaoJob));
-
-        if (liuyaoJob.status === 'completed' && liuyaoJob.result && syncedLiuyaoJobIdRef.current !== liuyaoJob.jobId) {
-            setQuickReplies(liuyaoJob.result.quickReplies ?? []);
-            syncedLiuyaoJobIdRef.current = liuyaoJob.jobId;
-            if (latestResultRef.current.aiAnalysis !== liuyaoJob.result.aiAnalysis) {
-                latestResultRef.current = liuyaoJob.result;
-                onUpdateResult(liuyaoJob.result);
-            }
+        setIsLoading(isActiveAIAnalysisJob(analysisJob));
+        setArtifactNotice(getAnalysisJobNotice(analysisJob));
+        setRequestDebugMeta(analysisJob.debugMeta ?? null);
+        setPresentationState(getAnalysisJobPresentationState(analysisJob));
+        if (analysisJob.expectedCompletion === 'foundation'
+            && (analysisJob.status === 'failed' || analysisJob.status === 'interrupted' || analysisJob.status === 'cancelled')) {
+            setHasFoundationAttempted(true);
         }
-    }, [workflowMode, liuyaoJob, onUpdateResult]);
+
+        if (analysisJob.status === 'completed' && analysisJob.result && syncedAnalysisJobIdRef.current !== analysisJob.jobId) {
+            const updatedResult = analysisJob.result as PanResult | BaziResult | ZiweiRecordResult;
+            setQuickReplies(updatedResult.quickReplies ?? []);
+            syncedAnalysisJobIdRef.current = analysisJob.jobId;
+            latestResultRef.current = updatedResult;
+            onUpdateResult(updatedResult);
+        }
+    }, [analysisJob, onUpdateResult]);
 
     useEffect(() => {
         if (!visible) {
             cancelScheduledAutoStart();
-            if (workflowMode !== 'liuyao') {
-                invalidateActiveRequest();
-                setIsLoading(false);
-                setPresentationState('idle');
-            }
             modalShownRef.current = false;
             autoStartPendingRef.current = false;
             setMenuVisible(false);
-            setHasFoundationAttempted(false);
-            setRequestDebugMeta(null);
         }
-    }, [visible, workflowMode]);
+    }, [visible]);
 
     useEffect(() => {
-        syncedLiuyaoJobIdRef.current = null;
+        syncedAnalysisJobIdRef.current = null;
         setHasFoundationAttempted(false);
     }, [result.id]);
 
     useEffect(() => {
         if (visible) {
-            const currentLiuyaoJob = workflowMode === 'liuyao' ? getLiuyaoAIJob(result.id) : null;
-            if (currentLiuyaoJob) {
-                const jobMessages = buildLiuyaoJobMessages(currentLiuyaoJob);
+            const currentJob = getAIAnalysisJob(workflowMode, result.id);
+            if (currentJob) {
+                const jobMessages = buildAnalysisJobMessages(currentJob);
                 setMessages(jobMessages);
                 latestMessagesRef.current = jobMessages;
                 autoStartPendingRef.current = false;
                 modalShownRef.current = false;
-                setPresentationState(getLiuyaoJobPresentationState(currentLiuyaoJob));
-                setArtifactNotice(getLiuyaoJobNotice(currentLiuyaoJob));
+                setPresentationState(getAnalysisJobPresentationState(currentJob));
+                setArtifactNotice(getAnalysisJobNotice(currentJob));
                 setQuickReplies(result.quickReplies && result.quickReplies.length > 0 ? result.quickReplies : []);
                 return;
             }
@@ -664,8 +520,8 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             const hydrated = hydrateMessages(initialMessages);
             setMessages(hydrated);
             latestMessagesRef.current = hydrated;
-            const runningLiuyaoJob = workflowMode === 'liuyao' ? getLiuyaoAIJob(result.id) : null;
-            autoStartPendingRef.current = hydrated.length === 0 && !isActiveLiuyaoJob(runningLiuyaoJob);
+            const runningJob = getAIAnalysisJob(workflowMode, result.id);
+            autoStartPendingRef.current = hydrated.length === 0 && !runningJob;
             modalShownRef.current = false;
             setPresentationState('presenting');
             setRequestDebugMeta(null);
@@ -764,77 +620,6 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         return updatedResult;
     };
 
-    const ensureBaziContextSnapshot = async (): Promise<BaziFormatterContext | undefined> => {
-        if (workflowMode !== 'bazi' || !isBaziResult(latestResultRef.current)) {
-            return undefined;
-        }
-
-        const currentResult = latestResultRef.current;
-        if (currentResult.aiContextSnapshot) {
-            return currentResult.aiContextSnapshot;
-        }
-
-        const snapshot = cloneBaziFormatterContext(latestBaziContextRef.current);
-        if (!snapshot) {
-            return undefined;
-        }
-
-        const updatedResult: BaziResult = {
-            ...currentResult,
-            aiContextSnapshot: snapshot,
-        };
-
-        await saveRecord({
-            engineType: 'bazi',
-            result: updatedResult,
-        });
-
-        latestResultRef.current = updatedResult;
-        if (isMounted.current) {
-            setWorkflowStage(getBaziConversationStage(updatedResult));
-        }
-        onUpdateResult(updatedResult);
-        return snapshot;
-    };
-
-    const refreshArtifacts = async (finalMessages: UIChatMessage[]) => {
-        const persisted = toPersistedMessages(finalMessages);
-        const latest = latestResultRef.current;
-
-        const quickReplyPromise = generateQuickReplies(latest, persisted);
-        const digestPromise = isBaziResult(latest)
-            ? generateBaziConversationDigest(latest, persisted)
-            : (isZiweiResult(latest)
-                ? generateZiweiConversationDigest(latest, persisted)
-                : Promise.resolve({ value: null, failure: undefined }));
-
-        const [quickReplyOutcome, digestOutcome] = await Promise.all([quickReplyPromise, digestPromise]);
-        if (!isMounted.current) {
-            return;
-        }
-
-        logAIClientFailure('quick_replies', quickReplyOutcome.failure);
-        logAIClientFailure('conversation_digest', digestOutcome.failure);
-
-        const quickReplyResult = quickReplyOutcome.value && quickReplyOutcome.value.length > 0 ? quickReplyOutcome.value : [];
-        setArtifactNotice(quickReplyOutcome.failure?.usedFallback ? formatAIFailureMessage(quickReplyOutcome.failure) : null);
-        setQuickReplies(quickReplyResult);
-
-        await saveAndSync(finalMessages, {
-            quickReplies: quickReplyResult,
-            aiConversationDigest: isBaziResult(latestResultRef.current)
-                ? digestOutcome.value ?? latestResultRef.current.aiConversationDigest
-                : isZiweiResult(latestResultRef.current)
-                    ? digestOutcome.value ?? latestResultRef.current.aiConversationDigest
-                    : undefined,
-            aiConversationStage: isBaziResult(latestResultRef.current)
-                ? getBaziConversationStage(latestResultRef.current)
-                : isZiweiResult(latestResultRef.current)
-                    ? getZiweiConversationStage(latestResultRef.current)
-                    : undefined,
-        });
-    };
-
     const handleSend = async (
         textOverride?: string,
         options: {
@@ -854,7 +639,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
 
         cancelScheduledAutoStart();
         autoStartPendingRef.current = false;
-        if (workflowMode === 'liuyao' && isActiveLiuyaoJob(getLiuyaoAIJob(latestResultRef.current.id))) {
+        if (isActiveAIAnalysisJob(getAIAnalysisJob(workflowMode, latestResultRef.current.id))) {
             return;
         }
 
@@ -866,24 +651,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                         ? buildZiweiFollowUpPrompt(text)
                         : null)
             );
-
         const baseMessages = options.baseMessagesOverride || messages;
-        const phase = options.isAutoInitial ? 'initial' : 'followup';
-        const requestOptions: AIRequestOptions = {
-            ...getChatRequestOptions(
-                latestResultRef.current,
-                phase,
-            ),
-            stage: workflowMode === 'liuyao'
-                ? phase
-                : `${workflowMode}_${options.expectedCompletion ?? phase}`,
-        };
-        const currentWorkflowStage = workflowMode === 'bazi'
-            ? getBaziConversationStage(latestResultRef.current as BaziResult)
-            : (workflowMode === 'ziwei'
-                ? getZiweiConversationStage(latestResultRef.current as ZiweiRecordResult)
-                : null);
-        const requestWorkflowStage = resolveRequestWorkflowStage(workflowMode, options);
         const nextMessages: UIChatMessage[] = [
             ...baseMessages,
             {
@@ -894,14 +662,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                 uiId: generateMessageId('user'),
             },
         ];
-        const uiMessages: UIChatMessage[] = [
-            ...baseMessages,
-            nextMessages[nextMessages.length - 1],
-            buildPendingAssistantMessage(workflowMode, {
-                isAutoInitial: options.isAutoInitial,
-                expectedCompletion: options.expectedCompletion,
-            }),
-        ];
+        const phase = options.isAutoInitial ? 'initial' : 'followup';
 
         Keyboard.dismiss();
         setInputText('');
@@ -915,237 +676,21 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             setHasFoundationAttempted(true);
         }
         setPresentationState('preparing_request');
-        setMessages(uiMessages);
-        latestMessagesRef.current = uiMessages;
         setIsLoading(true);
 
-        if (workflowMode === 'liuyao') {
-            const job = startLiuyaoAIJob({
-                result: latestResultRef.current as PanResult,
-                messages: toPersistedMessages(nextMessages),
-                phase,
-            });
-            setLiuyaoJob(job);
-            return;
-        }
-
-        invalidateActiveRequest();
-        const requestId = activeRequestSeqRef.current;
-        const abortController = new AbortController();
-        activeAbortControllerRef.current = abortController;
-
-        try {
-            const lockedBaziContext = workflowMode === 'bazi' ? await ensureBaziContextSnapshot() : undefined;
-            const streamRequest = async (requestHistory: PersistedAIChatMessage[]) => {
-                let rawAssistantText = '';
-                let hasReceivedChunk = false;
-                const requestBundle = await buildRequestBundle(
-                    latestResultRef.current,
-                    requestHistory,
-                    workflowMode === 'bazi'
-                        ? (lockedBaziContext ?? latestBaziContextRef.current)
-                        : (workflowMode === 'ziwei' ? latestZiweiContextRef.current : undefined),
-                    {
-                        workflowStage: requestWorkflowStage,
-                    },
-                );
-                const messagesForAPI = requestBundle.messages;
-                requestOptions.debugMeta = requestBundle.debugMeta;
-                if (workflowMode === 'ziwei') {
-                    setRequestDebugMeta(requestBundle.debugMeta || null);
-                }
-
-                if (requestId !== activeRequestSeqRef.current || abortController.signal.aborted) {
-                    return {
-                        success: false,
-                        error: 'ABORTED',
-                        code: 'aborted' as const,
-                        stage: requestOptions.stage || 'stream',
-                        recoverable: true,
-                        usedFallback: false,
-                    };
-                }
-
-                return analyzeWithAIChatStream(
-                    messagesForAPI,
-                    (chunkText) => {
-                        if (!isMounted.current || requestId !== activeRequestSeqRef.current) {
-                            return;
-                        }
-                        rawAssistantText += chunkText;
-                        if (!hasReceivedChunk) {
-                            hasReceivedChunk = true;
-                            setPresentationState('streaming');
-                        }
-                        const assistantContent = workflowMode === 'bazi'
-                            ? sanitizeBaziStreamingContent(rawAssistantText)
-                            : (workflowMode === 'ziwei'
-                                ? sanitizeZiweiStreamingContent(rawAssistantText)
-                                : stripThinkingBlocks(rawAssistantText).trim());
-                        setMessages((prev) => {
-                            const updated = upsertStreamingAssistantContent(prev, assistantContent);
-                            latestMessagesRef.current = updated;
-                            return updated;
-                        });
-                    },
-                    abortController.signal,
-                    requestOptions,
-                );
-            };
-
-            const requestSourceMessages = rewrittenText
-                ? withRewrittenLastUserMessage(nextMessages, rewrittenText)
-                : nextMessages;
-            let streamRes = await streamRequest(toPersistedMessages(requestSourceMessages));
-
-            if (!isMounted.current || requestId !== activeRequestSeqRef.current) {
-                return;
-            }
-
-            if (!streamRes.success) {
-                logAIClientFailure('stream_request', streamRes.code
-                    ? {
-                        code: streamRes.code,
-                        stage: streamRes.stage || requestOptions.stage || 'stream',
-                        recoverable: streamRes.recoverable ?? true,
-                        usedFallback: streamRes.usedFallback ?? false,
-                        message: streamRes.error || 'AI 请求失败',
-                    }
-                    : null);
-                if (streamRes.error !== 'ABORTED') {
-                    CustomAlert.alert('AI 请求失败', formatAIFailureMessage(streamRes.code ? {
-                        code: streamRes.code,
-                        message: streamRes.error || 'AI 请求失败',
-                        usedFallback: streamRes.usedFallback ?? false,
-                    } : null));
-                }
-                setMessages(baseMessages);
-                latestMessagesRef.current = baseMessages;
-            } else {
-                let finalMessages = latestMessagesRef.current;
-                const rawAssistantContent = streamRes.content || '';
-                let stageSuccess = true;
-
-                if (stagedMode) {
-                    const cleanContent = workflowMode === 'bazi'
-                        ? stripBaziStageMarkers(rawAssistantContent)
-                        : stripZiweiStageMarkers(rawAssistantContent);
-                    if (getLastAssistantContent(finalMessages) !== cleanContent) {
-                        finalMessages = replaceLastAssistantContent(finalMessages, cleanContent);
-                        setMessages(finalMessages);
-                        latestMessagesRef.current = finalMessages;
-                    }
-                }
-
-                if (stagedMode && options.expectedCompletion) {
-                    const validation = workflowMode === 'bazi'
-                        ? validateBaziWorkflowResponse(
-                            options.expectedCompletion as 'foundation' | 'verification' | 'five_year',
-                            rawAssistantContent,
-                        )
-                        : validateZiweiWorkflowResponse(
-                            options.expectedCompletion as 'foundation' | 'verification' | 'five_year',
-                            rawAssistantContent,
-                        );
-                    stageSuccess = validation.success;
-                    const shouldRollbackFailedStage = shouldRollbackFailedWorkflowResponse(
-                        workflowMode,
-                        options.expectedCompletion as 'foundation' | 'verification' | 'five_year',
-                        stageSuccess,
-                    );
-                    if (getLastAssistantContent(finalMessages) !== validation.cleanContent) {
-                        finalMessages = replaceLastAssistantContent(finalMessages, validation.cleanContent);
-                        setMessages(finalMessages);
-                        latestMessagesRef.current = finalMessages;
-                    }
-
-                    if (!validation.success) {
-                        if (workflowMode === 'ziwei' && (options.expectedCompletion === 'verification' || options.expectedCompletion === 'five_year')) {
-                            const ziweiValidation = validation as ReturnType<typeof validateZiweiWorkflowResponse>;
-                            console.warn('[AIChatModal] Ziwei staged validation failed', {
-                                expectedCompletion: options.expectedCompletion,
-                                marker: ziweiValidation.marker,
-                                hasExpectedMarker: ziweiValidation.marker === options.expectedCompletion,
-                                issues: ziweiValidation.issues,
-                                parsedYearBuckets: ziweiValidation.debug?.parsedYearBuckets || [],
-                                parsedVerificationBlockCount: ziweiValidation.debug?.parsedVerificationBlockCount || 0,
-                                parsedVerificationHeaders: ziweiValidation.debug?.parsedVerificationHeaders || [],
-                            });
-                        }
-                        if (shouldRollbackFailedStage) {
-                            finalMessages = baseMessages;
-                            setMessages(baseMessages);
-                            latestMessagesRef.current = baseMessages;
-                        }
-                        const failedStageLabel = options.expectedCompletion === 'verification'
-                            ? '前事核验阶段'
-                            : (options.expectedCompletion === 'five_year' ? '未来五年阶段' : '当前阶段');
-                        CustomAlert.alert(
-                            '阶段未完成',
-                            shouldRollbackFailedStage
-                                ? `已生成内容未通过结构校验，未写入会话，请重试${failedStageLabel}。${validation.issues.join('；')}`
-                                : `本阶段未完整结束，请重试本阶段。${validation.issues.join('；')}`,
-                        );
-                    }
-                }
-
-                const nextStage = stagedMode
-                    ? (stageSuccess
-                        ? (options.nextWorkflowStage ?? currentWorkflowStage ?? 'foundation_pending')
-                        : (currentWorkflowStage ?? 'foundation_pending'))
-                    : undefined;
-                const verificationSummary = stagedMode
-                    ? (stageSuccess && nextStage === 'verification_ready'
-                        ? (getLastAssistantContent(finalMessages) || '')
-                        : (isBaziResult(latestResultRef.current) || isZiweiResult(latestResultRef.current)
-                            ? latestResultRef.current.aiVerificationSummary
-                            : undefined))
-                    : undefined;
-                const digestOverride = stagedMode && nextStage !== 'followup_ready'
-                    ? null
-                    : ((isBaziResult(latestResultRef.current) || isZiweiResult(latestResultRef.current))
-                        ? latestResultRef.current.aiConversationDigest
-                        : undefined);
-
-                if (stageSuccess && shouldGeneratePostResponseArtifacts(latestResultRef.current, nextStage ?? phase)) {
-                    await saveAndSync(finalMessages, {
-                        quickReplies: [],
-                        aiConversationDigest: digestOverride,
-                        aiConversationStage: nextStage,
-                        aiVerificationSummary: verificationSummary,
-                    });
-                    void refreshArtifacts(finalMessages);
-                } else {
-                    setQuickReplies([]);
-                    await saveAndSync(finalMessages, {
-                        quickReplies: [],
-                        aiConversationDigest: digestOverride,
-                        aiConversationStage: nextStage,
-                        aiVerificationSummary: verificationSummary,
-                    });
-                }
-            }
-        } catch (error) {
-            console.error(error);
-            void recordDiagnosticLog({
-                level: 'error',
-                source: 'AIChatModal:localProcessing',
-                message: error,
-            });
-            if (requestId === activeRequestSeqRef.current) {
-                CustomAlert.alert('AI 请求失败', 'AI 请求在本地处理时发生异常，请稍后重试。');
-                setMessages(baseMessages);
-                latestMessagesRef.current = baseMessages;
-            }
-        } finally {
-            if (requestId === activeRequestSeqRef.current) {
-                activeAbortControllerRef.current = null;
-            }
-            if (isMounted.current && requestId === activeRequestSeqRef.current) {
-                setIsLoading(false);
-                setPresentationState('presenting');
-            }
-        }
+        const job = startAIAnalysisJob({
+            engineType: workflowMode,
+            result: latestResultRef.current,
+            baseMessages: toPersistedMessages(baseMessages),
+            requestMessages: toPersistedMessages(nextMessages),
+            phase,
+            expectedCompletion: options.expectedCompletion,
+            nextWorkflowStage: options.nextWorkflowStage,
+            formatterContext: workflowMode === 'bazi'
+                ? latestBaziContextRef.current
+                : (workflowMode === 'ziwei' ? latestZiweiContextRef.current : undefined),
+        });
+        setAnalysisJob(job);
     };
 
     const handleModalShow = () => {
@@ -1328,17 +873,35 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
 
     const handleClose = () => {
         cancelScheduledAutoStart();
-        if (workflowMode !== 'liuyao') {
-            invalidateActiveRequest();
-            setIsLoading(false);
-        }
         setMenuVisible(false);
         onClose();
     };
 
-    const handleCancelLiuyaoJob = () => {
-        cancelLiuyaoAIJob(result.id);
+    const handleCancelAnalysisJob = () => {
+        cancelAIAnalysisJob(workflowMode, result.id);
         setMenuVisible(false);
+    };
+
+    const handleRetryAnalysisJob = () => {
+        if (!analysisJob || isActiveAIAnalysisJob(analysisJob)) {
+            return;
+        }
+        const failedUser = [...analysisJob.requestMessages]
+            .reverse()
+            .find((message) => message.role === 'user');
+        if (!failedUser) {
+            return;
+        }
+        const baseMessages = hydrateMessages(analysisJob.baseMessages, `ai-job-${analysisJob.jobId}-retry`);
+        setMenuVisible(false);
+        void handleSend(failedUser.content, {
+            isAutoInitial: analysisJob.phase === 'initial',
+            baseMessagesOverride: baseMessages,
+            hiddenUser: failedUser.hidden,
+            requestTextOverride: failedUser.requestContent,
+            expectedCompletion: analysisJob.expectedCompletion,
+            nextWorkflowStage: analysisJob.nextWorkflowStage,
+        });
     };
 
     const handleResetAnalysis = () => {
@@ -1366,17 +929,13 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             setArtifactNotice(null);
             setPresentationState('idle');
             setHasFoundationAttempted(false);
-            syncedLiuyaoJobIdRef.current = null;
+            syncedAnalysisJobIdRef.current = null;
             latestMessagesRef.current = [];
 
             // 2. 中断并清理
-            if (workflowMode === 'liuyao') {
-                await clearLiuyaoAIJob(result.id);
-                setLiuyaoJob(null);
-            } else {
-                invalidateActiveRequest();
-                setIsLoading(false);
-            }
+            await clearAIAnalysisJob(workflowMode, result.id);
+            setAnalysisJob(null);
+            setIsLoading(false);
 
             // 3. 清理数据库记录
             const clearedRecord = await clearAIAnalysis(result.id);
@@ -1409,7 +968,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                 autoStartPendingRef.current = true;
             }
 
-            // 7. 启动新分析(六爻不通过 handleSend,避免创建用户消息)
+            // 7. 通过统一任务重新启动分析
             if (visibleRef.current && !loadingRef.current) {
                 cancelScheduledAutoStart();
 
@@ -1424,30 +983,20 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                     setMessages([]);
                     latestMessagesRef.current = [];
 
-                    if (workflowMode === 'liuyao') {
-                        // 六爻: 直接启动 job,不创建用户消息
-                        setPresentationState('preparing_request');
-                        const job = startLiuyaoAIJob({
-                            result: latestResultRef.current as PanResult,
-                            messages: [],  // 空消息列表
-                            phase: 'initial',
-                        });
-                        setLiuyaoJob(job);
-                    } else {
-                        // 八字/紫微: 使用隐藏消息启动工作流
-                        void handleSend(
-                            workflowMode === 'bazi'
-                                ? getBaziFoundationPrompt()
-                                : getZiweiFoundationPrompt(),
-                            {
-                                isAutoInitial: true,
-                                hiddenUser: true,
-                                baseMessagesOverride: [],  // 强制空基础消息
-                                expectedCompletion: stagedMode ? 'foundation' : undefined,
-                                nextWorkflowStage: stagedMode ? 'foundation_ready' : undefined,
-                            },
-                        );
-                    }
+                    void handleSend(
+                        workflowMode === 'bazi'
+                            ? getBaziFoundationPrompt()
+                            : workflowMode === 'ziwei'
+                                ? getZiweiFoundationPrompt()
+                                : '请帮我全面分析一下此卦！',
+                        {
+                            isAutoInitial: true,
+                            hiddenUser: true,
+                            baseMessagesOverride: [],
+                            expectedCompletion: stagedMode ? 'foundation' : undefined,
+                            nextWorkflowStage: stagedMode ? 'foundation_ready' : undefined,
+                        },
+                    );
                 });
             }
 
@@ -1459,8 +1008,12 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     };
 
     const menuItems: OverflowMenuItem[] = [
-        ...(workflowMode === 'liuyao' && isActiveLiuyaoJob(liuyaoJob)
-            ? [{ key: 'cancel-liuyao', label: '取消本次分析', onPress: handleCancelLiuyaoJob, destructive: true }]
+        ...(isCancellableAIAnalysisJob(analysisJob)
+            ? [{ key: 'cancel-analysis', label: '取消本次分析', onPress: handleCancelAnalysisJob, destructive: true }]
+            : []),
+        ...(analysisJob && !isActiveAIAnalysisJob(analysisJob)
+            && (analysisJob.status === 'failed' || analysisJob.status === 'interrupted' || analysisJob.status === 'cancelled')
+            ? [{ key: 'retry-analysis', label: '重试本次分析', onPress: handleRetryAnalysisJob }]
             : []),
         { key: 'copy', label: '复制回复', onPress: handleCopyLatestAssistant, disabled: isLoading },
         { key: 'retry', label: '重试上一问', onPress: handleRetryLastQuestion, disabled: isLoading || ziweiAnalysisStale || (stagedMode && workflowStage !== 'followup_ready') },
@@ -1482,7 +1035,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         messages.length,
         hasFoundationAttempted,
     ) && !ziweiAnalysisStale;
-    const inputLocked = isActiveLiuyaoJob(liuyaoJob) || (stagedMode && workflowStage !== 'followup_ready') || ziweiAnalysisStale;
+    const inputLocked = isActiveAIAnalysisJob(analysisJob) || (stagedMode && workflowStage !== 'followup_ready') || ziweiAnalysisStale;
 
     const renderMessage = ({ item }: { item: UIChatMessage }) => {
         if (item.role === 'system' || item.hidden) {
@@ -1611,6 +1164,10 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                             </View>
                         ) : null}
 
+                        {artifactNotice && !isLoading ? (
+                            <Text style={styles.artifactNoticeText}>{artifactNotice}</Text>
+                        ) : null}
+
                         {formatRequestEvidenceNotice(requestDebugMeta) ? (
                             <Text style={styles.requestEvidenceText}>{formatRequestEvidenceNotice(requestDebugMeta)}</Text>
                         ) : null}
@@ -1652,9 +1209,6 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                             </View>
                         ) : (
                             <>
-                                {artifactNotice && (!isLoading || workflowMode === 'liuyao') && (!stagedMode || workflowStage === 'followup_ready') ? (
-                                    <Text style={styles.artifactNoticeText}>{artifactNotice}</Text>
-                                ) : null}
                                 {quickReplies.length > 0 && !isLoading && (!stagedMode || workflowStage === 'followup_ready') ? (
                                     <FlatList
                                         data={quickReplies}
@@ -1691,7 +1245,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                                                 : (workflowMode === 'ziwei'
                                                     ? '继续细问未来五年的事业、感情或关键年份...'
                                                     : '继续细问未来五年里的财运、婚恋或事业...')))))
-                                    : (isActiveLiuyaoJob(liuyaoJob) ? '六爻分析运行中，可关闭弹窗稍后查看...' : '向 AI 追问更多细节...')}
+                                    : (isActiveAIAnalysisJob(analysisJob) ? '分析运行中，可关闭弹窗稍后查看...' : '向 AI 追问更多细节...')}
                                 placeholderTextColor={Colors.text.tertiary}
                                 value={inputText}
                                 onChangeText={setInputText}

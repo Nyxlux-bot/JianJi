@@ -6,12 +6,6 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#16110c"
-    },
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.jianji.app"
@@ -21,14 +15,21 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#16110c"
       },
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.jianji.app",
       "versionCode": 10700
     },
     "plugins": [
       "expo-router",
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#16110c"
+        }
+      ]
     ],
     "scheme": "jianji",
     "extra": {

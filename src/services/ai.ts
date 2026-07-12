@@ -856,9 +856,10 @@ export function validateBaziWorkflowResponse(
 } {
     const marker = getContentMarker(rawContent, BAZI_STAGE_MARKERS);
     const cleanContent = stripBaziStageMarkers(rawContent);
-    const issues = marker === kind
-        ? getBaziWorkflowStructureIssues(kind, cleanContent)
-        : [`缺少完成标记：${getExpectedMarker(kind, BAZI_STAGE_MARKERS)}`];
+    const issues = getBaziWorkflowStructureIssues(kind, cleanContent);
+    if (marker && marker !== kind) {
+        issues.unshift(`阶段完成标记错误：期望 ${getExpectedMarker(kind, BAZI_STAGE_MARKERS)}`);
+    }
 
     return {
         success: issues.length === 0,
@@ -1004,25 +1005,24 @@ export function validateZiweiWorkflowResponse(
     let issues: string[];
     let debug: ZiweiWorkflowValidationDebug | undefined;
 
-    if (marker === kind) {
-        if (kind === 'verification') {
-            const analysis = analyzeZiweiVerificationStructure(cleanContent);
-            issues = analysis.issues;
-            debug = {
-                parsedVerificationBlockCount: analysis.parsedVerificationBlockCount,
-                parsedVerificationHeaders: analysis.parsedVerificationHeaders,
-            };
-        } else if (kind === 'five_year') {
-            const analysis = analyzeZiweiFiveYearStructure(cleanContent);
-            issues = analysis.issues;
-            debug = {
-                parsedYearBuckets: analysis.parsedYearBuckets,
-            };
-        } else {
-            issues = getZiweiWorkflowStructureIssues(kind, cleanContent);
-        }
+    if (kind === 'verification') {
+        const analysis = analyzeZiweiVerificationStructure(cleanContent);
+        issues = analysis.issues;
+        debug = {
+            parsedVerificationBlockCount: analysis.parsedVerificationBlockCount,
+            parsedVerificationHeaders: analysis.parsedVerificationHeaders,
+        };
+    } else if (kind === 'five_year') {
+        const analysis = analyzeZiweiFiveYearStructure(cleanContent);
+        issues = analysis.issues;
+        debug = {
+            parsedYearBuckets: analysis.parsedYearBuckets,
+        };
     } else {
-        issues = [`缺少完成标记：${getExpectedMarker(kind, ZIWEI_STAGE_MARKERS)}`];
+        issues = getZiweiWorkflowStructureIssues(kind, cleanContent);
+    }
+    if (marker && marker !== kind) {
+        issues.unshift(`阶段完成标记错误：期望 ${getExpectedMarker(kind, ZIWEI_STAGE_MARKERS)}`);
     }
 
     return {
@@ -1060,19 +1060,75 @@ function buildBaziDigestText(digest: BaziAIConversationDigest): string {
 }
 
 function parseJsonPayload(content: string): Record<string, unknown> | null {
-    const trimmed = content.trim();
+    const trimmed = stripThinkingBlocks(content).trim();
     if (!trimmed) {
         return null;
     }
 
-    const fencedMatch = trimmed.match(/```json\s*([\s\S]*?)\s*```/i);
-    const candidate = fencedMatch ? fencedMatch[1] : trimmed;
-    try {
-        const parsed = JSON.parse(candidate);
-        return typeof parsed === 'object' && parsed !== null ? parsed as Record<string, unknown> : null;
-    } catch {
-        return null;
+    const tryParseObject = (candidate: string): Record<string, unknown> | null => {
+        try {
+            const parsed = JSON.parse(candidate);
+            return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+                ? parsed as Record<string, unknown>
+                : null;
+        } catch {
+            return null;
+        }
+    };
+
+    const direct = tryParseObject(trimmed);
+    if (direct) {
+        return direct;
     }
+
+    const fencedMatches = trimmed.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/gi);
+    for (const match of fencedMatches) {
+        const parsed = tryParseObject(match[1]);
+        if (parsed) {
+            return parsed;
+        }
+    }
+
+    let objectStart = -1;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = 0; index < trimmed.length; index += 1) {
+        const character = trimmed[index];
+        if (objectStart === -1) {
+            if (character === '{') {
+                objectStart = index;
+                depth = 1;
+            }
+            continue;
+        }
+        if (inString) {
+            if (escaped) {
+                escaped = false;
+            } else if (character === '\\') {
+                escaped = true;
+            } else if (character === '"') {
+                inString = false;
+            }
+            continue;
+        }
+        if (character === '"') {
+            inString = true;
+        } else if (character === '{') {
+            depth += 1;
+        } else if (character === '}') {
+            depth -= 1;
+            if (depth === 0) {
+                const parsed = tryParseObject(trimmed.slice(objectStart, index + 1));
+                if (parsed) {
+                    return parsed;
+                }
+                objectStart = -1;
+            }
+        }
+    }
+
+    return null;
 }
 
 function normalizeDigest(payload: Record<string, unknown>): BaziAIConversationDigest | null {
@@ -1300,8 +1356,15 @@ async function requestChatCompletion(
         }
 
         const data = await response.json();
-        return typeof data.choices?.[0]?.message?.content === 'string'
-            ? { success: true, content: data.choices[0].message.content }
+        const choice = data.choices?.[0];
+        if (choice?.finish_reason === 'length') {
+            return {
+                success: false,
+                failure: createAIFailure('token_limit', stage, '模型输出达到上限，内容未完整生成'),
+            };
+        }
+        return typeof choice?.message?.content === 'string'
+            ? { success: true, content: choice.message.content }
             : {
                 success: false,
                 failure: createAIFailure('invalid_response', stage, '模型返回格式无效'),
@@ -1947,7 +2010,7 @@ export async function analyzeWithAIChatStream(
         let isSettled = false;
         let hasReasoningSignal = false;
         let lastFinishReason: string | null = null;
-        let heartbeatTimer: NodeJS.Timeout;
+        let heartbeatTimer: ReturnType<typeof setTimeout>;
         const recordStreamDecision = (
             decision: string,
             result: AIAnalysisResult,
@@ -2210,7 +2273,7 @@ ${conversationSummary}
 5. topicNotes 只记录已经明确讨论过的后续专题，没有就留空字符串。
 6. 不要输出 JSON 之外的任何内容。`,
         },
-    ], { temperature: 0.1, maxTokens: 420, stage: 'bazi_digest' });
+    ], { temperature: 0.1, maxTokens: 800, stage: 'bazi_digest' });
 
     if (!completion.success || !completion.content) {
         const outcome = {
@@ -2273,7 +2336,7 @@ ${conversationSummary}
     ];
     const completion = await requestChatCompletion(digestMessages, {
         temperature: 0.1,
-        maxTokens: 520,
+        maxTokens: 900,
         stage: 'ziwei_digest',
         debugMeta: {
             mode: 'ziwei',

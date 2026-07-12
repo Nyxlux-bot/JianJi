@@ -65,6 +65,7 @@ import {
 } from '../../src/features/ziwei/record';
 import { consumeZiweiSession, primeZiweiSession } from '../../src/features/ziwei/result-session';
 import { isAIConfigured } from '../../src/services/settings';
+import { clearAIAnalysisJob } from '../../src/services/ai-analysis-jobs';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { BorderRadius, FontSize, Spacing } from '../../src/theme/colors';
 import { formatLocalDateTime } from '../../src/core/bazi-local-time';
@@ -1229,6 +1230,7 @@ export default function ZiweiResultPage() {
             return;
         }
         setDeleteVisible(false);
+        await clearAIAnalysisJob('ziwei', recordId);
         await deleteRecord(recordId);
         router.back();
     };
@@ -3528,7 +3530,7 @@ const makeStyles = (Colors: any, metrics: ZiweiBoardMetrics) => {
             backgroundColor: Colors.bg.overlay,
         },
         modalBackdrop: {
-            ...StyleSheet.absoluteFillObject,
+            ...StyleSheet.absoluteFill,
         },
         configModalCard: {
             marginTop: 'auto',

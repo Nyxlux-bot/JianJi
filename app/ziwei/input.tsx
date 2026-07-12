@@ -609,7 +609,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         letterSpacing: 1,
     },
     processingOverlay: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
         backgroundColor: 'rgba(8, 10, 16, 0.42)',
         alignItems: 'center',
         justifyContent: 'center',
