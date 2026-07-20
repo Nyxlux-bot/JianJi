@@ -237,7 +237,7 @@ function getGongWuXing(gongName: string): string {
     return gua ? gua.wuxing : '';
 }
 
-function formatPanForAI(result: PanResult): string {
+export function formatPanForAI(result: PanResult): string {
     const lines: string[] = [];
     const monthGeneral = result.monthGeneral || getMonthGeneralByJieqi(result.jieqi?.current || '', result.monthGanZhi?.[1]);
     const createdAtDate = new Date(result.createdAt);

@@ -51,9 +51,6 @@ export default function HomePage() {
                 showsVerticalScrollIndicator={false}
             >
                 <View style={styles.heroSection}>
-                    <View style={styles.heroBadge}>
-                        <BaGuaIcon size={62} color={Colors.accent.gold} />
-                    </View>
                     <Text style={styles.appTitle}>见机</Text>
                     <Text style={styles.appSubtitle}>六爻易数 · 八字命理 · 紫微斗数</Text>
                     <Text style={styles.heroDesc}>
@@ -220,18 +217,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         paddingBottom: 28,
         paddingHorizontal: Spacing.xl,
     },
-    heroBadge: {
-        width: 88,
-        height: 88,
-        borderRadius: 28,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: Colors.bg.card,
-        borderWidth: 1,
-        borderColor: Colors.border.subtle,
-    },
     appTitle: {
-        marginTop: Spacing.lg,
         fontSize: FontSize.xxxl,
         color: Colors.text.heading,
         fontWeight: '300',

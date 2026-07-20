@@ -5,6 +5,7 @@ import { extractBaziRelations } from '../core/bazi-relations';
 import { BaziResult } from '../core/bazi-types';
 import { PanResult } from '../core/liuyao-calc';
 import { ZiweiRecordResult } from '../features/ziwei/record';
+import { formatPanForAI } from './ai';
 import { formatBaziToText } from './bazi-formatter';
 
 const METHOD_LABEL: Record<string, string> = {
@@ -109,18 +110,9 @@ export function buildResultMarkdown(result: PanResult): string {
     const lines: string[] = [
         `# 六爻排盘结果：${result.benGua.fullName}`,
         '',
-        '## 基本信息',
-        `- 起卦时间：${result.solarDate} ${result.solarTime}`,
-        `- 起卦方式：${METHOD_LABEL[result.method] || result.method}`,
-        `- 占问事项：${result.question || '未填写'}`,
-        `- 本卦：${result.benGua.fullName}`,
-        `- 变卦：${result.bianGua?.fullName || '无'}`,
+        '## 完整卦象',
         '',
-        '## 四柱',
-        `- 年柱：${result.yearGanZhi}（${result.yearNaYin}）`,
-        `- 月柱：${result.monthGanZhi}（${result.monthNaYin}）`,
-        `- 日柱：${result.dayGanZhi}（${result.dayNaYin}）`,
-        `- 时柱：${result.hourGanZhi}（${result.hourNaYin}）`,
+        formatPanForAI(result),
     ];
 
     if (aiConclusion) {
