@@ -8,6 +8,10 @@ import {
 import { getXunKong } from '../../core/xun-kong';
 import { buildBaziGanZhiLayer } from '../../core/bazi-ganzhi-layer';
 import {
+    DEFAULT_GAN_ZHI_RELATION_SETTINGS,
+    GanZhiRelationSettings,
+} from '../../core/bazi-ganzhi-relation-engine';
+import {
     BaziChartHeaderView,
     BaziProChartViewModel,
     BaziResultViewModel,
@@ -373,6 +377,7 @@ export function buildBaziResultViewModel(result: BaziResult): BaziResultViewMode
 export function buildBaziProChartViewModel(
     result: BaziResult,
     selection: FortuneSelectionView,
+    ganZhiRelationSettings: GanZhiRelationSettings = DEFAULT_GAN_ZHI_RELATION_SETTINGS,
 ): BaziProChartViewModel {
     const dayMaster = SixtyCycle.fromName(result.fourPillars[2]).getHeavenStem();
     const selectedDaYun = getSelectedDaYun(result, selection);
@@ -404,7 +409,7 @@ export function buildBaziProChartViewModel(
     const yunWeiGanZhi = selection.mode === 'xiaoyun'
         ? (selectedXiaoYun?.xiaoYunGanZhi ?? '—')
         : (selectedDaYun?.ganZhi ?? '—');
-    const yunWeiLabel = '大运';
+    const yunWeiLabel = selection.mode === 'xiaoyun' ? '小运' : '大运';
     const yunWeiColumn = yunWeiGanZhi === '—'
         ? buildEmptyColumn('daYun', yunWeiLabel)
         : (() => {
@@ -590,9 +595,11 @@ export function buildBaziProChartViewModel(
     ];
 
     const ganZhiLayer = buildBaziGanZhiLayer(result, {
+        mode: selection.mode,
         selectedDaYunIndex: selection.selectedDaYunIndex,
+        selectedXiaoYunIndex: selection.selectedXiaoYunIndex,
         selectedLiuNianIndex: selection.selectedLiuNianIndex,
-    });
+    }, ganZhiRelationSettings);
 
     return {
         header: buildHeader(result),

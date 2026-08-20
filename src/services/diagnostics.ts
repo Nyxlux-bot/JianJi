@@ -19,6 +19,7 @@ interface DiagnosticLogEntry {
 const DIAGNOSTIC_LOG_STORAGE_KEY = 'diagnostic_logs_v1';
 const MAX_LOG_ENTRIES = 200;
 const MAX_CONTEXT_STRING_LENGTH = 500;
+let diagnosticWriteQueue: Promise<void> = Promise.resolve();
 
 const SENSITIVE_KEY_PATTERN = /^(apiKey|api_key|geocoderApiKey|authorization|token|accessToken|access_token|secret|password)$/i;
 
@@ -90,29 +91,32 @@ async function readLogEntries(): Promise<DiagnosticLogEntry[]> {
     ));
 }
 
-export async function recordDiagnosticLog(input: {
+export function recordDiagnosticLog(input: {
     level: DiagnosticLogLevel;
     source: string;
     message: unknown;
     context?: unknown;
 }): Promise<void> {
-    try {
-        const entries = await readLogEntries();
-        const nextEntry: DiagnosticLogEntry = {
-            timestamp: new Date().toISOString(),
-            level: input.level,
-            source: sanitizeString(input.source),
-            message: normalizeMessage(input.message),
-            context: input.context === undefined ? undefined : sanitizeValue(input.context),
-            appVersion: getAppVersion(),
-            platform: Platform.OS,
-        };
-
-        const nextEntries = [...entries, nextEntry].slice(-MAX_LOG_ENTRIES);
-        await AsyncStorage.setItem(DIAGNOSTIC_LOG_STORAGE_KEY, JSON.stringify(nextEntries));
-    } catch (error) {
-        console.warn('[diagnostics] failed to persist log', error);
-    }
+    const nextEntry: DiagnosticLogEntry = {
+        timestamp: new Date().toISOString(),
+        level: input.level,
+        source: sanitizeString(input.source),
+        message: normalizeMessage(input.message),
+        context: input.context === undefined ? undefined : sanitizeValue(input.context),
+        appVersion: getAppVersion(),
+        platform: Platform.OS,
+    };
+    const write = diagnosticWriteQueue.catch(() => undefined).then(async () => {
+        try {
+            const entries = await readLogEntries();
+            const nextEntries = [...entries, nextEntry].slice(-MAX_LOG_ENTRIES);
+            await AsyncStorage.setItem(DIAGNOSTIC_LOG_STORAGE_KEY, JSON.stringify(nextEntries));
+        } catch (error) {
+            console.warn('[diagnostics] failed to persist log', error);
+        }
+    });
+    diagnosticWriteQueue = write;
+    return write;
 }
 
 export async function exportDiagnosticLogFile(): Promise<void> {
@@ -120,6 +124,7 @@ export async function exportDiagnosticLogFile(): Promise<void> {
         throw new Error('当前设备不支持分享文件');
     }
 
+    await diagnosticWriteQueue.catch(() => undefined);
     const logs = await readLogEntries();
     const payload = {
         version: 1,

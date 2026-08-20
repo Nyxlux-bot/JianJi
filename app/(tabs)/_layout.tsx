@@ -4,12 +4,13 @@ import { Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { HistoryIcon, SettingsIcon, ReadIcon, HomeIcon } from '../../src/components/Icons';
+import { requestSettingsLeave } from '../../src/services/settings-leave-guard';
 
 // Dimensions for the floating tab bar
 const { width } = Dimensions.get('window');
 const TAB_BAR_WIDTH = width * 0.85;
 
-function TabItem({ route, options, isFocused, navigation, safeColors }: any) {
+function TabItem({ route, options, isFocused, navigation, safeColors, activeRouteName }: any) {
     const scaleValue = useRef(new Animated.Value(isFocused ? 1 : 0)).current;
 
     useEffect(() => {
@@ -34,7 +35,12 @@ function TabItem({ route, options, isFocused, navigation, safeColors }: any) {
         });
 
         if (!isFocused && !event.defaultPrevented) {
-            navigation.navigate(route.name);
+            const navigate = () => navigation.navigate(route.name);
+            if (activeRouteName === 'settings') {
+                requestSettingsLeave(navigate);
+                return;
+            }
+            navigate();
         }
     };
 
@@ -101,6 +107,7 @@ function CustomTabBar({ state, descriptors, navigation }: any) {
                             isFocused={isFocused}
                             navigation={navigation}
                             safeColors={safeColors}
+                            activeRouteName={state.routes[state.index]?.name}
                         />
                     );
                 })}

@@ -25,10 +25,13 @@ import {
     getChatRequestOptions,
     getLocalLiuyaoQuickReplies,
     getZiweiConversationStage,
+    hasLiuyaoCompletionMarker,
     sanitizeBaziStreamingContent,
+    sanitizeLiuyaoStreamingContent,
     sanitizeZiweiStreamingContent,
     shouldGeneratePostResponseArtifacts,
     stripBaziStageMarkers,
+    stripLiuyaoCompletionMarker,
     stripThinkingBlocks,
     stripZiweiStageMarkers,
     validateBaziWorkflowResponse,
@@ -243,6 +246,9 @@ function cleanStreamContent(engineType: DivinationEngine, content: string): stri
     if (engineType === 'baziCompatibility') {
         return stripEmoji(stripThinkingBlocks(content)).trim();
     }
+    if (engineType === 'liuyao') {
+        return sanitizeLiuyaoStreamingContent(content);
+    }
     return stripThinkingBlocks(content).trim();
 }
 
@@ -255,6 +261,9 @@ function cleanFinalContent(engineType: DivinationEngine, content: string): strin
     }
     if (engineType === 'baziCompatibility') {
         return stripEmoji(stripThinkingBlocks(content)).trim();
+    }
+    if (engineType === 'liuyao') {
+        return stripLiuyaoCompletionMarker(content);
     }
     return stripThinkingBlocks(content).trim();
 }
@@ -312,7 +321,7 @@ function validateContent(
         return { success: validation.success, issues: validation.issues };
     }
     if (request.engineType === 'liuyao') {
-        const validation = validateLiuyaoAIContent(request.result as PanResult, cleanContent, request.phase);
+        const validation = validateLiuyaoAIContent(request.result as PanResult, rawContent, request.phase);
         return { success: validation.success, issues: validation.issues };
     }
     if (request.engineType === 'baziCompatibility') {
@@ -379,6 +388,14 @@ export function validateLiuyaoAIContent(
     phase: 'initial' | 'followup' = 'initial',
 ): AIAnalysisValidationResult & { missingSections: string[]; missingEvidenceAnchors: string[] } {
     const normalized = stripThinkingBlocks(content).trim();
+    if (!hasLiuyaoCompletionMarker(content)) {
+        return {
+            success: false,
+            issues: ['流式响应在正文完成前结束（未收到六爻完成标记）'],
+            missingSections: [],
+            missingEvidenceAnchors: [],
+        };
+    }
     const anchorGroups = buildEvidenceAnchorGroups(result);
     const hitCount = anchorGroups.filter((group) => hasAny(normalized, group.values)).length;
     const missingEvidenceAnchors = phase === 'initial'
@@ -617,6 +634,7 @@ function failJob(
     code: AIErrorCode,
     message: string,
     validation?: AIAnalysisValidationResult,
+    partialContent?: string,
 ): void {
     activeControllers.delete(key);
     if (!isCurrentJob(key, jobId)) {
@@ -626,14 +644,107 @@ function failJob(
     if (!current) {
         return;
     }
+    const status = code === 'aborted' ? 'cancelled' : 'failed';
     setJobState(key, {
-        status: code === 'aborted' ? 'cancelled' : 'failed',
-        messages: current.baseMessages,
-        draftContent: '',
+        status,
+        messages: status === 'cancelled' ? current.baseMessages : current.requestMessages,
+        // Keep already-rendered output visible when the transport or
+        // validation fails after streaming has started. An explicit cancel
+        // is the only path that intentionally clears it.
+        draftContent: status === 'cancelled' ? '' : (partialContent || current.draftContent),
         validatedContent: '',
         failure: { code, message },
         validation,
     });
+}
+
+async function enrichSavedResultWithArtifacts(input: {
+    key: string;
+    jobId: string;
+    request: AIAnalysisJobRequest;
+    requestResult: DivinationResult;
+    finalMessages: PersistedAIChatMessage[];
+    cleanContent: string;
+    nextStage?: AIConversationStage;
+}): Promise<void> {
+    const { key, jobId, request, requestResult, finalMessages, cleanContent, nextStage } = input;
+    try {
+        if (!isCurrentJob(key, jobId)) {
+            return;
+        }
+        const artifacts = await generateArtifacts(
+            request,
+            requestResult as PanResult | BaziResult | ZiweiRecordResult,
+            finalMessages,
+            nextStage,
+        );
+        if (!isCurrentJob(key, jobId)) {
+            void recordDiagnosticLog({
+                level: 'info',
+                source: 'AI:jobArtifacts',
+                message: 'artifact_update_skipped',
+                context: {
+                    engineType: request.engineType,
+                    reason: 'job_superseded',
+                },
+            });
+            return;
+        }
+        const enrichedResult = await updateExistingRecordResult(
+            request.result.id,
+            request.engineType,
+            (currentResult) => {
+                const currentMessages = currentResult.aiChatHistory ?? [];
+                if (!isCurrentJob(key, jobId)
+                    || !arePersistedMessageListsEqual(currentMessages, finalMessages)) {
+                    return null;
+                }
+                return buildUpdatedResult(
+                    request,
+                    requestResult,
+                    currentResult,
+                    finalMessages,
+                    cleanContent,
+                    artifacts,
+                );
+            },
+        );
+        if (!enrichedResult) {
+            void recordDiagnosticLog({
+                level: 'info',
+                source: 'AI:jobArtifacts',
+                message: 'artifact_update_skipped',
+                context: {
+                    engineType: request.engineType,
+                    reason: 'conversation_changed_or_record_removed',
+                },
+            });
+            return;
+        }
+        if (isCurrentJob(key, jobId)) {
+            setJobState(key, { result: enrichedResult }, { persist: false });
+        }
+    } catch (error) {
+        void recordDiagnosticLog({
+            level: 'warn',
+            source: 'AI:jobArtifacts',
+            message: 'artifact_generation_failed',
+            context: {
+                engineType: request.engineType,
+                error: error instanceof Error ? error.message : String(error),
+            },
+        });
+    }
+}
+
+function scheduleCompletedJobCleanup(key: string, jobId: string): void {
+    setTimeout(() => {
+        const completed = jobStates.get(key);
+        if (completed?.jobId === jobId && completed.status === 'completed') {
+            jobStates.delete(key);
+            publish(key);
+        }
+    }, 1000);
 }
 
 export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJobState {
@@ -713,12 +824,25 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
             if (!isCurrentJob(key, job.jobId)) {
                 return;
             }
-            if (!response.success || !response.content) {
+            if (!response.content) {
                 failJob(
                     key,
                     job.jobId,
                     response.code ?? 'network_error',
                     response.error || 'AI 请求失败，请稍后重试。',
+                    undefined,
+                );
+                return;
+            }
+
+            if (!response.success) {
+                failJob(
+                    key,
+                    job.jobId,
+                    response.code ?? 'network_error',
+                    response.error || 'AI 请求失败，请稍后重试。',
+                    undefined,
+                    cleanStreamContent(request.engineType, response.content),
                 );
                 return;
             }
@@ -744,6 +868,7 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                     'invalid_response',
                     `生成完成但未通过结构校验：${validation.issues.join('；')}`,
                     validation,
+                    cleanContent,
                 );
                 return;
             }
@@ -753,10 +878,10 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                 { role: 'assistant', content: cleanContent },
             ];
             setJobState(key, {
-                status: 'postprocessing',
+                status: 'saving',
                 draftContent: cleanContent,
                 validation,
-            });
+            }, { persist: false });
 
             const currentStage = request.engineType === 'bazi'
                 ? getBaziConversationStage(built.requestResult as BaziResult)
@@ -764,19 +889,13 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                     ? getZiweiConversationStage(built.requestResult as ZiweiRecordResult)
                     : undefined;
             const nextStage = request.nextWorkflowStage ?? currentStage;
-            const artifacts = request.engineType === 'baziCompatibility'
-                ? { quickReplies: [] }
-                : await generateArtifacts(
-                    request,
-                    built.requestResult as PanResult | BaziResult | ZiweiRecordResult,
-                    finalMessages,
-                    nextStage,
-                );
-            if (!isCurrentJob(key, job.jobId) || controller.signal.aborted) {
+            const initialArtifacts = request.engineType === 'liuyao'
+                ? { quickReplies: getLocalLiuyaoQuickReplies(built.requestResult as PanResult) }
+                : { quickReplies: [] };
+            const savingJob = jobStates.get(key);
+            if (!savingJob) {
                 return;
             }
-
-            const savingJob = setJobState(key, { status: 'saving' }, { persist: false });
             await persistJob(savingJob);
             if (!isCurrentJob(key, job.jobId) || controller.signal.aborted) {
                 return;
@@ -790,14 +909,11 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                     currentResult,
                     finalMessages,
                     cleanContent,
-                    artifacts,
+                    initialArtifacts,
                 ),
             );
             if (!updatedResult) {
                 failJob(key, job.jobId, 'aborted', '记录已删除或排盘内容已变化，本次分析未写入。');
-                return;
-            }
-            if (!isCurrentJob(key, job.jobId) || controller.signal.aborted) {
                 return;
             }
             if (!isCurrentJob(key, job.jobId) || controller.signal.aborted) {
@@ -814,13 +930,24 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                 result: updatedResult,
             });
             await clearPersistedJob(request.engineType, request.result.id);
-            setTimeout(() => {
-                const completed = jobStates.get(key);
-                if (completed?.jobId === job.jobId && completed.status === 'completed') {
-                    jobStates.delete(key);
-                    publish(key);
-                }
-            }, 1000);
+            if (request.engineType !== 'baziCompatibility'
+                && (request.engineType === 'liuyao'
+                    || shouldGeneratePostResponseArtifacts(
+                        built.requestResult as PanResult | BaziResult | ZiweiRecordResult,
+                        nextStage ?? request.phase,
+                    ))) {
+                void enrichSavedResultWithArtifacts({
+                    key,
+                    jobId: job.jobId,
+                    request,
+                    requestResult: built.requestResult,
+                    finalMessages,
+                    cleanContent,
+                    nextStage,
+                }).finally(() => scheduleCompletedJobCleanup(key, job.jobId));
+            } else {
+                scheduleCompletedJobCleanup(key, job.jobId);
+            }
         } catch (error) {
             activeControllers.delete(key);
             void recordDiagnosticLog({
@@ -972,7 +1099,7 @@ export async function recoverInterruptedAIAnalysisJob(
             nextWorkflowStage: parsed.nextWorkflowStage,
             baseMessages,
             requestMessages,
-            messages: baseMessages,
+            messages: recoveredStatus === 'cancelled' ? baseMessages : requestMessages,
             draftContent: '',
             validatedContent: '',
             failure: recoveredStatus === 'interrupted'
@@ -986,7 +1113,17 @@ export async function recoverInterruptedAIAnalysisJob(
         await persistJob(recovered);
         emit(key);
         return recovered;
-    } catch {
+    } catch (error) {
+        void recordDiagnosticLog({
+            level: 'warn',
+            source: 'AI:jobStorage',
+            message: 'recover_failed',
+            context: {
+                engineType,
+                recordId,
+                error: error instanceof Error ? error.message : String(error),
+            },
+        });
         return null;
     }
 }

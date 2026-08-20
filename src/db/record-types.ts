@@ -16,7 +16,7 @@ import type {
     BaziMatchProfile,
     BaziMatchReview,
 } from '../features/bazi/match/types';
-import { DivinationMethod } from '../core/liuyao-data';
+import { DivinationMethod, isLiuyaoSubject } from '../core/liuyao-data';
 import { ZiweiRecordResult } from '../features/ziwei/record';
 import { ZIWEI_SUPPORTED_TIMEZONE_OFFSET_MINUTES } from '../features/ziwei/runtime-meta';
 
@@ -358,6 +358,7 @@ export function isPanResult(value: unknown): value is PanResult {
     return typeof candidate.id === 'string'
         && typeof candidate.createdAt === 'string'
         && isDivinationMethod(candidate.method)
+        && (candidate.subject === undefined || isLiuyaoSubject(candidate.subject))
         && typeof candidate.benGua?.fullName === 'string';
 }
 

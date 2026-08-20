@@ -14,6 +14,7 @@ import { Spacing, FontSize, BorderRadius } from '../../src/theme/colors';
 import { buildRegionDisplayName } from '../../src/core/city-data';
 import { BackIcon } from '../../src/components/Icons';
 import { YaoValue } from '../../src/core/liuyao-data';
+import type { LiuyaoSubject } from '../../src/core/liuyao-data';
 import { divinateByCoin } from '../../src/core/liuyao-calc';
 import { saveRecord, getRecord } from '../../src/db/database';
 import LocationBar from '../../src/components/LocationBar';
@@ -21,6 +22,7 @@ import CityPicker from '../../src/components/CityPicker';
 import { useLocation } from '../../src/hooks/useLocation';
 import { useTheme } from "../../src/theme/ThemeContext";
 import YongleCoin from '../../src/components/YongleCoin';
+import LiuyaoSubjectSelector from '../../src/components/LiuyaoSubjectSelector';
 import {
     CoinAngles,
     CoinFace,
@@ -177,6 +179,7 @@ export default function CoinDivination() {
     const [shaking, setShaking] = useState(false);
     const [savingResult, setSavingResult] = useState(false);
     const [question, setQuestion] = useState('');
+    const [subject, setSubject] = useState<LiuyaoSubject | null>(null);
     const currentYao = results.length;
     const { location, pickerVisible, openPicker, closePicker, handleSelectLocation } = useLocation();
 
@@ -228,12 +231,17 @@ export default function CoinDivination() {
 
     const handleComplete = async () => {
         if (results.length !== 6 || savingResult) return;
+        if (!subject) {
+            CustomAlert.alert('提示', '请选择起卦主体');
+            return;
+        }
         const result = divinateByCoin(
             results,
             new Date(),
             question,
             location?.longitude,
             location ? buildRegionDisplayName(location) : undefined,
+            subject,
         );
 
         const persistWithRetry = async (): Promise<boolean> => {
@@ -299,6 +307,8 @@ export default function CoinDivination() {
 
                 <LocationBar location={location} onPress={openPicker} />
 
+                <LiuyaoSubjectSelector value={subject} onChange={setSubject} />
+
                 <View style={styles.coinSection}>
                     <View style={styles.coinsDisplay}>
                         <Coin3D motion={coinA} themeName={theme} styles={styles} />
@@ -324,10 +334,10 @@ export default function CoinDivination() {
                         </View>
                     ) : (
                         <TouchableOpacity
-                            style={[styles.completeButton, savingResult && styles.completeButtonDisabled]}
+                            style={[styles.completeButton, (savingResult || !subject) && styles.completeButtonDisabled]}
                             activeOpacity={0.8}
                             onPress={handleComplete}
-                            disabled={savingResult}
+                            disabled={savingResult || !subject}
                         >
                             <Text style={styles.completeButtonText}>
                                 {savingResult ? '保存中...' : '生成排盘全览'}

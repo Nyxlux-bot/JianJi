@@ -305,16 +305,22 @@ function buildAnalysisJobPendingMessage(job: AIAnalysisJobState): UIChatMessage 
 
 function buildAnalysisJobMessages(job: AIAnalysisJobState): UIChatMessage[] {
     const baseMessages = hydrateMessages(job.messages, `ai-job-${job.jobId}-history`);
-    if (job.status === 'streaming' && job.draftContent) {
-        return [
-            ...baseMessages,
-            {
-                role: 'assistant',
-                content: job.draftContent,
-                pending: false,
-                uiId: `ai-job-${job.jobId}-draft`,
-            },
-        ];
+    const keepsDraftVisible = job.status === 'streaming'
+        || job.status === 'validating'
+        || job.status === 'postprocessing'
+        || job.status === 'saving'
+        || job.status === 'failed';
+    if (keepsDraftVisible && job.draftContent) {
+        const draftMessage: UIChatMessage = {
+            role: 'assistant',
+            content: job.draftContent,
+            pending: false,
+            uiId: `ai-job-${job.jobId}-draft`,
+        };
+        const pendingMessage = buildAnalysisJobPendingMessage(job);
+        return pendingMessage
+            ? [...baseMessages, draftMessage, pendingMessage]
+            : [...baseMessages, draftMessage];
     }
     if (job.status === 'completed' && job.validatedContent) {
         return hydrateMessages(job.messages, `ai-job-${job.jobId}-history`);
@@ -353,7 +359,7 @@ function getAnalysisJobNotice(job?: AIAnalysisJobState | null): string | null {
         return '上次分析已中断，未写入正式结果，可以重新开始。';
     }
     if (job.status === 'cancelled') {
-        return '本次六爻分析已取消。';
+        return '本次分析已取消。';
     }
     return null;
 }
@@ -373,7 +379,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     const modalShownRef = useRef(false);
     const autoStartPendingRef = useRef(false);
     const autoStartTaskRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
-    const syncedAnalysisJobIdRef = useRef<string | null>(null);
+    const syncedAnalysisJobResultRef = useRef<PanResult | BaziResult | ZiweiRecordResult | null>(null);
 
     const [messages, setMessages] = useState<UIChatMessage[]>([]);
     const [inputText, setInputText] = useState('');
@@ -472,10 +478,12 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             setHasFoundationAttempted(true);
         }
 
-        if (analysisJob.status === 'completed' && analysisJob.result && syncedAnalysisJobIdRef.current !== analysisJob.jobId) {
+        if (analysisJob.status === 'completed'
+            && analysisJob.result
+            && syncedAnalysisJobResultRef.current !== analysisJob.result) {
             const updatedResult = analysisJob.result as PanResult | BaziResult | ZiweiRecordResult;
             setQuickReplies(updatedResult.quickReplies ?? []);
-            syncedAnalysisJobIdRef.current = analysisJob.jobId;
+            syncedAnalysisJobResultRef.current = updatedResult;
             latestResultRef.current = updatedResult;
             onUpdateResult(updatedResult);
         }
@@ -491,7 +499,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     }, [visible]);
 
     useEffect(() => {
-        syncedAnalysisJobIdRef.current = null;
+        syncedAnalysisJobResultRef.current = null;
         setHasFoundationAttempted(false);
     }, [result.id]);
 
@@ -929,7 +937,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             setArtifactNotice(null);
             setPresentationState('idle');
             setHasFoundationAttempted(false);
-            syncedAnalysisJobIdRef.current = null;
+            syncedAnalysisJobResultRef.current = null;
             latestMessagesRef.current = [];
 
             // 2. 中断并清理

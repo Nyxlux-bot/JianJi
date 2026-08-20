@@ -20,7 +20,9 @@ import { saveRecord } from '../../src/db/database';
 import LocationBar from '../../src/components/LocationBar';
 import CityPicker from '../../src/components/CityPicker';
 import { useLocation } from '../../src/hooks/useLocation';
+import LiuyaoSubjectSelector from '../../src/components/LiuyaoSubjectSelector';
 import { useTheme } from "../../src/theme/ThemeContext";
+import type { LiuyaoSubject } from '../../src/core/liuyao-data';
 
 const YAO_NAMES = ['初爻', '二爻', '三爻', '四爻', '五爻', '上爻'];
 const YAO_OPTIONS: { value: YaoValue; label: string; desc: string }[] = [
@@ -35,6 +37,7 @@ export default function ManualDivination() {
     const styles = makeStyles(Colors);
     const [yaoValues, setYaoValues] = useState<(YaoValue | null)[]>([null, null, null, null, null, null]);
     const [question, setQuestion] = useState('');
+    const [subject, setSubject] = useState<LiuyaoSubject | null>(null);
     const { location, pickerVisible, openPicker, closePicker, handleSelectLocation } = useLocation();
 
     const setYao = (index: number, value: YaoValue) => {
@@ -52,6 +55,10 @@ export default function ManualDivination() {
             CustomAlert.alert('提示', '请选择所有六爻');
             return;
         }
+        if (!subject) {
+            CustomAlert.alert('提示', '请选择起卦主体');
+            return;
+        }
         try {
             const result = divinateManual(
                 yaoValues as YaoValue[],
@@ -59,6 +66,7 @@ export default function ManualDivination() {
                 question,
                 location?.longitude,
                 location ? buildRegionDisplayName(location) : undefined,
+                subject,
             );
             await saveRecord({
                 engineType: 'liuyao',
@@ -92,6 +100,8 @@ export default function ManualDivination() {
 
                 {/* 地点选择 */}
                 <LocationBar location={location} onPress={openPicker} />
+
+                <LiuyaoSubjectSelector value={subject} onChange={setSubject} />
 
                 {/* 占问事项 */}
                 <View style={styles.questionSection}>
@@ -172,10 +182,10 @@ export default function ManualDivination() {
                 </View>
 
                 <TouchableOpacity
-                    style={[styles.divinateButton, !allSet && styles.divinateButtonDisabled]}
+                    style={[styles.divinateButton, (!allSet || !subject) && styles.divinateButtonDisabled]}
                     activeOpacity={0.8}
                     onPress={handleDivinate}
-                    disabled={!allSet}
+                    disabled={!allSet || !subject}
                 >
                     <Text style={styles.divinateButtonText}>起卦</Text>
                 </TouchableOpacity>

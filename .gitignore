@@ -40,3 +40,7 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Playwright CLI artifacts
+.playwright-cli/
+output/
