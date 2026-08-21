@@ -40,3 +40,9 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Playwright CLI artifacts
+.playwright-cli/
+
+# Root-level generated HTML prototypes
+/*.html
