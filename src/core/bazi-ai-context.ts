@@ -1,3 +1,8 @@
+import {
+    GanZhiRelationSettings,
+    normalizeGanZhiRelationSettings,
+} from './bazi-ganzhi-relation-engine';
+
 function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
@@ -22,6 +27,7 @@ export interface BaziFortuneSelection {
 export interface BaziFormatterContext {
     panelMode?: BaziPanelMode;
     fortuneSelection?: BaziFortuneSelection;
+    ganZhiRelationSettings?: GanZhiRelationSettings;
 }
 
 export function normalizeBaziFormatterContext(context: unknown): BaziFormatterContext | undefined {
@@ -33,6 +39,9 @@ export function normalizeBaziFormatterContext(context: unknown): BaziFormatterCo
         ? context.panelMode
         : undefined;
     const rawSelection = isObject(context.fortuneSelection) ? context.fortuneSelection : null;
+    const ganZhiRelationSettings = isObject(context.ganZhiRelationSettings)
+        ? normalizeGanZhiRelationSettings(context.ganZhiRelationSettings)
+        : undefined;
 
     const fortuneSelection = rawSelection
         && (rawSelection.mode === 'dayun' || rawSelection.mode === 'xiaoyun')
@@ -61,13 +70,14 @@ export function normalizeBaziFormatterContext(context: unknown): BaziFormatterCo
         })()
         : undefined;
 
-    if (!panelMode && !fortuneSelection) {
+    if (!panelMode && !fortuneSelection && !ganZhiRelationSettings) {
         return undefined;
     }
 
     return {
         panelMode,
         fortuneSelection,
+        ganZhiRelationSettings,
     };
 }
 

@@ -20,6 +20,8 @@ import LocationBar from '../../src/components/LocationBar';
 import CityPicker from '../../src/components/CityPicker';
 import { useLocation } from '../../src/hooks/useLocation';
 import DateTimePicker from '../../src/components/DateTimePicker';
+import LiuyaoSubjectSelector from '../../src/components/LiuyaoSubjectSelector';
+import type { LiuyaoSubject } from '../../src/core/liuyao-data';
 import { useTheme } from "../../src/theme/ThemeContext";
 
 export default function TimeDivination() {
@@ -29,6 +31,7 @@ export default function TimeDivination() {
     const [pickerVisible, setPickerVisible] = useState(false);
 
     const [question, setQuestion] = useState('');
+    const [subject, setSubject] = useState<LiuyaoSubject | null>(null);
     const [loading, setLoading] = useState(false);
     const { location, pickerVisible: cityPickerVisible, openPicker: openCityPicker, closePicker: closeCityPicker, handleSelectLocation } = useLocation();
 
@@ -40,12 +43,17 @@ export default function TimeDivination() {
                 CustomAlert.alert('提示', '无效的时间');
                 return;
             }
+            if (!subject) {
+                CustomAlert.alert('提示', '请选择起卦主体');
+                return;
+            }
 
             const result = divinateByTime(
                 selectedDate,
                 question,
                 location?.longitude,
                 location ? buildRegionDisplayName(location) : undefined,
+                subject,
             );
             await saveRecord({
                 engineType: 'liuyao',
@@ -87,6 +95,8 @@ export default function TimeDivination() {
                 {/* 地点选择 */}
                 <LocationBar location={location} onPress={openCityPicker} />
 
+                <LiuyaoSubjectSelector value={subject} onChange={setSubject} />
+
                 {/* 日期选择展示块（精简版） */}
                 <View style={styles.dateSection}>
                     <Text style={styles.sectionLabel}>起卦时间</Text>
@@ -118,10 +128,10 @@ export default function TimeDivination() {
 
                 {/* 起卦按钮 */}
                 <TouchableOpacity
-                    style={[styles.divinateButton, loading && styles.divinateButtonDisabled]}
+                    style={[styles.divinateButton, (loading || !subject) && styles.divinateButtonDisabled]}
                     activeOpacity={0.8}
                     onPress={handleDivinate}
-                    disabled={loading}
+                    disabled={loading || !subject}
                 >
                     <Text style={styles.divinateButtonText}>
                         {loading ? '排卦中...' : '起卦'}

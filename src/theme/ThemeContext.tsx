@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useCallback, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors as DefaultColors } from './colors';
 import { WhiteColors } from './colors-white';
@@ -8,12 +8,14 @@ export type ThemeType = 'yin' | 'yang';
 interface ThemeContextProps {
     theme: ThemeType;
     setTheme: (t: ThemeType) => void;
+    saveTheme: (t: ThemeType) => Promise<void>;
     Colors: typeof DefaultColors;
 }
 
 const ThemeContext = createContext<ThemeContextProps>({
     theme: 'yin',
     setTheme: () => { },
+    saveTheme: async () => { },
     Colors: DefaultColors,
 });
 
@@ -50,10 +52,13 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         };
     }, []);
 
-    const setTheme = (t: ThemeType) => {
+    const setTheme = useCallback((t: ThemeType) => {
         setThemeState(t);
-        AsyncStorage.setItem('app-theme', t).catch(() => { });
-    };
+    }, []);
+
+    const saveTheme = useCallback(async (t: ThemeType) => {
+        await AsyncStorage.setItem('app-theme', t);
+    }, []);
 
     const getColors = () => {
         switch (theme) {
@@ -65,7 +70,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (!isReady) return null;
 
     return (
-        <ThemeContext.Provider value={{ theme, setTheme, Colors: getColors() }}>
+        <ThemeContext.Provider value={{ theme, setTheme, saveTheme, Colors: getColors() }}>
             {children}
         </ThemeContext.Provider>
     );

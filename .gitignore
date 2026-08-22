@@ -43,6 +43,7 @@ yarn-error.*
 
 # Playwright CLI artifacts
 .playwright-cli/
+output/
 
 # Root-level generated HTML prototypes
 /*.html

@@ -9,6 +9,33 @@ export type WuXing = '金' | '木' | '水' | '火' | '土';
 export type LiuQin = '父母' | '兄弟' | '子孙' | '妻财' | '官鬼';
 export type LiuShen = '青龙' | '朱雀' | '勾陈' | '螣蛇' | '白虎' | '玄武';
 export type DivinationMethod = 'time' | 'coin' | 'number' | 'manual';
+/** 六爻起卦主体：男、女，或其他性别/物种/物品等非二元主体。 */
+export type LiuyaoSubject = 'male' | 'female' | 'other';
+
+export const LIUYAO_SUBJECT_OPTIONS: readonly {
+    value: LiuyaoSubject;
+    label: string;
+    description: string;
+}[] = [
+    { value: 'male', label: '男', description: '男性本人' },
+    { value: 'female', label: '女', description: '女性本人' },
+    { value: 'other', label: '其他', description: '其他性别、物种或物品' },
+];
+
+export function isLiuyaoSubject(value: unknown): value is LiuyaoSubject {
+    return value === 'male' || value === 'female' || value === 'other';
+}
+
+export function getLiuyaoSubjectLabel(subject: LiuyaoSubject): string {
+    switch (subject) {
+        case 'male':
+            return '男（男性本人）';
+        case 'female':
+            return '女（女性本人）';
+        case 'other':
+            return '其他（其他性别、物种或物品等主体）';
+    }
+}
 
 // ==================== 天干地支 ====================
 export const TIAN_GAN = ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸'] as const;

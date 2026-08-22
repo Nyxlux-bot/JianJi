@@ -172,7 +172,7 @@ flowchart LR
 主要字段：
 
 - 标识：`id`、`createdAt`
-- 来源：`method`、`question`
+- 来源：`method`、`subject`（`male` / `female` / `other`）、`question`
 - 时间：`solarDate`、`solarTime`、`trueSolarTime`
 - 地点：`location`、`longitude`
 - 历法：`lunarInfo`、`jieqi`

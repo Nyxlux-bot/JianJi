@@ -10,6 +10,7 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
     BackIcon,
+    ChevronRightIcon,
     EyeIcon,
     EyeOffIcon,
     MoreVerticalIcon,
@@ -46,6 +47,7 @@ import {
     retryPendingBaziPersist,
     subscribePendingBaziRecord,
 } from '../../../src/features/bazi/pending-result-cache';
+import { useGanZhiRelationSettings } from '../../../src/features/bazi/ganzhi-relation-settings';
 import { shareBaziResultMarkdown } from '../../../src/services/share';
 import { isAIConfigured } from '../../../src/services/settings';
 import { clearAIAnalysisJob } from '../../../src/services/ai-analysis-jobs';
@@ -172,6 +174,7 @@ export default function BaziResultPage() {
     const styles = makeStyles(Colors);
     const insets = useSafeAreaInsets();
     const { id } = useLocalSearchParams<{ id: string }>();
+    const { settings: ganZhiRelationSettings } = useGanZhiRelationSettings();
 
     const [result, setResult] = useState<BaziResult | null>(null);
     const [isFavorite, setIsFavorite] = useState(false);
@@ -301,8 +304,8 @@ export default function BaziResultPage() {
     }, []));
 
     const proChartView = useMemo(() => (
-        result ? buildBaziProChartViewModel(result, fortuneSelection) : null
-    ), [fortuneSelection, result]);
+        result ? buildBaziProChartViewModel(result, fortuneSelection, ganZhiRelationSettings) : null
+    ), [fortuneSelection, ganZhiRelationSettings, result]);
     const basicChartRows = useMemo(() => (
         result ? buildBasicChartRows(result.pillarMatrix) : []
     ), [result]);
@@ -335,6 +338,20 @@ export default function BaziResultPage() {
             return;
         }
         router.push(`/bazi/input?editId=${id}`);
+    };
+
+    const handleOpenGanZhiVisual = () => {
+        if (!id) {
+            return;
+        }
+        const query = [
+            `mode=${fortuneSelection.mode}`,
+            `dayun=${fortuneSelection.selectedDaYunIndex}`,
+            `xiaoyun=${fortuneSelection.selectedXiaoYunIndex}`,
+            `liunian=${fortuneSelection.selectedLiuNianIndex}`,
+            `liuyue=${fortuneSelection.selectedLiuYueIndex}`,
+        ].join('&');
+        router.push(`/bazi/ganzhi/${id}?${query}`);
     };
 
     const handleSelectDaYunCell = (cell: DenseTrackCellView) => {
@@ -410,7 +427,7 @@ export default function BaziResultPage() {
     const handleShare = async () => {
         if (!result) return;
         try {
-            await shareBaziResultMarkdown(result);
+            await shareBaziResultMarkdown(result, ganZhiRelationSettings);
         } catch (error: any) {
             const message = typeof error?.message === 'string' ? error.message : '导出失败，请稍后重试';
             CustomAlert.alert('导出失败', message);
@@ -645,6 +662,18 @@ export default function BaziResultPage() {
                         <View style={styles.sectionTitleBar}>
                             <Text style={styles.subTitle}>干支分层</Text>
                         </View>
+                        <View style={styles.ganZhiVisualEntryWrap}>
+                            <TouchableOpacity
+                                style={styles.ganZhiVisualEntry}
+                                onPress={handleOpenGanZhiVisual}
+                                activeOpacity={0.78}
+                                accessibilityRole="button"
+                                accessibilityLabel="打开智能干支图示"
+                            >
+                                <Text style={styles.ganZhiVisualEntryText}>智能干支图示</Text>
+                                <ChevronRightIcon size={19} color={Colors.bazi.chromeTextActive} />
+                            </TouchableOpacity>
+                        </View>
                         <GanZhiLayerBlock layer={proChartView.ganZhiLayer} styles={styles} />
                     </View>
                 )}
@@ -669,6 +698,7 @@ export default function BaziResultPage() {
                 baziContext={{
                     panelMode,
                     fortuneSelection,
+                    ganZhiRelationSettings,
                 }}
                 onUpdateResult={(updatedResult) => {
                     setResult(normalizeBaziResultV2(updatedResult as BaziResult));
@@ -1427,6 +1457,30 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         paddingHorizontal: Spacing.md,
         paddingVertical: 8,
         gap: 3,
+    },
+    ganZhiVisualEntryWrap: {
+        paddingHorizontal: Spacing.lg,
+        paddingVertical: Spacing.lg,
+        backgroundColor: Colors.bg.card,
+    },
+    ganZhiVisualEntry: {
+        alignSelf: 'center',
+        width: '78%',
+        maxWidth: 420,
+        minHeight: 52,
+        borderRadius: BorderRadius.round,
+        borderWidth: 1,
+        borderColor: Colors.bazi.actionBorder,
+        backgroundColor: Colors.bazi.actionBg,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: Spacing.xs,
+    },
+    ganZhiVisualEntryText: {
+        color: Colors.bazi.chromeTextActive,
+        fontSize: FontSize.lg,
+        fontWeight: '700',
     },
     layerTitle: { fontSize: FontSize.sm, color: Colors.bazi.chromeTextActive, fontWeight: '600' },
     layerRow: { fontSize: FontSize.xs, color: Colors.text.secondary, lineHeight: 16 },
