@@ -86,6 +86,27 @@ function resolveFocusLines(result: BaziResult, context?: BaziFormatterContext): 
     return lines;
 }
 
+function formatWuXingEnergyLines(context?: BaziFormatterContext): string[] {
+    const energy = context?.wuXingEnergy;
+    if (!energy) {
+        return [];
+    }
+
+    const focusLabel = energy.focus.mode === 'xiaoyun' ? '小运' : '大运';
+    return [
+        '【当前岁运五行综合能量】',
+        `- 算法版本：${energy.version} | 口径：当前专业细盘岁运选择`,
+        `- 当前焦点：${focusLabel}${energy.focus.yunGanZhi || '未选'} | 流年${energy.focus.liuNianGanZhi || '未选'} | 流月${energy.focus.liuYueGanZhi || '未选'}`,
+        `- 五行能量：${energy.elements.map((item) => `${item.element}${item.percentage}%`).join('、')}`,
+        `- 五行个数：${energy.elements.map((item) => `${item.element}${item.directCount}`).join('、')}`,
+        `- 含藏干数：${energy.elements.map((item) => `${item.element}${item.withHiddenCount}`).join('、')}`,
+        `- 旺衰状态：${energy.elements.map((item) => `${item.element}${item.seasonStatus}`).join('、')}`,
+        `- 十神分组：${energy.elements.map((item) => `${item.element}${item.tenGodGroup}`).join('、')}`,
+        `- 同党/异党：同党${energy.samePartyPercentage}%、异党${energy.differentPartyPercentage}%`,
+        `- 排除的缺失来源：${energy.omittedSources.length > 0 ? energy.omittedSources.join('、') : '无'}`,
+    ];
+}
+
 export function formatBaziToText(result: BaziResult, relations: string[], context?: BaziFormatterContext): string {
     const lines: string[] = [];
     const relationLines = relations.length > 0 ? relations : ['未检测到客观合冲刑害关系'];
@@ -114,6 +135,7 @@ export function formatBaziToText(result: BaziResult, relations: string[], contex
     lines.push('【月令五行带】');
     lines.push(`- 月令：${result.baseInfo.renYuanDutyDetail.monthBranch || '未记录'}`);
     lines.push(`- 旺相休囚死：${wuXingBand.map((item) => `${item.element}${item.status}`).join('、')}`);
+    formatWuXingEnergyLines(context).forEach((line) => lines.push(line));
     lines.push('【系统测算的客观关系事实】');
     relationLines.forEach((line) => {
         lines.push(`- ${line}`);

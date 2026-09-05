@@ -48,6 +48,7 @@ import {
     ShiShenName,
 } from './bazi-types';
 import { calculateBaziShenShaV2, toLegacyBaziShenShaResult } from './bazi-shensha';
+import { buildBaziAnalysisProfile } from './bazi-analysis-profile';
 
 export interface CalculateBaziParams {
     date: Date;
@@ -974,6 +975,12 @@ export function calculateBazi(params: CalculateBaziParams): BaziResult {
         trueSolarDate: normalized.chartDate,
         locationName: normalized.locationName,
     });
+    const analysisProfile = buildBaziAnalysisProfile({
+        fourPillars,
+        cangGan,
+        baseInfo,
+        subject,
+    });
     const pillarMatrix = buildPillarMatrix({
         fourPillars,
         shiShen,
@@ -1003,6 +1010,7 @@ export function calculateBazi(params: CalculateBaziParams): BaziResult {
         yuanMing,
         shenSha,
         subject,
+        analysisProfile,
         baseInfo: {
             ...baseInfo,
             mingGua: `${yuanMing.current.guaName}卦（${yuanMing.current.group}）`,

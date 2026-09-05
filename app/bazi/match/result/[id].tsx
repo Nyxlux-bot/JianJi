@@ -286,21 +286,26 @@ export default function BaziMatchResultPage() {
     return (
         <View style={styles.container}>
             <StatusBarDecor />
-            <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
+            <View style={styles.compactHeader}>
+                <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn} accessibilityRole="button" accessibilityLabel="返回">
                     <BackIcon size={24} />
                 </TouchableOpacity>
-                <View style={styles.headerCenter}>
-                    <TouchableOpacity
-                        onPress={() => void handleAI()}
-                        style={styles.aiHeaderBtn}
-                        activeOpacity={0.82}
-                    >
-                        <SparklesIcon size={18} color={Colors.text.inverse} />
-                        <Text style={styles.aiHeaderBtnText}>{aiLoading ? '批盘中' : '合盘详批'}</Text>
-                    </TouchableOpacity>
-                </View>
-                <TouchableOpacity onPress={() => setMenuVisible((prev) => !prev)} style={styles.headerBtn}>
+
+                <View style={styles.headerSpacer} />
+
+                <TouchableOpacity
+                    onPress={() => void handleAI()}
+                    style={[styles.aiCompactBtn, !aiConfigured && styles.aiCompactBtnDisabled]}
+                    activeOpacity={0.82}
+                    disabled={!aiConfigured}
+                    accessibilityRole="button"
+                    accessibilityLabel="AI 分析"
+                >
+                    <SparklesIcon size={16} color={Colors.text.inverse} />
+                    <Text style={styles.aiCompactBtnText}>AI</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity onPress={() => setMenuVisible((prev) => !prev)} style={styles.headerBtn} accessibilityRole="button" accessibilityLabel="更多操作">
                     <MoreVerticalIcon size={20} />
                 </TouchableOpacity>
             </View>
@@ -663,33 +668,32 @@ const makeMarkdownStyles = (Colors: any) => ({
 
 const makeStyles = (Colors: any) => StyleSheet.create({
     container: { flex: 1, backgroundColor: Colors.bg.primary },
-    header: {
+    compactHeader: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: Spacing.lg,
-        paddingVertical: Spacing.md,
+        gap: 4,
+        height: 48,
+        paddingHorizontal: Spacing.xs,
+        paddingVertical: Spacing.xs,
+        backgroundColor: Colors.bg.primary,
+        borderBottomWidth: 1,
+        borderBottomColor: Colors.border.subtle,
     },
-    headerBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
-    headerCenter: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: Spacing.sm },
-    aiHeaderBtn: {
-        minHeight: 42,
-        minWidth: 124,
-        paddingHorizontal: Spacing.lg,
-        borderRadius: BorderRadius.round,
+    headerBtn: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
+    headerSpacer: { flex: 1 },
+    aiCompactBtn: {
+        height: 32,
+        paddingHorizontal: 8,
+        borderRadius: BorderRadius.md,
         backgroundColor: Colors.accent.gold,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: Spacing.xs,
-        shadowColor: Colors.accent.gold,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.16,
-        shadowRadius: 8,
-        elevation: 4,
+        gap: 4,
     },
     aiHeaderBtnDisabled: { opacity: 0.45 },
-    aiHeaderBtnText: { color: Colors.text.inverse, fontSize: FontSize.sm, fontWeight: '700' },
+    aiCompactBtnDisabled: { opacity: 0.45 },
+    aiCompactBtnText: { color: Colors.text.inverse, fontSize: FontSize.xs, fontWeight: '700' },
     content: { flex: 1 },
     contentBody: { padding: Spacing.lg, paddingBottom: 48, gap: Spacing.lg },
     center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.xl },

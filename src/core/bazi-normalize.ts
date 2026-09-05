@@ -23,6 +23,7 @@ import { buildBaziShenShaBucketMap } from './bazi-shensha';
 import { normalizeBaziFormatterContext } from './bazi-ai-context';
 import { buildJiaoYunRuleDetail, createEmptyJiaoYunRuleDetail } from './jiaoyun-rule';
 import { calculateRenYuanDuty, createEmptyRenYuanDutyDetail } from './renyuan-duty';
+import { buildBaziAnalysisProfile, isBaziAnalysisProfile } from './bazi-analysis-profile';
 
 function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -449,6 +450,14 @@ export function normalizeBaziResultV2(result: BaziResult): BaziResult {
                 ganZhiList: buildShenShaGanZhiPool(normalized),
             }),
     };
+    const analysisProfile = isBaziAnalysisProfile(normalized.analysisProfile)
+        ? normalized.analysisProfile
+        : buildBaziAnalysisProfile({
+            fourPillars: normalized.fourPillars,
+            cangGan: normalized.cangGan,
+            baseInfo: normalizedBaseInfo,
+            subject,
+        });
 
     const rawStage = normalized.aiConversationStage as string | undefined;
     const normalizedStage = rawStage === 'foundation_pending'
@@ -496,6 +505,7 @@ export function normalizeBaziResultV2(result: BaziResult): BaziResult {
         aiVerificationSummary: normalized.aiVerificationSummary,
         aiContextSnapshot: normalizeBaziFormatterContext(normalized.aiContextSnapshot),
         subject,
+        analysisProfile,
         baseInfo: normalizedBaseInfo,
         jieQiContext,
         pillarMatrix,

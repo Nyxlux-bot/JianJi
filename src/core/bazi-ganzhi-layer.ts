@@ -8,6 +8,7 @@ import {
     getZhiXingPairMeta,
     isFanyinPair,
     ZHI_AN_HE,
+    ZHI_BAN_HE,
     ZHI_CHONG,
     ZHI_HAI,
     ZHI_LIU_HE,
@@ -64,16 +65,6 @@ interface StemFact {
 }
 
 const EXTENDED_ZHI_AN_HE = ['寅未', '子戌'] as const;
-const HALF_HE_MAP: Record<string, string> = {
-    申子: '水',
-    子辰: '水',
-    亥卯: '木',
-    卯未: '木',
-    寅午: '火',
-    午戌: '火',
-    巳酉: '金',
-    酉丑: '金',
-};
 const GONG_HE_MAP: Record<string, string> = {
     寅戌: '午',
     申辰: '子',
@@ -309,7 +300,7 @@ function collectBranchFacts(nodes: LayerNode[]): BranchFact[] {
     const facts: BranchFact[] = [];
     let order = 0;
     const anHeRules = [...ZHI_AN_HE, ...EXTENDED_ZHI_AN_HE];
-    const halfKeys = Object.keys(HALF_HE_MAP);
+    const halfKeys = Object.keys(ZHI_BAN_HE);
     const gongKeys = Object.keys(GONG_HE_MAP);
     const halfToFullTrio: Record<string, string> = {
         申子: '申子辰',
@@ -410,7 +401,7 @@ function collectBranchFacts(nodes: LayerNode[]): BranchFact[] {
                 if (!fullTrio || !hasFullTrio(nodes, fullTrio)) {
                     facts.push({
                         dedupeKey: `banhe:${banHeKey}`,
-                        text: `${banHeKey}半合${HALF_HE_MAP[banHeKey]}局`,
+                        text: `${banHeKey}半合${ZHI_BAN_HE[banHeKey]}局`,
                         scope,
                         priority: BRANCH_PRIORITY.banhe,
                         leftOrder: left.order,

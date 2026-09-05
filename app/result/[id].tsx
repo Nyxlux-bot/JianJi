@@ -173,13 +173,31 @@ export default function ResultPage() {
     return (
         <View style={styles.container}>
             <StatusBarDecor />
-            {/* 顶部栏 */}
-            <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn}>
+            <View style={styles.compactHeader}>
+                <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn} accessibilityRole="button" accessibilityLabel="返回">
                     <BackIcon size={24} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>排盘结果</Text>
-                <TouchableOpacity onPress={() => setMenuVisible(prev => !prev)} style={styles.headerBtn}>
+
+                <View style={styles.headerSpacer} />
+
+                <TouchableOpacity onPress={() => setSheetVisible(true)} style={styles.compactActionBtn} activeOpacity={0.82}>
+                    <CompassIcon size={16} color={Colors.text.heading} />
+                    <Text style={styles.compactActionText}>查阅</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    onPress={handleOpenAIChat}
+                    style={[styles.aiCompactBtn, (!aiConfigured || !result) && styles.aiCompactBtnDisabled]}
+                    activeOpacity={0.82}
+                    disabled={!aiConfigured || !result}
+                    accessibilityRole="button"
+                    accessibilityLabel="AI 分析"
+                >
+                    <SparklesIcon size={16} color={Colors.text.inverse} />
+                    <Text style={styles.aiCompactBtnText}>AI</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity onPress={() => setMenuVisible(prev => !prev)} style={styles.headerBtn} accessibilityRole="button" accessibilityLabel="更多操作">
                     <MoreVerticalIcon size={20} />
                 </TouchableOpacity>
             </View>
@@ -279,27 +297,6 @@ export default function ResultPage() {
 
             </ScrollView>
 
-            {/* 底部悬浮双胶囊按钮区 */}
-            <View style={[styles.bottomActionBar, { paddingBottom: insets.bottom || Spacing.md }]}>
-                <TouchableOpacity
-                    style={styles.floatingCapsuleBtn}
-                    activeOpacity={0.8}
-                    onPress={() => setSheetVisible(true)}
-                >
-                    <CompassIcon size={20} color={Colors.text.inverse} />
-                    <Text style={styles.floatingCapsuleText}>查阅卦象</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                    style={styles.floatingCapsuleBtn}
-                    activeOpacity={0.8}
-                    onPress={handleOpenAIChat}
-                >
-                    <SparklesIcon size={20} color={Colors.text.inverse} />
-                    <Text style={styles.floatingCapsuleText}>AI 分析</Text>
-                </TouchableOpacity>
-            </View>
-
             <ConfirmModal
                 visible={deleteModalVisible}
                 title="删除记录"
@@ -341,12 +338,44 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     container: { flex: 1, backgroundColor: Colors.bg.primary },
     loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     loadingText: { color: Colors.text.secondary, fontSize: FontSize.md },
-    header: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md,
+    compactHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        height: 48,
+        paddingHorizontal: Spacing.xs,
+        paddingVertical: Spacing.xs,
+        backgroundColor: Colors.bg.primary,
+        borderBottomWidth: 1,
+        borderBottomColor: Colors.border.subtle,
     },
-    headerBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
-    headerTitle: { fontSize: FontSize.lg, color: Colors.text.heading, fontWeight: '400' },
+    headerBtn: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
+    headerSpacer: { flex: 1 },
+    compactActionBtn: {
+        height: 32,
+        paddingHorizontal: 8,
+        borderRadius: BorderRadius.md,
+        backgroundColor: Colors.bg.card,
+        borderWidth: 1,
+        borderColor: Colors.border.subtle,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 4,
+    },
+    compactActionText: { fontSize: FontSize.xs, color: Colors.text.heading, fontWeight: '600' },
+    aiCompactBtn: {
+        height: 32,
+        paddingHorizontal: 8,
+        borderRadius: BorderRadius.md,
+        backgroundColor: Colors.accent.gold,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 4,
+    },
+    aiCompactBtnDisabled: { opacity: 0.45 },
+    aiCompactBtnText: { fontSize: FontSize.xs, color: Colors.text.inverse, fontWeight: '700' },
     content: { flex: 1 },
     dateCard: {
         marginHorizontal: Spacing.md, padding: Spacing.lg,
@@ -410,35 +439,6 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     },
     aiResultContent: {
         fontSize: FontSize.sm, color: Colors.text.primary, lineHeight: 24,
-    },
-    bottomActionBar: {
-        flexDirection: 'row',
-        justifyContent: 'space-evenly',
-        paddingHorizontal: Spacing.lg,
-        paddingTop: Spacing.md,
-        backgroundColor: Colors.bg.primary,
-        borderTopWidth: 0.5,
-        borderTopColor: Colors.border.subtle,
-    },
-    floatingCapsuleBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: Colors.accent.gold,
-        paddingVertical: 14,
-        paddingHorizontal: 28,
-        borderRadius: 999, // 极高圆角胶囊
-        shadowColor: Colors.accent.gold,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.25,
-        shadowRadius: 10,
-        elevation: 6,
-    },
-    floatingCapsuleText: {
-        color: Colors.text.inverse,
-        fontSize: FontSize.md,
-        fontWeight: 'bold',
-        marginLeft: 8,
     },
     missingCard: {
         backgroundColor: Colors.bg.card,

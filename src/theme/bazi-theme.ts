@@ -31,6 +31,27 @@ export interface ThemeBaseTokens {
 }
 
 export interface BaziThemeTokens {
+    pageBg: string;
+    surfacePrimary: string;
+    surfaceRaised: string;
+    surfaceMuted: string;
+    divider: string;
+    selectedBg: string;
+    selectedBorder: string;
+    selectedText: string;
+    elementWood: string;
+    elementFire: string;
+    elementEarth: string;
+    elementMetal: string;
+    elementWater: string;
+    elementWoodBg: string;
+    elementFireBg: string;
+    elementEarthBg: string;
+    elementMetalBg: string;
+    elementWaterBg: string;
+    statePositive: string;
+    stateNegative: string;
+    stateNeutral: string;
     chromeBg: string;
     chromeBorder: string;
     chromeText: string;
@@ -129,8 +150,36 @@ export function buildBaziThemeTokens(
     const infoBandText = pickReadableText(infoBandBg, baseTheme.text.heading, baseTheme.text.inverse);
     const trackActiveBg = mixHex(baseTheme.bg.elevated, brand, 0.24);
     const trackActiveText = mixHex(baseTheme.text.heading, brand, 0.52);
+    const isLight = getLuminance(baseTheme.bg.primary) > 0.42;
+    const elementWood = isLight ? '#2F8A4C' : '#58B96C';
+    const elementFire = isLight ? '#C64531' : '#E9664F';
+    const elementEarth = isLight ? '#8B6B43' : '#B18A58';
+    const elementMetal = isLight ? '#B97908' : '#DCA32C';
+    const elementWater = isLight ? '#2D6FC4' : '#4C8DE8';
+    const elementBgWeight = 0.2;
 
     return {
+        pageBg: baseTheme.bg.primary,
+        surfacePrimary: baseTheme.bg.card,
+        surfaceRaised: baseTheme.bg.elevated,
+        surfaceMuted: mixHex(baseTheme.bg.card, brand, isLight ? 0.035 : 0.07),
+        divider: mixHex(baseTheme.border.subtle, brand, 0.16),
+        selectedBg: toRgba(brand, isLight ? 0.12 : 0.18),
+        selectedBorder: brand,
+        selectedText: mixHex(baseTheme.text.heading, brand, isLight ? 0.46 : 0.62),
+        elementWood,
+        elementFire,
+        elementEarth,
+        elementMetal,
+        elementWater,
+        elementWoodBg: mixHex(baseTheme.bg.card, elementWood, elementBgWeight),
+        elementFireBg: mixHex(baseTheme.bg.card, elementFire, elementBgWeight),
+        elementEarthBg: mixHex(baseTheme.bg.card, elementEarth, elementBgWeight),
+        elementMetalBg: mixHex(baseTheme.bg.card, elementMetal, elementBgWeight),
+        elementWaterBg: mixHex(baseTheme.bg.card, elementWater, elementBgWeight),
+        statePositive: isLight ? '#2F8A63' : '#54B78E',
+        stateNegative: isLight ? '#B9483E' : '#E16A5E',
+        stateNeutral: mixHex(baseTheme.text.tertiary, brand, 0.12),
         chromeBg,
         chromeBorder,
         chromeText,

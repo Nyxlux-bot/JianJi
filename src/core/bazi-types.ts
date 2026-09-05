@@ -150,6 +150,30 @@ export interface BaziSubject {
     yinYangLabel: '阴' | '阳';
 }
 
+export type BaziAnalysisRuleVersion = 'bazi_school_analysis_v1';
+
+export interface BaziAnalysisSchoolSummary {
+    strength: string;
+    structure: string;
+}
+
+export interface BaziAnalysisProfile {
+    version: BaziAnalysisRuleVersion;
+    dayMasterStem: string;
+    dayMasterElement: string;
+    dayMasterPolarity: '阴' | '阳';
+    dayMasterProperty: string;
+    yinYangReference: string;
+    shufang: BaziAnalysisSchoolSummary;
+    mangpai: BaziAnalysisSchoolSummary;
+    summary: {
+        dayMasterProperty: string;
+        yinYangReference: string;
+        strengthReference: string;
+        structureReference: string;
+    };
+}
+
 export interface BaziBaseInfo {
     zodiac: string;
     lunarDisplay: string;
@@ -316,6 +340,7 @@ export interface BaziResult {
     yuanMing: BaziYuanMing;
     shenSha: BaziShenShaResult;
     subject: BaziSubject;
+    analysisProfile?: BaziAnalysisProfile;
     baseInfo: BaziBaseInfo;
     jieQiContext: BaziJieQiContext;
     pillarMatrix: BaziPillarMatrixRow[];

@@ -24,6 +24,17 @@ export const ZHI_SAN_HE: Record<string, WuXing> = {
     巳酉丑: '金',
 };
 
+export const ZHI_BAN_HE: Record<string, WuXing> = {
+    申子: '水',
+    子辰: '水',
+    亥卯: '木',
+    卯未: '木',
+    寅午: '火',
+    午戌: '火',
+    巳酉: '金',
+    酉丑: '金',
+};
+
 export const ZHI_LIU_HE: Record<string, WuXing> = {
     子丑: '土',
     寅亥: '木',
@@ -141,7 +152,8 @@ export function compareWuXing(left: WuXing, right: WuXing): {
 }
 
 export function isZhiXingPair(branchA: string, branchB: string): boolean {
-    return ZHI_XING_PAIR_RULES.some((rule) => rule.members.includes(branchA as never) && rule.members.includes(branchB as never));
+    return branchA !== branchB
+        && ZHI_XING_PAIR_RULES.some((rule) => rule.members.includes(branchA as never) && rule.members.includes(branchB as never));
 }
 
 export function getZhiXingPairMeta(a: string, b: string): { key: string; name: string } | null {

@@ -19,6 +19,7 @@ import type {
 import { DivinationMethod } from '../core/liuyao-data';
 import { ZiweiRecordResult } from '../features/ziwei/record';
 import { ZIWEI_SUPPORTED_TIMEZONE_OFFSET_MINUTES } from '../features/ziwei/runtime-meta';
+import { isBaziAnalysisProfile } from '../core/bazi-analysis-profile';
 
 export type DivinationEngine = 'liuyao' | 'bazi' | 'ziwei' | 'baziCompatibility';
 
@@ -422,6 +423,7 @@ export function isBaziResult(value: unknown): value is BaziResult {
         && isFiniteNumber(candidate.currentDaYunIndex)
         && hasValidYuanMing
         && hasValidShenSha
+        && (candidate.analysisProfile === undefined || isBaziAnalysisProfile(candidate.analysisProfile))
         && hasValidSchoolOptions;
 }
 
