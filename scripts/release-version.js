@@ -4,7 +4,7 @@ const fs = require('fs');
 const { execFileSync } = require('child_process');
 
 const ALLOWED_BUMPS = new Set(['patch', 'minor', 'major']);
-const bump = process.argv[2] || 'patch';
+const versionArgument = process.argv[2] || 'patch';
 
 function run(command, args, options = {}) {
   const output = execFileSync(command, args, {
@@ -47,6 +47,24 @@ function bumpVersion(version, bumpType) {
     next.patch += 1;
   }
   return `${next.major}.${next.minor}.${next.patch}`;
+}
+
+function compareVersions(left, right) {
+  const a = parseVersion(left);
+  const b = parseVersion(right);
+  return a.major - b.major || a.minor - b.minor || a.patch - b.patch;
+}
+
+function resolveNextVersion(currentVersion, argument) {
+  if (ALLOWED_BUMPS.has(argument)) {
+    return bumpVersion(currentVersion, argument);
+  }
+
+  parseVersion(argument);
+  if (compareVersions(argument, currentVersion) <= 0) {
+    throw new Error(`目标版本必须高于当前版本：${currentVersion} -> ${argument}`);
+  }
+  return argument;
 }
 
 function getVersionCode(version, currentCode) {
@@ -99,8 +117,8 @@ function assertBranchNotBehindRemote() {
 }
 
 function main() {
-  if (!ALLOWED_BUMPS.has(bump)) {
-    throw new Error('用法：npm run release:patch | release:minor | release:major');
+  if (!ALLOWED_BUMPS.has(versionArgument) && !/^\d+\.\d+\.\d+$/.test(versionArgument)) {
+    throw new Error('用法：npm run release:patch | release:minor | release:major，或 node scripts/release-version.js 1.7.4');
   }
 
   assertCleanWorkingTree();
@@ -112,7 +130,7 @@ function main() {
   const packageJson = readJson('package.json');
   const packageLock = readJson('package-lock.json');
   const currentVersion = appJson.expo.version;
-  const nextVersion = bumpVersion(currentVersion, bump);
+  const nextVersion = resolveNextVersion(currentVersion, versionArgument);
   const nextTag = `v${nextVersion}`;
   const currentCode = Number(appJson.expo.android?.versionCode || 0);
   const nextCode = getVersionCode(nextVersion, currentCode);
