@@ -4,7 +4,7 @@
  */
 
 import EventSource from 'react-native-sse';
-import { BaziFormatterContext } from '../core/bazi-ai-context';
+import { BaziFormatterContext, mergeBaziFormatterContext } from '../core/bazi-ai-context';
 import {
     AIConversationStage,
     BaziAIConversationDigest,
@@ -1622,7 +1622,8 @@ export async function buildBaziSystemMessage(
     relations: string[],
     formatterContext?: BaziFormatterContext,
 ): Promise<AIChatMessage> {
-    const baziText = formatBaziToText(result, relations, result.aiContextSnapshot ?? formatterContext);
+    const context = mergeBaziFormatterContext(result.aiContextSnapshot, formatterContext);
+    const baziText = formatBaziToText(result, relations, context);
 
     return {
         role: 'system',
@@ -1821,7 +1822,7 @@ export async function buildRequestBundle(
     const recentVisible = toVisibleMessages(chatHistory).slice(-10);
     if (isBaziResult(result)) {
         const relations = getBaziRelations(result);
-        const systemMessage = await buildBaziSystemMessage(result, relations, result.aiContextSnapshot ?? formatterContext as BaziFormatterContext);
+        const systemMessage = await buildBaziSystemMessage(result, relations, formatterContext as BaziFormatterContext | undefined);
         const digest = result.aiConversationDigest;
 
         if (digest) {

@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AIConversationStage, PersistedAIChatMessage } from '../core/ai-meta';
-import { cloneBaziFormatterContext, BaziFormatterContext } from '../core/bazi-ai-context';
+import { cloneBaziFormatterContext, mergeBaziFormatterContext, BaziFormatterContext } from '../core/bazi-ai-context';
 import { BaziResult } from '../core/bazi-types';
 import { PanResult, YaoDetail } from '../core/liuyao-calc';
 import { getRecord, updateExistingRecordResult } from '../db/database';
@@ -447,12 +447,16 @@ async function buildMessagesForRequest(request: AIAnalysisJobRequest): Promise<{
     let requestResult = request.result;
     let formatterContext = request.formatterContext;
     if (request.engineType === 'bazi') {
-        const snapshot = cloneBaziFormatterContext(request.formatterContext as BaziFormatterContext | undefined);
+        const override = cloneBaziFormatterContext(request.formatterContext as BaziFormatterContext | undefined);
+        const snapshot = mergeBaziFormatterContext(
+            (request.result as BaziResult).aiContextSnapshot,
+            override,
+        );
         requestResult = {
             ...(request.result as BaziResult),
             aiContextSnapshot: snapshot ?? (request.result as BaziResult).aiContextSnapshot,
         };
-        formatterContext = snapshot;
+        formatterContext = override;
     }
     const workflowStage = request.expectedCompletion
         ?? (request.phase === 'followup' ? 'followup' : undefined);

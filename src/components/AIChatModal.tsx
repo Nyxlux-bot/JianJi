@@ -1108,6 +1108,31 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                     onClose={() => setMenuVisible(false)}
                 />
 
+                {isBaziResult(result) && baziContext?.wuXingEnergy ? (
+                    <View style={styles.baziContextPreview}>
+                        <View style={styles.baziContextPreviewHead}>
+                            <Text style={styles.baziContextPreviewTitle}>当前岁运五行</Text>
+                            <Text style={styles.baziContextPreviewFocus} numberOfLines={1}>
+                                {baziContext.wuXingEnergy.focus.mode === 'xiaoyun' ? '小运' : '大运'} {baziContext.wuXingEnergy.focus.yunGanZhi || '—'}
+                                {' · '}流年 {baziContext.wuXingEnergy.focus.liuNianGanZhi || '—'}
+                                {' · '}流月 {baziContext.wuXingEnergy.focus.liuYueGanZhi || '—'}
+                            </Text>
+                        </View>
+                        <View style={styles.baziEnergyRow}>
+                            {baziContext.wuXingEnergy.elements.map((item) => (
+                                <View key={item.element} style={styles.baziEnergyItem}>
+                                    <Text style={styles.baziEnergyElement}>{item.element}</Text>
+                                    <Text style={styles.baziEnergyValue}>{item.percentage}%</Text>
+                                </View>
+                            ))}
+                        </View>
+                        <View style={styles.baziPartyRow}>
+                            <View style={[styles.baziPartySame, { width: `${baziContext.wuXingEnergy.samePartyPercentage}%` }]} />
+                            <View style={[styles.baziPartyDifferent, { width: `${baziContext.wuXingEnergy.differentPartyPercentage}%` }]} />
+                        </View>
+                    </View>
+                ) : null}
+
                 <KeyboardAvoidingView
                     style={styles.keyboardView}
                     behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -1313,6 +1338,67 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         flex: 1,
         justifyContent: 'center',
         marginHorizontal: Spacing.sm,
+    },
+    baziContextPreview: {
+        marginHorizontal: Spacing.md,
+        marginTop: Spacing.sm,
+        padding: Spacing.sm,
+        borderWidth: 1,
+        borderColor: Colors.bazi.divider,
+        borderRadius: 14,
+        backgroundColor: Colors.bazi.surfaceMuted,
+        gap: 7,
+    },
+    baziContextPreviewHead: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: Spacing.sm,
+    },
+    baziContextPreviewTitle: {
+        color: Colors.bazi.selectedText,
+        fontSize: FontSize.sm,
+        fontWeight: '700',
+    },
+    baziContextPreviewFocus: {
+        flex: 1,
+        color: Colors.text.tertiary,
+        fontSize: 10,
+        textAlign: 'right',
+    },
+    baziEnergyRow: {
+        flexDirection: 'row',
+    },
+    baziEnergyItem: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'baseline',
+        justifyContent: 'center',
+        gap: 2,
+    },
+    baziEnergyElement: {
+        color: Colors.text.secondary,
+        fontSize: 11,
+    },
+    baziEnergyValue: {
+        color: Colors.text.primary,
+        fontSize: 11,
+        fontWeight: '700',
+    },
+    baziPartyRow: {
+        height: 3,
+        flexDirection: 'row',
+        overflow: 'hidden',
+        borderRadius: 999,
+        backgroundColor: Colors.bazi.surfaceRaised,
+    },
+    baziPartySame: {
+        height: '100%',
+        backgroundColor: Colors.bazi.statePositive,
+    },
+    baziPartyDifferent: {
+        height: '100%',
+        backgroundColor: Colors.bazi.elementWater,
     },
     hexagramHeaderRow: {
         flexDirection: 'row',
