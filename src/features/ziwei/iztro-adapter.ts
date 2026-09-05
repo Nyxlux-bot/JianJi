@@ -1,7 +1,7 @@
 import '../../polyfills/intl';
 
 // 🔥 Monkey-patch iztro's kot() function BEFORE any iztro `astro` usage.
-// patchIztroKot() 在模块初始化时建立反向索引，避免 kot() 重复遍历翻译表。
+// patchIztroKot() 缓存上游查询结果，保留星曜别名处理并避免重复遍历翻译表。
 import { patchIztroKot, logIztroOptimizerStats } from './iztro-optimizer';
 patchIztroKot();
 

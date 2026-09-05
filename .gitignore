@@ -46,3 +46,6 @@ yarn-error.*
 
 # Root-level generated HTML prototypes
 /*.html
+
+# Local Bazi result prototype assets
+/bazi-result-prototype/
