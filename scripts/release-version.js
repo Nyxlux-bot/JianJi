@@ -78,7 +78,7 @@ function getVersionCode(version, currentCode) {
 function assertCleanWorkingTree() {
   const status = run('git', ['status', '--porcelain']);
   if (status) {
-    throw new Error('工作区不干净。请先提交或暂存当前改动，再执行发版脚本。');
+    throw new Error('工作区不干净。请先提交当前改动，再执行发版脚本。');
   }
 }
 
@@ -153,9 +153,9 @@ function main() {
   run('git', ['commit', '-m', `chore: bump version to ${nextVersion}`], { stdio: 'inherit' });
   run('git', ['tag', nextTag], { stdio: 'inherit' });
 
-  run('git', ['push', 'origin', branch, nextTag], { stdio: 'inherit' });
+  run('git', ['push', '--atomic', 'origin', branch, nextTag], { stdio: 'inherit' });
 
-  console.log(`已发布 ${nextTag}，versionCode ${nextCode}。GitHub Actions 会按 tag 自动打包。`);
+  console.log(`已推送 ${nextTag}，versionCode ${nextCode}。GitHub Actions 将打包并创建 Release，请确认云端任务结果。`);
 }
 
 try {

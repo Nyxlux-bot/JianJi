@@ -20,8 +20,23 @@ jobs:
 
       - name: 2. 生成中文版本说明
         id: changelog
+        env:
+          CURRENT_TAG: ${{ github.ref_name }}
         run: |
-          CURRENT_TAG="${{ github.ref_name }}"
+          APP_VERSION=$(jq -r '.expo.version' app.json)
+          if [ "$CURRENT_TAG" != "v${APP_VERSION}" ]; then
+            echo "标签 ${CURRENT_TAG} 与应用版本 ${APP_VERSION} 不一致，停止发布。"
+            exit 1
+          fi
+
+          CURATED_NOTES=".github/release-notes/${CURRENT_TAG}.md"
+          if [ -f "$CURATED_NOTES" ]; then
+            cp "$CURATED_NOTES" RELEASE_NOTES.md
+            echo "使用 ${CURRENT_TAG} 专用版本说明"
+            cat RELEASE_NOTES.md
+            exit 0
+          fi
+          echo "未找到专用版本说明，按提交类型生成。"
 
           # 用 git describe 沿提交历史找上一个 tag，避免按时间排序出现重复
           PREV_TAG=$(git describe --tags --abbrev=0 "${CURRENT_TAG}^" 2>/dev/null || echo "")
@@ -46,9 +61,15 @@ jobs:
             # 跳过纯版本 bump 提交
             echo "$MSG" | grep -qiE '^(chore:)?\s*(bump version|version to)' && continue
 
-            if echo "$MSG" | grep -qiE '(^fix|^bug|fix:|bugfix|修复|修正|bug)'; then
+            if echo "$MSG" | grep -qiE '^(fix|bugfix)(\([^)]*\))?!?:'; then
               FIXES="${FIXES}\n- ${MSG}"
-            elif echo "$MSG" | grep -qiE '(^perf|perf:|performance|^refactor|refactor:|优化|改进|improve|optimization|性能|重构|提速|升级依赖|update|更新)'; then
+            elif echo "$MSG" | grep -qiE '^(feat|add)(\([^)]*\))?!?:'; then
+              FEATURES="${FEATURES}\n- ${MSG}"
+            elif echo "$MSG" | grep -qiE '^(perf|refactor)(\([^)]*\))?!?:'; then
+              OPTIMIZATIONS="${OPTIMIZATIONS}\n- ${MSG}"
+            elif echo "$MSG" | grep -qiE '(bugfix|修复|修正|bug)'; then
+              FIXES="${FIXES}\n- ${MSG}"
+            elif echo "$MSG" | grep -qiE '(performance|优化|改进|improve|optimization|性能|重构|提速|升级依赖|update|更新)'; then
               OPTIMIZATIONS="${OPTIMIZATIONS}\n- ${MSG}"
             elif echo "$MSG" | grep -qiE '(^feat|^add|feat:|add:|新增|添加|支持|新功能)'; then
               FEATURES="${FEATURES}\n- ${MSG}"
@@ -80,7 +101,7 @@ jobs:
           token: ${{ secrets.EXPO_TOKEN }}
 
       - name: 5. 安装项目依赖
-        run: npm install
+        run: npm ci
 
       - name: 6. 触发 EAS 云端打包并抓取 APK
         id: eas-build
