@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '要发布的现有版本标签，例如 v1.7.4'
+        required: true
+        type: string
 
 jobs:
   build:
@@ -16,12 +22,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: refs/tags/${{ inputs.release_tag || github.ref_name }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 2. 生成中文版本说明
         id: changelog
         env:
-          CURRENT_TAG: ${{ github.ref_name }}
+          CURRENT_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
           APP_VERSION=$(jq -r '.expo.version' app.json)
           if [ "$CURRENT_TAG" != "v${APP_VERSION}" ]; then
@@ -92,12 +99,12 @@ jobs:
       - name: 3. 配置 Node 环境
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: 4. 安装 Expo 和 EAS CLI
         uses: expo/expo-github-action@v8
         with:
-          eas-version: latest
+          eas-version: '23.2.0'
           token: ${{ secrets.EXPO_TOKEN }}
 
       - name: 5. 安装项目依赖
