@@ -12,6 +12,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SplashScreen from 'expo-splash-screen';
 import { ThemeProvider, useTheme } from "../src/theme/ThemeContext";
 import CustomAlertProvider from '../src/components/CustomAlertProvider';
+import { GanZhiRelationSettingsProvider } from '../src/features/bazi/ganzhi-relation-settings';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync().catch(() => { });
@@ -63,7 +64,9 @@ function RootApp() {
 export default function RootLayout() {
     return (
         <ThemeProvider>
-            <RootApp />
+            <GanZhiRelationSettingsProvider>
+                <RootApp />
+            </GanZhiRelationSettingsProvider>
         </ThemeProvider>
     );
 }

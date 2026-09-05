@@ -1,4 +1,5 @@
 import { BaziFormatterContext } from '../core/bazi-ai-context';
+import { buildBaziGanZhiDiagram } from '../core/bazi-ganzhi-diagram';
 import { buildBaziGanZhiLayer } from '../core/bazi-ganzhi-layer';
 import { buildWuXingBandFromMonthBranch } from '../core/renyuan-duty';
 import { getBaziChartTimeLabel, getBaziTimeModeLabel } from '../core/bazi-time';
@@ -107,11 +108,35 @@ function formatWuXingEnergyLines(context?: BaziFormatterContext): string[] {
     ];
 }
 
-export function formatBaziToText(result: BaziResult, relations: string[], context?: BaziFormatterContext): string {
+export function formatBaziToText(result: BaziResult, _relations: string[], context?: BaziFormatterContext): string {
     const lines: string[] = [];
-    const relationLines = relations.length > 0 ? relations : ['未检测到客观合冲刑害关系'];
+    const relationDiagram = buildBaziGanZhiDiagram({
+        fourPillars: result.fourPillars,
+    }, context?.ganZhiRelationSettings);
+    const relationLines = (() => {
+        const seen = new Set<string>();
+        return [
+            ...relationDiagram.stemRelations,
+            ...relationDiagram.branchRelations,
+            ...relationDiagram.pillarRelations,
+        ]
+            .filter((relation) => relation.scope === 'yuanju')
+            .map((relation) => relation.summaryText)
+            .filter((text) => {
+                if (seen.has(text)) return false;
+                seen.add(text);
+                return true;
+            });
+    })();
+    const objectiveRelationLines = relationLines.length > 0
+        ? relationLines
+        : ['未检测到客观干支关系'];
     const wuXingBand = buildWuXingBandFromMonthBranch(result.baseInfo.renYuanDutyDetail.monthBranch);
-    const ganZhiLayer = buildBaziGanZhiLayer(result, context?.fortuneSelection);
+    const ganZhiLayer = buildBaziGanZhiLayer(
+        result,
+        context?.fortuneSelection,
+        context?.ganZhiRelationSettings,
+    );
     const currentDaYun = formatCurrentDaYun(result);
     const currentLiuNian = formatCurrentLiuNian(result, currentDaYun);
     const currentLiuYue = formatCurrentLiuYue(currentLiuNian);
@@ -137,7 +162,7 @@ export function formatBaziToText(result: BaziResult, relations: string[], contex
     lines.push(`- 旺相休囚死：${wuXingBand.map((item) => `${item.element}${item.status}`).join('、')}`);
     formatWuXingEnergyLines(context).forEach((line) => lines.push(line));
     lines.push('【系统测算的客观关系事实】');
-    relationLines.forEach((line) => {
+    objectiveRelationLines.forEach((line) => {
         lines.push(`- ${line}`);
     });
     lines.push('【干支分层】');

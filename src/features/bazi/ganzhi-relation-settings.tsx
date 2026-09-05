@@ -19,7 +19,9 @@ const STORAGE_KEY = 'bazi_ganzhi_relation_settings_v1';
 
 interface GanZhiRelationSettingsContextValue {
     settings: GanZhiRelationSettings;
+    ready: boolean;
     setSetting: (key: GanZhiRelationSettingKey, enabled: boolean) => void;
+    replaceSettings: (value: unknown) => Promise<GanZhiRelationSettings>;
     resetSettings: () => void;
 }
 
@@ -27,6 +29,7 @@ const GanZhiRelationSettingsContext = createContext<GanZhiRelationSettingsContex
 
 export function GanZhiRelationSettingsProvider({ children }: PropsWithChildren) {
     const [settings, setSettings] = useState<GanZhiRelationSettings>(DEFAULT_GAN_ZHI_RELATION_SETTINGS);
+    const [ready, setReady] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -38,6 +41,8 @@ export function GanZhiRelationSettingsProvider({ children }: PropsWithChildren) 
                 }
             } catch (error) {
                 console.error('读取干支图示设置失败', error);
+            } finally {
+                if (!cancelled) setReady(true);
             }
         };
         void load();
@@ -63,15 +68,24 @@ export function GanZhiRelationSettingsProvider({ children }: PropsWithChildren) 
         });
     }, []);
 
+    const replaceSettings = useCallback(async (value: unknown) => {
+        const next = normalizeGanZhiRelationSettings(value);
+        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+        setSettings(next);
+        return next;
+    }, []);
+
     const resetSettings = useCallback(() => {
         persist({ ...DEFAULT_GAN_ZHI_RELATION_SETTINGS });
     }, [persist]);
 
     const value = useMemo(() => ({
         settings,
+        ready,
         setSetting,
+        replaceSettings,
         resetSettings,
-    }), [resetSettings, setSetting, settings]);
+    }), [ready, replaceSettings, resetSettings, setSetting, settings]);
 
     return (
         <GanZhiRelationSettingsContext.Provider value={value}>

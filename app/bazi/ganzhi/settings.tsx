@@ -139,7 +139,7 @@ export default function GanZhiRelationSettingsPage() {
                 showsVerticalScrollIndicator={false}
             >
                 <Text style={styles.intro}>
-                    设置仅控制干支图示中的关系显示，不改变干支分层文字、排盘结果或 AI 数据。
+                    设置会同步应用到干支图示、干支分层文字和分析上下文。
                 </Text>
                 {GROUPS.map((group) => (
                     <View key={group.title} style={styles.card}>

@@ -9,6 +9,7 @@ import {
     getLiuQin, getLiuShen, LIUQIN_SHORT, LIUSHEN_SHORT,
     yaoToGuaIndex, GuaInfo,
 } from './liuyao-data';
+import type { LiuyaoSubject } from './liuyao-data';
 import { solarToLunar, getNaYin, getCurrentJieqi, LunarDate } from './lunar';
 import { calculateTrueSolarTime, formatTrueSolarTime } from './true-solar-time';
 import { getXunKong } from './xun-kong';
@@ -52,6 +53,8 @@ export interface PanResult {
     id: string;
     createdAt: string;
     method: DivinationMethod;
+    /** 起卦主体；旧记录可能没有该字段。 */
+    subject?: LiuyaoSubject;
     question: string;
     aiAnalysis?: string; // 缓存保存的 AI 测算历史结果 (向后兼容)
     aiChatHistory?: PersistedAIChatMessage[]; // 增设用于持久保存上下文的多轮对话记录
@@ -104,6 +107,7 @@ const YAO_POS_NAMES = ['初', '二', '三', '四', '五', '上'];
  * @param question 占问事项
  * @param longitude 可选，当地经度（用于真太阳时校准）
  * @param locationName 可选，地点名称
+ * @param subject 起卦主体（男、女或其他）
  */
 export function calculatePan(
     yaoValues: YaoValue[],
@@ -111,7 +115,8 @@ export function calculatePan(
     method: DivinationMethod,
     question: string = '',
     longitude?: number,
-    locationName?: string
+    locationName?: string,
+    subject?: LiuyaoSubject,
 ): PanResult {
     // 1. 获取农历及四柱（如有经度，使用真太阳时）
     const effectiveDate = (longitude !== undefined)
@@ -298,6 +303,7 @@ export function calculatePan(
         id: generateId(),
         createdAt: now.toISOString(),
         method,
+        subject,
         question,
         solarDate: `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`,
         solarTime: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
@@ -338,7 +344,13 @@ export function calculatePan(
 // ==================== 四种起卦方式 ====================
 
 /** 时间排卦（梅花易数） */
-export function divinateByTime(date: Date, question: string = '', longitude?: number, locationName?: string): PanResult {
+export function divinateByTime(
+    date: Date,
+    question: string = '',
+    longitude?: number,
+    locationName?: string,
+    subject?: LiuyaoSubject,
+): PanResult {
     // 如有经度，先计算真太阳时用于确定时辰
     const effectiveDate = (longitude !== undefined)
         ? calculateTrueSolarTime(date, longitude)
@@ -388,16 +400,31 @@ export function divinateByTime(date: Date, question: string = '', longitude?: nu
         }
     }
 
-    return calculatePan(yaoValues, date, 'time', question, longitude, locationName);
+    return calculatePan(yaoValues, date, 'time', question, longitude, locationName, subject);
 }
 
 /** 硬币排卦（金钱卦） - 传入6次结果 */
-export function divinateByCoin(coinResults: YaoValue[], date: Date, question: string = '', longitude?: number, locationName?: string): PanResult {
-    return calculatePan(coinResults, date, 'coin', question, longitude, locationName);
+export function divinateByCoin(
+    coinResults: YaoValue[],
+    date: Date,
+    question: string = '',
+    longitude?: number,
+    locationName?: string,
+    subject?: LiuyaoSubject,
+): PanResult {
+    return calculatePan(coinResults, date, 'coin', question, longitude, locationName, subject);
 }
 
 /** 数字排卦（两数法） */
-export function divinateByNumber(num1: number, num2: number, date: Date, question: string = '', longitude?: number, locationName?: string): PanResult {
+export function divinateByNumber(
+    num1: number,
+    num2: number,
+    date: Date,
+    question: string = '',
+    longitude?: number,
+    locationName?: string,
+    subject?: LiuyaoSubject,
+): PanResult {
     let upperNum = num1 % 8;
     if (upperNum === 0) upperNum = 8;
     let lowerNum = num2 % 8;
@@ -420,12 +447,19 @@ export function divinateByNumber(num1: number, num2: number, date: Date, questio
         yaoValues.push(isMoving ? (isYang ? 9 : 6) : (isYang ? 7 : 8));
     }
 
-    return calculatePan(yaoValues, date, 'number', question, longitude, locationName);
+    return calculatePan(yaoValues, date, 'number', question, longitude, locationName, subject);
 }
 
 /** 手动起卦 */
-export function divinateManual(yaoValues: YaoValue[], date: Date, question: string = '', longitude?: number, locationName?: string): PanResult {
-    return calculatePan(yaoValues, date, 'manual', question, longitude, locationName);
+export function divinateManual(
+    yaoValues: YaoValue[],
+    date: Date,
+    question: string = '',
+    longitude?: number,
+    locationName?: string,
+    subject?: LiuyaoSubject,
+): PanResult {
+    return calculatePan(yaoValues, date, 'manual', question, longitude, locationName, subject);
 }
 
 // ==================== 工具函数 ====================

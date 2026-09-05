@@ -3,7 +3,6 @@
  * 负责六爻与八字两套排盘的系统提示词、上下文整理、流式请求与快捷追问。
  */
 
-import EventSource from 'react-native-sse';
 import { BaziFormatterContext, mergeBaziFormatterContext } from '../core/bazi-ai-context';
 import {
     AIConversationStage,
@@ -16,7 +15,7 @@ import { extractBaziRelations } from '../core/bazi-relations';
 import { BaziResult } from '../core/bazi-types';
 import { getAllRelatedGua } from '../core/hexagramTransform';
 import { PanResult } from '../core/liuyao-calc';
-import { BA_GUA, DIZHI_WUXING } from '../core/liuyao-data';
+import { BA_GUA, DIZHI_WUXING, getLiuyaoSubjectLabel } from '../core/liuyao-data';
 import { getMonthGeneralByJieqi, getMoonPhase } from '../core/time-signs';
 import ichingData from '../data/iching.json';
 import { ZiweiFormatterContext } from '../features/ziwei/ai-context';
@@ -30,8 +29,7 @@ import {
 } from '../features/ziwei/record';
 import { formatBaziToText } from './bazi-formatter';
 import { DEFAULT_BAZI_SYSTEM_PROMPT, DEFAULT_LIUYAO_SYSTEM_PROMPT, DEFAULT_ZIWEI_SYSTEM_PROMPT } from './default-prompts';
-import { resolveChatCompletionsUrl } from './ai-endpoints';
-import { buildMainAIOutputLimitMessage, resolveMainAIOutputTokens } from './ai-model-limits';
+import { streamProviderText } from './ai-provider-client';
 import { getSettings } from './settings';
 import { recordDiagnosticLog } from './diagnostics';
 import { formatZiweiToText } from './ziwei-formatter';
@@ -42,6 +40,9 @@ const ICHING_MAP = new Map<string, string>();
 });
 
 const BAZI_DIGEST_VERSION = 1;
+const AUXILIARY_STREAM_FIRST_EVENT_TIMEOUT_MS = 45_000;
+const AUXILIARY_STREAM_IDLE_TIMEOUT_MS = 30_000;
+const AUXILIARY_STREAM_TOTAL_TIMEOUT_MS = 60_000;
 const BAZI_FOUNDATION_PROMPT = [
     '当前只执行八字工作流的第一阶段：基础定局。',
     '本阶段只允许输出基础定局，不允许输出前事核验，不允许输出未来趋势，不允许向用户提问。',
@@ -73,11 +74,22 @@ const LIUYAO_STRONG_REASONING_STREAM_PROMPT = [
     '本轮会通过流式连接返回。为了避免长时间强推理导致网关误判超时，你必须先尽快输出一行“正在起卦分析...”，随后继续完整解盘。',
     '不要输出内部推理过程，不要解释这条要求。',
 ].join('\n');
+export const LIUYAO_COMPLETION_MARKER = '[[LIUYAO_DONE]]';
+const LIUYAO_COMPLETION_MARKER_PREFIX = '[[LIUYAO_DONE';
+const LIUYAO_COMPLETION_MARKER_REGEX = /\[\[LIUYAO_DONE\]\]/g;
+const LIUYAO_STREAM_COMPLETION_PROMPT = [
+    '【六爻输出收束】',
+    '请优先完成所有必要小节，再补充细节；不要在新小节中途展开冗长的逐爻复述。',
+    `全部可见正文写完后，必须在最后单独一行输出：${LIUYAO_COMPLETION_MARKER}`,
+    '不要解释、引用或提前输出该标记。',
+].join('\n');
 const LIUYAO_EVIDENCE_GUARD_PROMPT = [
     '【六爻证据锚定】',
     '你必须严格基于系统给出的排盘事实作答，不得编造排盘外的人物背景、事件经历、时间节点或未提供的卦爻信息。',
     '输出必须覆盖：整体卦意、世应关系、用神/忌神、动变、应期、趋避建议。',
     '关键判断必须引用盘面锚点，例如本卦/变卦、世爻/应爻、日月建、旬空、动爻、六亲六神。',
+    '初始分析以约 1200 至 2000 个汉字为目标：只展开与占问最相关的关键爻与关键证据，古籍义理点到为止。',
+    '即使篇幅受限，也必须先完成应期与趋避建议，不要在半句或未完成的小节中结束。',
 ].join('\n');
 const LIUYAO_FOLLOWUP_EVIDENCE_GUARD_PROMPT = [
     '【六爻追问证据锚定】',
@@ -246,6 +258,11 @@ export function formatPanForAI(result: PanResult): string {
 
     lines.push('【排盘信息】');
     lines.push(`公历：${result.solarDate} ${result.solarTime}`);
+    if (result.subject) {
+        lines.push(`【性别/起卦主体】${getLiuyaoSubjectLabel(result.subject)}（代码：${result.subject}）`);
+    } else {
+        lines.push('【性别/起卦主体】未指定（历史记录未保存该字段，请勿根据其他信息推断）');
+    }
     if (result.trueSolarTime) {
         lines.push(`真太阳时：${result.trueSolarTime}${result.location ? `（${result.location}，经度${result.longitude?.toFixed(2)}°）` : ''}`);
     }
@@ -493,6 +510,26 @@ export function stripZiweiStageMarkers(content: string): string {
             content.replace(/\[\[ZIWEI_STAGE:(?:FOUNDATION_DONE|VERIFICATION_DONE|FIVE_YEAR_DONE)\]\]/g, ''),
         ),
     );
+}
+
+export function sanitizeLiuyaoStreamingContent(content: string): string {
+    const withoutMarkers = content.replace(LIUYAO_COMPLETION_MARKER_REGEX, '');
+    const withoutThinkingBlocks = stripThinkingBlocks(withoutMarkers);
+    const partialMarkerStart = getPartialMarkerStartIndex(withoutThinkingBlocks, LIUYAO_COMPLETION_MARKER_PREFIX);
+    const visibleContent = partialMarkerStart === -1
+        ? withoutThinkingBlocks
+        : withoutThinkingBlocks.slice(0, partialMarkerStart);
+    return normalizeStageText(visibleContent);
+}
+
+export function stripLiuyaoCompletionMarker(content: string): string {
+    return normalizeStageText(
+        stripThinkingBlocks(content.replace(LIUYAO_COMPLETION_MARKER_REGEX, '')),
+    );
+}
+
+export function hasLiuyaoCompletionMarker(content: string): boolean {
+    return stripThinkingBlocks(content).trim().endsWith(LIUYAO_COMPLETION_MARKER);
 }
 
 function formatLocalDate(date: Date): string {
@@ -1324,63 +1361,30 @@ async function requestChatCompletion(
         };
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-    try {
-        logAIRequestDebug({
-            ...options.debugMeta,
-            messageCount: options.debugMeta?.messageCount ?? messages.length,
-            systemCharCount: options.debugMeta?.systemCharCount ?? (messages.find((item) => item.role === 'system')?.content.length || 0),
-        });
-        const response = await fetch(resolveChatCompletionsUrl(settings.apiUrl), {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${settings.apiKey.trim()}`,
-            },
-            body: JSON.stringify({
-                model: settings.model,
-                messages,
-                temperature: options.temperature ?? settings.temperature,
-                max_tokens: options.maxTokens ?? 600,
-            }),
-            signal: controller.signal as RequestInit['signal'],
-        });
-
-        if (!response.ok) {
-            return {
-                success: false,
-                failure: createAIFailure('http_error', stage, `模型请求失败（HTTP ${response.status}）`),
-            };
-        }
-
-        const data = await response.json();
-        const choice = data.choices?.[0];
-        if (choice?.finish_reason === 'length') {
-            return {
-                success: false,
-                failure: createAIFailure('token_limit', stage, '模型输出达到上限，内容未完整生成'),
-            };
-        }
-        return typeof choice?.message?.content === 'string'
-            ? { success: true, content: choice.message.content }
-            : {
-                success: false,
-                failure: createAIFailure('invalid_response', stage, '模型返回格式无效'),
-            };
-    } catch {
-        return {
+    logAIRequestDebug({
+        ...options.debugMeta,
+        messageCount: options.debugMeta?.messageCount ?? messages.length,
+        systemCharCount: options.debugMeta?.systemCharCount ?? (messages.find((item) => item.role === 'system')?.content.length || 0),
+    });
+    const response = await streamProviderText(settings, messages, {
+        stage,
+        requestType: options.debugMeta?.requestType ?? (stage.includes('digest') ? 'digest' : 'quick_replies'),
+        temperature: options.temperature ?? settings.temperature,
+        maxTokens: options.maxTokens ?? 600,
+        firstEventTimeoutMs: AUXILIARY_STREAM_FIRST_EVENT_TIMEOUT_MS,
+        idleTimeoutMs: AUXILIARY_STREAM_IDLE_TIMEOUT_MS,
+        totalTimeoutMs: AUXILIARY_STREAM_TOTAL_TIMEOUT_MS,
+    });
+    return response.success && response.content
+        ? { success: true, content: response.content }
+        : {
             success: false,
             failure: createAIFailure(
-                controller.signal.aborted ? 'timeout' : 'network_error',
+                response.code ?? 'network_error',
                 stage,
-                controller.signal.aborted ? '模型请求超时' : '模型请求失败',
+                response.error || '模型请求失败',
             ),
         };
-    } finally {
-        clearTimeout(timeoutId);
-    }
 }
 
 export function getBaziFoundationPrompt(): string {
@@ -1545,6 +1549,10 @@ function getStreamIdleTimeoutMs(stage: string): number {
     }
 
     return 240000;
+}
+
+function getStreamFirstEventTimeoutMs(stage: string): number {
+    return stage === 'initial' || stage === 'followup' ? 120000 : 60000;
 }
 
 export function getBaziConversationStage(result: BaziResult): BaziAIConversationStage {
@@ -1804,6 +1812,7 @@ export async function buildRequestBundle(
             await buildSystemMessage(result),
             { role: 'system' as const, content: isFollowup ? LIUYAO_FOLLOWUP_EVIDENCE_GUARD_PROMPT : LIUYAO_EVIDENCE_GUARD_PROMPT },
             { role: 'system' as const, content: LIUYAO_STRONG_REASONING_STREAM_PROMPT },
+            { role: 'system' as const, content: LIUYAO_STREAM_COMPLETION_PROMPT },
             ...toApiMessages(chatHistory),
         ];
         return {
@@ -1904,19 +1913,6 @@ export async function buildRequestMessages(
     return bundle.messages;
 }
 
-function splitStreamEventPayload(data: string): string[] {
-    const trimmed = data.trim();
-    if (!trimmed) {
-        return [];
-    }
-    if (trimmed === '[DONE]') {
-        return [trimmed];
-    }
-
-    const lines = trimmed.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
-    return lines.length > 1 ? lines : [trimmed];
-}
-
 export async function analyzeWithAIChatStream(
     messages: AIChatMessage[],
     onChunk: (text: string) => void,
@@ -1991,254 +1987,61 @@ export async function analyzeWithAIChatStream(
         };
     }
 
-    const effectiveMaxTokens = requestOptions.maxTokens ?? resolveMainAIOutputTokens(settings.apiUrl, settings.model);
-    const tokenLimitError = buildMainAIOutputLimitMessage(effectiveMaxTokens);
     let fullContent = '';
-    let eventSource: EventSource;
     const requestMeta = {
         mode: requestOptions.debugMeta?.mode,
         requestType: requestOptions.debugMeta?.requestType,
         workflowStage: requestOptions.debugMeta?.workflowStage,
         stage,
         model: settings.model,
-        maxTokens: effectiveMaxTokens,
         messageCount: requestOptions.debugMeta?.messageCount ?? messages.length,
         systemCharCount: requestOptions.debugMeta?.systemCharCount ?? (messages.find((item) => item.role === 'system')?.content.length || 0),
     };
-
-    return new Promise((resolve) => {
-        let isAborted = false;
-        let isSettled = false;
-        let hasReasoningSignal = false;
-        let lastFinishReason: string | null = null;
-        let heartbeatTimer: ReturnType<typeof setTimeout>;
-        const recordStreamDecision = (
-            decision: string,
-            result: AIAnalysisResult,
-            context: Record<string, unknown> = {},
-        ) => {
-            void recordDiagnosticLog({
-                level: result.success ? 'info' : 'warn',
-                source: 'AI:streamDecision',
-                message: decision,
-                context: {
-                    decision,
-                    success: result.success,
-                    code: result.code,
-                    finishReason: lastFinishReason,
-                    contentChars: fullContent.length,
-                    contentTrimmedChars: fullContent.trim().length,
-                    ...requestMeta,
-                    ...context,
-                },
-            });
-        };
-        const cleanupStream = () => {
-            if (heartbeatTimer) {
-                clearTimeout(heartbeatTimer);
-            }
-            if (signal) {
-                signal.removeEventListener('abort', handleAbort);
-            }
-            eventSource.close();
-        };
-        const resolveOnce = (result: AIAnalysisResult) => {
-            if (isSettled) {
-                return;
-            }
-            isSettled = true;
-            cleanupStream();
-            resolve(result);
-        };
-        const finishStream = () => {
-            if (!fullContent.trim()) {
-                const result: AIAnalysisResult = {
-                    success: false,
-                    error: '模型推理已结束，但没有返回可见正文，请重试。',
-                    code: 'empty_response',
-                    stage,
-                    recoverable: true,
-                    usedFallback: false,
-                };
-                recordStreamDecision('empty_response', result);
-                resolveOnce(result);
-                return;
-            }
-
-            if (lastFinishReason === 'length') {
-                const result: AIAnalysisResult = {
-                    success: false,
-                    error: tokenLimitError,
-                    code: 'token_limit',
-                    stage,
-                    recoverable: true,
-                    usedFallback: false,
-                    content: fullContent || undefined,
-                };
-                recordStreamDecision('finish_reason_length', result);
-                resolveOnce(result);
-                return;
-            }
-
-            const result: AIAnalysisResult = { success: true, content: fullContent };
-            recordStreamDecision(lastFinishReason === 'stop' ? 'finish_reason_stop' : 'done_marker', result);
-            resolveOnce(result);
-        };
-        const streamIdleTimeoutMs = getStreamIdleTimeoutMs(stage);
-        const handleAbort = () => {
-            if (isSettled) {
-                return;
-            }
-            isAborted = true;
-            const result: AIAnalysisResult = {
-                success: false,
-                error: 'ABORTED',
-                code: 'aborted',
-                stage,
-                recoverable: true,
-                usedFallback: false,
-            };
-            recordStreamDecision('aborted', result);
-            resolveOnce(result);
-        };
-        const resetHeartbeat = () => {
-            if (heartbeatTimer) {
-                clearTimeout(heartbeatTimer);
-            }
-            heartbeatTimer = setTimeout(() => {
-                if (isAborted || isSettled) {
-                    return;
-                }
-                isAborted = true;
-                const result: AIAnalysisResult = {
-                    success: false,
-                    error: '连接超时：服务器长时间无响应',
-                    code: 'timeout',
-                    stage,
-                    recoverable: true,
-                    usedFallback: false,
-                    content: fullContent || undefined,
-                };
-                recordStreamDecision('idle_timeout', result, { idleTimeoutMs: streamIdleTimeoutMs });
-                resolveOnce(result);
-            }, streamIdleTimeoutMs);
-        };
-
-        resetHeartbeat();
-        logAIRequestDebug({ ...requestOptions.debugMeta, ...requestMeta });
-
-        eventSource = new EventSource(resolveChatCompletionsUrl(settings.apiUrl), {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${settings.apiKey.trim()}`,
-            },
-            body: JSON.stringify({
-                model: settings.model,
-                messages,
-                temperature: requestOptions.temperature ?? settings.temperature,
-                max_tokens: effectiveMaxTokens,
-                stream: true,
-            }),
-            pollingInterval: 0,
-        });
-
-        if (signal) {
-            signal.addEventListener('abort', handleAbort, { once: true });
-        }
-
-        eventSource.addEventListener('message', (event) => {
-            if (isAborted) {
-                return;
-            }
-            resetHeartbeat();
-            const dataStr = event.data;
-            if (!dataStr) {
-                return;
-            }
-            if (dataStr === '[DONE]') {
-                finishStream();
-                return;
-            }
-
-            for (const payload of splitStreamEventPayload(dataStr)) {
-                if (isSettled) {
-                    return;
-                }
-                if (payload === '[DONE]') {
-                    finishStream();
-                    return;
-                }
-
-                let parsed: any;
-                try {
-                    parsed = JSON.parse(payload);
-                } catch {
-                    continue;
-                }
-                const choice = parsed.choices?.[0];
-                const delta = choice?.delta || {};
-                // 记录 finish_reason，用于在 [DONE] 时检测截断
-                if (choice?.finish_reason) {
-                    lastFinishReason = choice.finish_reason;
-                }
-                const reasoningChunk = typeof delta.reasoning_content === 'string' ? delta.reasoning_content : '';
-                const chunk = typeof delta.content === 'string' ? delta.content : '';
-                if (reasoningChunk && !hasReasoningSignal) {
-                    hasReasoningSignal = true;
-                    requestOptions.onReasoning?.();
-                }
-                if (chunk) {
-                    fullContent += chunk;
-                    onChunk(chunk);
-                }
-                if (lastFinishReason === 'stop' || lastFinishReason === 'length') {
-                    finishStream();
-                    return;
-                }
-            }
-        });
-
-        eventSource.addEventListener('error', (error: any) => {
-            if (isAborted || isSettled) {
-                return;
-            }
-            const xhrStatus = typeof error.xhrStatus === 'number' && error.xhrStatus > 0
-                ? error.xhrStatus
-                : 0;
-            if (xhrStatus === 200 && lastFinishReason === 'stop' && fullContent.trim()) {
-                finishStream();
-                return;
-            }
-            if (lastFinishReason === 'length') {
-                finishStream();
-                return;
-            }
-            const errorStatus = xhrStatus > 0
-                ? `HTTP ${xhrStatus}`
-                : '';
-            const errorMessage = xhrStatus === 524
-                ? '模型强推理耗时较长，接口网关返回 524 超时，请重试。'
-                : (error.message || JSON.stringify(error));
-            const result: AIAnalysisResult = {
-                success: false,
-                error: xhrStatus === 524
-                    ? errorMessage
-                    : `模型请求意外中断${errorStatus ? `（${errorStatus}）` : ''}: ${errorMessage}`,
-                code: errorStatus ? 'http_error' : 'network_error',
-                stage,
-                recoverable: true,
-                usedFallback: false,
-                content: fullContent || undefined,
-            };
-            recordStreamDecision(xhrStatus === 524 ? 'gateway_timeout' : 'stream_error', result, {
-                xhrStatus,
-                xhrState: error.xhrState,
-                errorMessage,
-            });
-            resolveOnce(result);
-        });
+    logAIRequestDebug({ ...requestOptions.debugMeta, ...requestMeta });
+    const response = await streamProviderText(settings, messages, {
+        stage,
+        requestType: requestOptions.debugMeta?.requestType ?? 'main',
+        temperature: requestOptions.temperature ?? settings.temperature,
+        maxTokens: requestOptions.maxTokens,
+        firstEventTimeoutMs: getStreamFirstEventTimeoutMs(stage),
+        idleTimeoutMs: getStreamIdleTimeoutMs(stage),
+        signal,
+        onReasoning: requestOptions.onReasoning,
+        onChunk: (chunk) => {
+            fullContent += chunk;
+            onChunk(chunk);
+        },
     });
+    const result: AIAnalysisResult = response.success && response.content
+        ? { success: true, content: response.content }
+        : {
+            success: false,
+            error: response.error || '模型请求失败',
+            code: response.code ?? 'network_error',
+            stage,
+            recoverable: true,
+            usedFallback: false,
+            content: response.content,
+        };
+    const decision = result.success
+        ? 'provider_completed'
+        : (result.code === 'token_limit' ? 'token_limit' : 'provider_failed');
+    void recordDiagnosticLog({
+        level: result.success ? 'info' : 'warn',
+        source: 'AI:streamDecision',
+        message: decision,
+        context: {
+            decision,
+            success: result.success,
+            code: result.code,
+            contentChars: fullContent.length,
+            contentTrimmedChars: fullContent.trim().length,
+            ...requestMeta,
+            ...response.meta,
+            errorMessage: result.error,
+        },
+    });
+    return result;
 }
 
 export async function generateBaziConversationDigest(

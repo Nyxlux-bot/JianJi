@@ -1,9 +1,13 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { PersistedAIChatMessage } from '../core/ai-meta';
-import { extractBaziRelations } from '../core/bazi-relations';
 import { BaziResult } from '../core/bazi-types';
+import {
+    DEFAULT_GAN_ZHI_RELATION_SETTINGS,
+    GanZhiRelationSettings,
+} from '../core/bazi-ganzhi-relation-engine';
 import { PanResult } from '../core/liuyao-calc';
+import { getLiuyaoSubjectLabel } from '../core/liuyao-data';
 import { ZiweiRecordResult } from '../features/ziwei/record';
 import { formatPanForAI } from './ai';
 import { formatBaziToText } from './bazi-formatter';
@@ -57,12 +61,6 @@ function pickLastAssistant(result: PanResult): string {
         }
     }
     return (result.aiAnalysis || '').trim();
-}
-
-function getBaziRelations(result: BaziResult): string[] {
-    const stems = result.fourPillars.map((pillar) => pillar.charAt(0));
-    const branches = result.fourPillars.map((pillar) => pillar.charAt(1));
-    return extractBaziRelations(stems, branches);
 }
 
 function formatBaziLiuYueLines(liuYue: BaziResult['liuNian'][number]['liuYue']): string[] {
@@ -130,7 +128,10 @@ export async function shareResultMarkdown(result: PanResult): Promise<void> {
     await shareMarkdownFile(fileName, markdown);
 }
 
-export function buildBaziResultMarkdown(result: BaziResult): string {
+export function buildBaziResultMarkdown(
+    result: BaziResult,
+    ganZhiRelationSettings: GanZhiRelationSettings = DEFAULT_GAN_ZHI_RELATION_SETTINGS,
+): string {
     const title = result.subject.name?.trim() || result.fourPillars.join(' ');
     const lines = [
         `# 八字排盘：${title}`,
@@ -141,7 +142,7 @@ export function buildBaziResultMarkdown(result: BaziResult): string {
         '',
         '## 完整排盘文本',
         '',
-        formatBaziToText(result, getBaziRelations(result)),
+        formatBaziToText(result, [], { ganZhiRelationSettings }),
         '',
         '## 全量大运流年流月',
         '',
@@ -155,9 +156,12 @@ export function buildBaziResultMarkdown(result: BaziResult): string {
     return lines.join('\n');
 }
 
-export async function shareBaziResultMarkdown(result: BaziResult): Promise<void> {
+export async function shareBaziResultMarkdown(
+    result: BaziResult,
+    ganZhiRelationSettings: GanZhiRelationSettings = DEFAULT_GAN_ZHI_RELATION_SETTINGS,
+): Promise<void> {
     const fileName = `bazi_result_${sanitizeName(result.subject.name?.trim() || result.fourPillars.join('_'))}_${Date.now()}.md`;
-    const markdown = buildBaziResultMarkdown(result);
+    const markdown = buildBaziResultMarkdown(result, ganZhiRelationSettings);
     await shareMarkdownFile(fileName, markdown);
 }
 
@@ -182,6 +186,7 @@ export async function shareChatMarkdown(result: PanResult | BaziResult | ZiweiRe
         lines.push(`# AI 会话导出：${result.benGua.fullName}`);
         lines.push('');
         lines.push(`- 起卦方式：${METHOD_LABEL[result.method] || result.method}`);
+        lines.push(`- 性别/起卦主体：${result.subject ? getLiuyaoSubjectLabel(result.subject) : '未指定（历史记录）'}`);
         lines.push(`- 占问事项：${result.question || '未填写'}`);
         lines.push(`- 导出时间：${new Date().toISOString()}`);
     }

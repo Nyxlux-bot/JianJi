@@ -53,6 +53,7 @@ import {
     retryPendingBaziPersist,
     subscribePendingBaziRecord,
 } from '../../../src/features/bazi/pending-result-cache';
+import { useGanZhiRelationSettings } from '../../../src/features/bazi/ganzhi-relation-settings';
 import { shareBaziResultMarkdown } from '../../../src/services/share';
 import { isAIConfigured } from '../../../src/services/settings';
 import { clearAIAnalysisJob } from '../../../src/services/ai-analysis-jobs';
@@ -149,6 +150,7 @@ export default function BaziResultPage() {
     const { width } = useWindowDimensions();
     const styles = makeStyles(Colors, width);
     const { id } = useLocalSearchParams<{ id: string }>();
+    const { settings: ganZhiRelationSettings } = useGanZhiRelationSettings();
 
     const [result, setResult] = useState<BaziResult | null>(null);
     const [isFavorite, setIsFavorite] = useState(false);
@@ -279,8 +281,8 @@ export default function BaziResultPage() {
     }, []));
 
     const proChartView = useMemo(() => (
-        result ? buildBaziProChartViewModel(result, fortuneSelection) : null
-    ), [fortuneSelection, result]);
+        result ? buildBaziProChartViewModel(result, fortuneSelection, ganZhiRelationSettings) : null
+    ), [fortuneSelection, ganZhiRelationSettings, result]);
     const overviewOriginRows = useMemo(() => (
         result && proChartView ? buildOverviewOriginRows(result, proChartView.fortuneColumns) : []
     ), [proChartView, result]);
@@ -417,7 +419,7 @@ export default function BaziResultPage() {
     const handleShare = async () => {
         if (!result) return;
         try {
-            await shareBaziResultMarkdown(result);
+            await shareBaziResultMarkdown(result, ganZhiRelationSettings);
         } catch (error: any) {
             const message = typeof error?.message === 'string' ? error.message : '导出失败，请稍后重试';
             CustomAlert.alert('导出失败', message);
@@ -677,6 +679,7 @@ export default function BaziResultPage() {
                     panelMode,
                     fortuneSelection,
                     wuXingEnergy: energyState.snapshot ?? undefined,
+                    ganZhiRelationSettings,
                 }}
                 onUpdateResult={(updatedResult) => {
                     setResult(normalizeBaziResultV2(updatedResult as BaziResult));

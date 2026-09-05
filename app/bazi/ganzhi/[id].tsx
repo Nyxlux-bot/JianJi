@@ -185,7 +185,7 @@ export default function BaziGanZhiVisualPage() {
     );
     const viewModel = useMemo(() => {
         if (!result || !selection) return null;
-        const proChart = buildBaziProChartViewModel(result, selection);
+        const proChart = buildBaziProChartViewModel(result, selection, ganZhiRelationSettings);
         return buildGanZhiVisualViewModel(
             result,
             proChart.fortuneColumns,

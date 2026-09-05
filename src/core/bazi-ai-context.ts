@@ -4,6 +4,10 @@ import type {
     BaziWuXingEnergySnapshot,
     BaziWuXingSeasonStatus,
 } from './bazi-wuxing-energy';
+import {
+    GanZhiRelationSettings,
+    normalizeGanZhiRelationSettings,
+} from './bazi-ganzhi-relation-engine';
 
 function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -30,6 +34,7 @@ export interface BaziFormatterContext {
     panelMode?: BaziPanelMode;
     fortuneSelection?: BaziFortuneSelection;
     wuXingEnergy?: BaziWuXingEnergySnapshot;
+    ganZhiRelationSettings?: GanZhiRelationSettings;
 }
 
 const WU_XING_ORDER: BaziWuXingElement[] = ['木', '火', '土', '金', '水'];
@@ -131,6 +136,9 @@ export function normalizeBaziFormatterContext(context: unknown): BaziFormatterCo
         : undefined;
     const rawSelection = isObject(context.fortuneSelection) ? context.fortuneSelection : null;
     const wuXingEnergy = normalizeWuXingEnergy(context.wuXingEnergy);
+    const ganZhiRelationSettings = isObject(context.ganZhiRelationSettings)
+        ? normalizeGanZhiRelationSettings(context.ganZhiRelationSettings)
+        : undefined;
 
     const fortuneSelection = rawSelection
         && (rawSelection.mode === 'dayun' || rawSelection.mode === 'xiaoyun')
@@ -159,7 +167,7 @@ export function normalizeBaziFormatterContext(context: unknown): BaziFormatterCo
         })()
         : undefined;
 
-    if (!panelMode && !fortuneSelection && !wuXingEnergy) {
+    if (!panelMode && !fortuneSelection && !wuXingEnergy && !ganZhiRelationSettings) {
         return undefined;
     }
 
@@ -167,6 +175,7 @@ export function normalizeBaziFormatterContext(context: unknown): BaziFormatterCo
         panelMode,
         fortuneSelection,
         wuXingEnergy,
+        ganZhiRelationSettings,
     };
 }
 
@@ -181,8 +190,9 @@ export function mergeBaziFormatterContext(
     const panelMode = override?.panelMode ?? base?.panelMode;
     const fortuneSelection = override?.fortuneSelection ?? base?.fortuneSelection;
     const wuXingEnergy = override?.wuXingEnergy ?? base?.wuXingEnergy;
+    const ganZhiRelationSettings = override?.ganZhiRelationSettings ?? base?.ganZhiRelationSettings;
 
-    if (!panelMode && !fortuneSelection && !wuXingEnergy) {
+    if (!panelMode && !fortuneSelection && !wuXingEnergy && !ganZhiRelationSettings) {
         return undefined;
     }
 
@@ -190,5 +200,6 @@ export function mergeBaziFormatterContext(
         panelMode,
         fortuneSelection,
         wuXingEnergy,
+        ganZhiRelationSettings,
     };
 }

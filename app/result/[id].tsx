@@ -18,6 +18,7 @@ import { BackIcon, SparklesIcon, CompassIcon, MoreVerticalIcon } from '../../src
 import HexagramDisplay from '../../src/components/HexagramDisplay';
 import FourPillars from '../../src/components/FourPillars';
 import { PanResult } from '../../src/core/liuyao-calc';
+import { getLiuyaoSubjectLabel } from '../../src/core/liuyao-data';
 import { getRecord, deleteRecord, getAllRecords, toggleFavorite } from '../../src/db/database';
 import { isAIConfigured } from '../../src/services/settings';
 import { useTheme } from "../../src/theme/ThemeContext";
@@ -278,6 +279,11 @@ export default function ResultPage() {
                 {showBasicInfo && (
                     <View style={styles.basicInfoCard}>
                         <InfoRow label="起卦方式" value={METHOD_CN[result.method] || result.method} styles={styles} />
+                        <InfoRow
+                            label="性别/起卦主体"
+                            value={result.subject ? getLiuyaoSubjectLabel(result.subject) : '未指定（历史记录）'}
+                            styles={styles}
+                        />
                         {result.question ? <InfoRow label="占问事项" value={result.question} styles={styles} /> : null}
                         <InfoRow label="年柱" value={`${result.yearGanZhi} (${result.yearNaYin})`} styles={styles} />
                         <InfoRow label="月柱" value={`${result.monthGanZhi} (${result.monthNaYin})`} styles={styles} />

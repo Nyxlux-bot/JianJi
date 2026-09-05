@@ -19,6 +19,8 @@ import { saveRecord } from '../../src/db/database';
 import LocationBar from '../../src/components/LocationBar';
 import CityPicker from '../../src/components/CityPicker';
 import { useLocation } from '../../src/hooks/useLocation';
+import LiuyaoSubjectSelector from '../../src/components/LiuyaoSubjectSelector';
+import type { LiuyaoSubject } from '../../src/core/liuyao-data';
 import { useTheme } from "../../src/theme/ThemeContext";
 
 export default function NumberDivination() {
@@ -27,6 +29,7 @@ export default function NumberDivination() {
     const [num1, setNum1] = useState('');
     const [num2, setNum2] = useState('');
     const [question, setQuestion] = useState('');
+    const [subject, setSubject] = useState<LiuyaoSubject | null>(null);
     const [loading, setLoading] = useState(false);
     const { location, pickerVisible, openPicker, closePicker, handleSelectLocation } = useLocation();
 
@@ -35,6 +38,10 @@ export default function NumberDivination() {
         const n2 = parseInt(num2);
         if (isNaN(n1) || isNaN(n2) || n1 <= 0 || n2 <= 0) {
             CustomAlert.alert('提示', '请输入有效的正整数');
+            return;
+        }
+        if (!subject) {
+            CustomAlert.alert('提示', '请选择起卦主体');
             return;
         }
         try {
@@ -46,6 +53,7 @@ export default function NumberDivination() {
                 question,
                 location?.longitude,
                 location ? buildRegionDisplayName(location) : undefined,
+                subject,
             );
             await saveRecord({
                 engineType: 'liuyao',
@@ -78,6 +86,8 @@ export default function NumberDivination() {
 
                 {/* 地点选择 */}
                 <LocationBar location={location} onPress={openPicker} />
+
+                <LiuyaoSubjectSelector value={subject} onChange={setSubject} />
 
                 <View style={styles.inputSection}>
                     <Text style={styles.sectionLabel}>输入数字</Text>
@@ -130,10 +140,10 @@ export default function NumberDivination() {
                 </View>
 
                 <TouchableOpacity
-                    style={[styles.divinateButton, loading && styles.divinateButtonDisabled]}
+                    style={[styles.divinateButton, (loading || !subject) && styles.divinateButtonDisabled]}
                     activeOpacity={0.8}
                     onPress={handleDivinate}
-                    disabled={loading}
+                    disabled={loading || !subject}
                 >
                     <Text style={styles.divinateButtonText}>
                         {loading ? '排卦中...' : '起卦'}
