@@ -31,7 +31,7 @@ import {
     isZiweiContextSnapshotCurrent,
     ZiweiRecordResult,
 } from '../features/ziwei/record';
-import { BAZI_DIGEST_OUTPUT, ZIWEI_DIGEST_OUTPUT, LIUYAO_QUICK_REPLIES_OUTPUT } from '../ai/output-contracts';
+import { BAZI_DIGEST_OUTPUT, ZIWEI_DIGEST_OUTPUT, LIUYAO_QUICK_REPLIES_OUTPUT, renderFiveYearFormat, renderVerificationFormat } from '../ai/output-contracts';
 import { composeSkillInstructions, getSkillVersions, renderSkillRequest } from '../ai/skill-composer';
 import { streamProviderText } from './ai-provider-client';
 import type { AIRequestRuntime } from './ai-provider-types';
@@ -380,15 +380,6 @@ function hasWorkflowFollowUpHistory(messages?: PersistedAIChatMessage[]): boolea
     return visibleUserCount > 0 || visibleAssistantCount > 1;
 }
 
-function countStructuredItems(section: string): number {
-    return (section.match(/(^|\n)\s*(?:#{1,6}\s+|[-*•]|\d+[.)、])/g) ?? []).length;
-}
-
-function countMentionedYears(section: string): number {
-    const matches = section.match(/\b20\d{2}\b/g) ?? [];
-    return new Set(matches).size;
-}
-
 function getLatestAssistantText(result: BaziResult | ZiweiRecordResult): string {
     if (result.aiChatHistory && result.aiChatHistory.length > 0) {
         for (let index = result.aiChatHistory.length - 1; index >= 0; index -= 1) {
@@ -409,10 +400,6 @@ function getContentMarker<TKind extends string>(content: string, markers: Record
         }
     }
     return null;
-}
-
-function getExpectedMarker<TKind extends string>(kind: TKind, markers: Record<TKind, string>): string {
-    return markers[kind];
 }
 
 function getPartialMarkerStartIndex(content: string, prefix: string): number {
@@ -451,7 +438,7 @@ function sanitizeLeadingDraft(content: string, kind?: BaziWorkflowResponseKind):
         return content;
     }
     const stageHeading = kind === 'foundation' ? /基础|命盘|命格|定局|四柱|日主/
-        : kind === 'verification' ? /前事|核验/ : kind === 'five_year' ? /今年|总览/ : /\S/;
+        : kind === 'verification' ? /前事|核验|^\d{4}/ : kind === 'five_year' ? /今年|总览|总纲|^\d{4}/ : /\S/;
     const headingIndex = [...content.matchAll(/^#{1,6}\s+(.+)$/gm)]
         .find((match) => stageHeading.test(match[1]))?.index ?? -1;
     if (headingIndex !== -1) {
@@ -535,345 +522,33 @@ function resolveBaziFutureWindow(now: Date = new Date()): { currentYear: number;
     };
 }
 
-const ZIWEI_PALACE_KEYWORDS = [
-    '命宫',
-    '兄弟',
-    '夫妻',
-    '子女',
-    '财帛',
-    '疾厄',
-    '迁移',
-    '仆役',
-    '交友',
-    '朋友',
-    '官禄',
-    '田宅',
-    '福德',
-    '父母',
-];
-const ZIWEI_DEFAULT_STAR_KEYWORDS = [
-    '紫微',
-    '天机',
-    '太阳',
-    '武曲',
-    '天同',
-    '廉贞',
-    '天府',
-    '太阴',
-    '贪狼',
-    '巨门',
-    '天相',
-    '天梁',
-    '七杀',
-    '破军',
-    '文昌',
-    '文曲',
-    '左辅',
-    '右弼',
-    '擎羊',
-    '陀罗',
-    '火星',
-    '铃星',
-    '禄存',
-    '天马',
-    '地空',
-    '地劫',
-];
-const ZIWEI_SCOPE_OR_MUTAGEN_REGEX = /(大限|小限|流年|流月|流日|流时|四化|生年四化|飞化|自化|化禄|化权|化科|化忌)/;
-const ZIWEI_STAR_CONTEXT_REGEX = /(主星|辅曜|杂耀|星曜)/;
-const ZIWEI_FIVE_YEAR_RANGE_REGEX = /(20\d{2})\s*[-—–~～至]\s*(20\d{2})\s*年?/g;
-const ZIWEI_FIVE_YEAR_SINGLE_REGEX = /\b(20\d{2})\b/g;
+/**
+ * Stage completion depends only on whether the reply was written to the end:
+ * the stream finished normally (the provider reports token limits and broken
+ * streams as failures before this point) and either the stage marker is
+ * present or the body is long enough to be a full chapter. Headings and
+ * labels are read by the layout parser and never fail a stage.
+ */
+const WORKFLOW_MIN_CHARS: Record<BaziWorkflowResponseKind, number> = {
+    foundation: 400,
+    verification: 300,
+    five_year: 500,
+};
 
-interface ZiweiFiveYearSectionParseResult {
-    sections: Record<string, string>;
-    parsedYearBuckets: string[];
-}
-
-interface ZiweiWorkflowValidationDebug {
-    parsedYearBuckets?: string[];
-    parsedVerificationBlockCount?: number;
-    parsedVerificationHeaders?: string[];
-}
-
-function getZiweiStarKeywords(): string[] {
-    return Array.from(new Set([
-        ...ZIWEI_DEFAULT_STAR_KEYWORDS,
-    ]));
-}
-
-function hasZiweiPalaceEvidence(content: string): boolean {
-    return ZIWEI_PALACE_KEYWORDS.some((keyword) => content.includes(keyword)) || content.includes('宫位');
-}
-
-function hasZiweiStarEvidence(content: string): boolean {
-    return ZIWEI_STAR_CONTEXT_REGEX.test(content)
-        || getZiweiStarKeywords().some((keyword) => content.includes(keyword));
-}
-
-function hasZiweiScopeOrMutagenEvidence(content: string): boolean {
-    return ZIWEI_SCOPE_OR_MUTAGEN_REGEX.test(content);
-}
-
-function normalizeAnalysisHeading(line: string): string {
-    return line.trim()
-        .replace(/^#{1,6}\s+/, '')
-        .replace(/^[>•-]\s+/, '')
-        .replace(/\*\*|__/g, '')
-        .replace(/^(?:\d+|[一二三四五六七八九十]+)[.)、：:]\s*/, '')
-        .trim();
-}
-
-function getZiweiFiveYearHeaderYears(
-    line: string,
-    currentYear: number,
-    expectedYears: string[],
+function getWorkflowCompletenessIssues<TKind extends BaziWorkflowResponseKind>(
+    kind: TKind,
+    rawContent: string,
+    cleanContent: string,
+    markers: Record<TKind, string>,
 ): string[] {
-    const trimmed = normalizeAnalysisHeading(line);
-    if (!trimmed || trimmed.includes('总策略') || trimmed.includes('总纲')) {
-        return [];
-    }
-
-    const currentYearPatterns = [
-        new RegExp(`今年\\s*[（(]?\\s*${currentYear}\\s*[）)]?`),
-        new RegExp(`^\\s*(?:[#>*\\-•]\\s*|\\d+[.)、]\\s*)?${currentYear}\\s*年?`),
-    ];
-    const startsWithExpectedYear = expectedYears.some((year) => new RegExp(
-        `^\\s*(?:[#>*\\-•]\\s*|\\d+[.)、]\\s*)?${year}\\s*年?(?:\\s|[:：（(]|$)`,
-    ).test(trimmed));
-    const isTimepointHeader = /时间点\s*[：:]/.test(trimmed);
-    const isYearAnchorHeader = /年度锚点/.test(trimmed);
-    const isOverviewHeader = /总览/.test(trimmed) && (trimmed.includes('今年') || expectedYears.some((year) => trimmed.includes(year)));
-
-    if (!currentYearPatterns.some((pattern) => pattern.test(trimmed))
-        && !startsWithExpectedYear
-        && !isTimepointHeader
-        && !isYearAnchorHeader
-        && !isOverviewHeader) {
-        return [];
-    }
-
-    const expectedYearSet = new Set(expectedYears);
-    const years = new Set<string>();
-
-    if (currentYearPatterns.some((pattern) => pattern.test(trimmed))) {
-        years.add(String(currentYear));
-    }
-
-    for (const match of trimmed.matchAll(ZIWEI_FIVE_YEAR_RANGE_REGEX)) {
-        const start = Number(match[1]);
-        const end = Number(match[2]);
-        const lower = Math.min(start, end);
-        const upper = Math.max(start, end);
-        for (let year = lower; year <= upper; year += 1) {
-            const normalized = String(year);
-            if (expectedYearSet.has(normalized)) {
-                years.add(normalized);
-            }
-        }
-    }
-
-    for (const match of trimmed.matchAll(ZIWEI_FIVE_YEAR_SINGLE_REGEX)) {
-        const normalized = match[1];
-        if (expectedYearSet.has(normalized)) {
-            years.add(normalized);
-        }
-    }
-
-    return years.size === 1 ? [...years] : [];
-}
-
-function extractZiweiFiveYearSections(
-    content: string,
-    currentYear: number,
-    futureYears: string[],
-): ZiweiFiveYearSectionParseResult {
-    const sections: Record<string, string[]> = {};
-    const lines = content.split('\n');
-    const expectedYears = [String(currentYear), ...futureYears];
-    let activeYears: string[] = [];
-    let reachedStrategy = false;
-
-    lines.forEach((line) => {
-        if (reachedStrategy) {
-            return;
-        }
-        if (line.includes('总策略')) {
-            activeYears = [];
-            reachedStrategy = true;
-            return;
-        }
-        if (/总纲|逐年展开/.test(normalizeAnalysisHeading(line))) {
-            activeYears = [];
-            return;
-        }
-        const detectedYears = getZiweiFiveYearHeaderYears(line, currentYear, expectedYears);
-        if (detectedYears.length > 0) {
-            activeYears = detectedYears;
-            detectedYears.forEach((year) => {
-                sections[year] = [line.trim()];
-            });
-            return;
-        }
-
-        if (activeYears.length === 0) {
-            return;
-        }
-
-        activeYears.forEach((year) => {
-            sections[year].push(line);
-        });
-    });
-
-    const normalizedSections = Object.fromEntries(
-        Object.entries(sections).filter(([, value]) => value.slice(1).some((line) => line.trim())).map(([year, value]) => [year, value.join('\n').trim()]),
-    );
-
-    return {
-        sections: normalizedSections,
-        parsedYearBuckets: Object.keys(normalizedSections).sort((left, right) => Number(left) - Number(right)),
-    };
-}
-
-function hasValidZiweiFiveYearEvidence(
-    section: string,
-): boolean {
-    const hasPalace = hasZiweiPalaceEvidence(section);
-    const hasStar = hasZiweiStarEvidence(section);
-    const hasScopeOrMutagen = hasZiweiScopeOrMutagenEvidence(section);
-
-    return (hasPalace && hasScopeOrMutagen)
-        || (hasStar && hasScopeOrMutagen)
-        || (hasPalace && hasStar);
-}
-
-function getZiweiVerificationHeaderLabel(line: string): string | null {
-    const trimmed = line.trim();
-    if (!trimmed) {
-        return null;
-    }
-
-    const normalized = normalizeAnalysisHeading(trimmed);
-
-    if (!normalized) {
-        return null;
-    }
-
-    const hasTimeSignal = /(\d{4}\s*年?|\d+\s*岁|虚岁\s*\d+岁|年龄\s*\d+)/.test(normalized);
-    if (!hasTimeSignal) {
-        return null;
-    }
-
-    if (/^时间点\s*[：:]/.test(normalized)) {
-        return normalized;
-    }
-    if (/^(?:大限切换锚点|回看\s*\d{4}\s*年?)/.test(normalized)) {
-        return normalized;
-    }
-    if (/^(?:\d{4}\s*年?|虚岁\s*\d+岁|\d+\s*岁|年龄\s*\d+)/.test(normalized)) {
-        return normalized;
-    }
-
-    return null;
-}
-
-function extractZiweiVerificationBlocks(content: string): {
-    blocks: string[];
-    headers: string[];
-} {
-    const lines = content.split('\n');
-    const blocks: string[][] = [];
-    const headers: string[] = [];
-    let currentBlock: string[] | null = null;
-
-    lines.forEach((line) => {
-        const headerLabel = getZiweiVerificationHeaderLabel(line);
-        if (headerLabel) {
-            if (currentBlock !== null) {
-                blocks.push(currentBlock);
-            }
-            headers.push(headerLabel);
-            currentBlock = [line.trim()];
-            return;
-        }
-
-        if (!currentBlock) {
-            return;
-        }
-
-        currentBlock.push(line);
-    });
-
-    if (currentBlock !== null) {
-        blocks.push(currentBlock);
-    }
-
-    return {
-        blocks: blocks
-            .map((block) => block.join('\n').trim())
-            .filter(Boolean),
-        headers,
-    };
-}
-
-function getFoundationStructureIssues(content: string): string[] {
-    const issues: string[] = [];
-    const signalCount = ['日主', '格局', '用神', '忌神', '性格']
-        .filter((keyword) => content.includes(keyword))
-        .length;
-
-    if (!content.includes('基础定局') && signalCount < 3) {
-        issues.push('基础定局主体不足');
-    }
-    if (countStructuredItems(content) < 3 && signalCount < 4) {
-        issues.push('基础定局结构不足');
-    }
-
-    return issues;
-}
-
-function getVerificationStructureIssues(content: string): string[] {
-    const issues: string[] = [];
-    const eventCount = extractZiweiVerificationBlocks(content).blocks.length;
-
-    if (!content.includes('前事核验') && !(content.includes('大运') && content.includes('流年'))) {
-        issues.push('前事核验主体不足');
-    }
-    if (eventCount < 3 || eventCount > 5) {
-        issues.push('前事核验须包含3到5个独立时间节点');
-    }
-
-    return issues;
-}
-
-function getFiveYearStructureIssues(content: string, asOf: Date): string[] {
-    const issues: string[] = [];
-    const { currentYear, futureStartYear, futureEndYear } = resolveBaziFutureWindow(asOf);
-    const futureYears = Array.from({ length: futureEndYear - futureStartYear + 1 }, (_, index) => String(futureStartYear + index));
-    const parsed = extractZiweiFiveYearSections(content, currentYear, futureYears);
-    const missing = [String(currentYear), ...futureYears].filter((year) => !parsed.sections[year]);
-    if (missing.length) issues.push(`今年与未来五年分段缺失：${missing.join('、')}`);
-
-    return issues;
-}
-
-export function getBaziWorkflowStructureIssues(
-    kind: BaziWorkflowResponseKind,
-    content: string,
-    asOf: Date = new Date(),
-): string[] {
-    if (kind === 'foundation') {
-        return getFoundationStructureIssues(content);
-    }
-    if (kind === 'verification') {
-        return getVerificationStructureIssues(content);
-    }
-    return getFiveYearStructureIssues(content, asOf);
+    const hasMarker = stripThinkingBlocks(rawContent).includes(markers[kind]);
+    if (hasMarker || cleanContent.trim().length >= WORKFLOW_MIN_CHARS[kind]) return [];
+    return ['回复过短且没有本阶段完成标记，可能没有写完'];
 }
 
 export function validateBaziWorkflowResponse(
     kind: BaziWorkflowResponseKind,
     rawContent: string,
-    asOf: Date = new Date(),
 ): {
     success: boolean;
     cleanContent: string;
@@ -882,190 +557,23 @@ export function validateBaziWorkflowResponse(
 } {
     const marker = getContentMarker(rawContent, BAZI_STAGE_MARKERS);
     const cleanContent = stripBaziStageMarkers(rawContent, kind);
-    const issues = getBaziWorkflowStructureIssues(kind, cleanContent, asOf);
-    if (!stripThinkingBlocks(rawContent).trim().endsWith(BAZI_STAGE_MARKERS[kind])) {
-        issues.unshift('回复未完整结束：缺少本阶段末尾完成标记');
-    }
-    if (marker && marker !== kind) {
-        issues.unshift(`阶段完成标记错误：期望 ${getExpectedMarker(kind, BAZI_STAGE_MARKERS)}`);
-    }
-
-    return {
-        success: issues.length === 0,
-        cleanContent,
-        marker,
-        issues,
-    };
-}
-
-function getZiweiFoundationStructureIssues(content: string): string[] {
-    const issues: string[] = [];
-    const signalCount = ['命宫', '身宫', '命主', '身主', '三方四正', '四化', '飞化', '主星']
-        .filter((keyword) => content.includes(keyword))
-        .length;
-
-    if (!content.includes('基础') && signalCount < 4) {
-        issues.push('基础命盘主体不足');
-    }
-    if (countStructuredItems(content) < 3 && signalCount < 5) {
-        issues.push('基础命盘结构不足');
-    }
-    if (signalCount < 4) {
-        issues.push('基础命盘证据引用不足');
-    }
-
-    return issues;
-}
-
-function analyzeZiweiVerificationStructure(content: string): {
-    issues: string[];
-    parsedVerificationBlockCount: number;
-    parsedVerificationHeaders: string[];
-} {
-    const issues: string[] = [];
-    const parsed = extractZiweiVerificationBlocks(content);
-    const eventCount = parsed.blocks.length;
-    const evidenceBlocks = parsed.blocks.filter((block) => {
-        const hasTime = /(\d{4}年|\d{4}|岁|年龄)/.test(block);
-        const hasScope = /(大限|小限|流年|流月|流日|流时)/.test(block);
-        const hasEvidence = hasZiweiPalaceEvidence(block)
-            || hasZiweiStarEvidence(block)
-            || hasZiweiScopeOrMutagenEvidence(block);
-        return hasTime && hasScope && hasEvidence;
-    }).length;
-
-    if (!content.includes('前事核验') && !(content.includes('大限') || content.includes('流年'))) {
-        issues.push('前事核验主体不足');
-    }
-    if (eventCount < 3 || eventCount > 5) {
-        issues.push('前事核验须包含3到5个独立时间节点');
-    }
-    if (evidenceBlocks < 3) {
-        issues.push('前事核验证据引用不足');
-    }
-
-    return {
-        issues,
-        parsedVerificationBlockCount: eventCount,
-        parsedVerificationHeaders: parsed.headers,
-    };
-}
-
-function getZiweiVerificationStructureIssues(content: string): string[] {
-    return analyzeZiweiVerificationStructure(content).issues;
-}
-
-function analyzeZiweiFiveYearStructure(content: string, asOf: Date): {
-    issues: string[];
-    parsedYearBuckets: string[];
-} {
-    const issues: string[] = [];
-    const { currentYear, futureStartYear, futureEndYear } = resolveBaziFutureWindow(asOf);
-    const expectedYears = [String(currentYear), ...Array.from(
-        { length: futureEndYear - futureStartYear + 1 },
-        (_, index) => String(futureStartYear + index),
-    )];
-    const mentionedYears = expectedYears.filter((year) => content.includes(year)).length;
-
-    if (!content.includes('今年') && !content.includes('未来五年') && !content.includes('五年')) {
-        issues.push('未来五年主体不足');
-    }
-    if (countStructuredItems(content) < 6 && mentionedYears < 6 && countMentionedYears(content) < 6) {
-        issues.push('未来五年结构不足');
-    }
-    if (mentionedYears < 6) {
-        issues.push('未来五年年份覆盖不足');
-    }
-    const parsed = extractZiweiFiveYearSections(
-        content,
-        currentYear,
-        expectedYears.slice(1),
-    );
-    const missingYears = expectedYears.filter((year) => !parsed.sections[year]);
-    if (missingYears.length > 0) {
-        issues.push(`未来五年年份分段缺失：${missingYears.join('、')}`);
-    }
-    const insufficientEvidenceYears = expectedYears.filter((year) => {
-        const section = parsed.sections[year] || '';
-        if (!section) {
-            return false;
-        }
-        return !hasValidZiweiFiveYearEvidence(section);
-    });
-    if (insufficientEvidenceYears.length > 0) {
-        issues.push(`未来五年证据年份不足：${insufficientEvidenceYears.join('、')}`);
-    }
-
-    return {
-        issues,
-        parsedYearBuckets: parsed.parsedYearBuckets,
-    };
-}
-
-function getZiweiFiveYearStructureIssues(content: string, asOf: Date): string[] {
-    return analyzeZiweiFiveYearStructure(content, asOf).issues;
-}
-
-export function getZiweiWorkflowStructureIssues(
-    kind: ZiweiWorkflowResponseKind,
-    content: string,
-    asOf: Date = new Date(),
-): string[] {
-    if (kind === 'foundation') {
-        return getZiweiFoundationStructureIssues(content);
-    }
-    if (kind === 'verification') {
-        return getZiweiVerificationStructureIssues(content);
-    }
-    return getZiweiFiveYearStructureIssues(content, asOf);
+    const issues = getWorkflowCompletenessIssues(kind, rawContent, cleanContent, BAZI_STAGE_MARKERS);
+    return { success: issues.length === 0, cleanContent, marker, issues };
 }
 
 export function validateZiweiWorkflowResponse(
     kind: ZiweiWorkflowResponseKind,
     rawContent: string,
-    asOf: Date = new Date(),
 ): {
     success: boolean;
     cleanContent: string;
     marker: ZiweiWorkflowResponseKind | null;
     issues: string[];
-    debug?: ZiweiWorkflowValidationDebug;
 } {
     const marker = getContentMarker(rawContent, ZIWEI_STAGE_MARKERS);
     const cleanContent = stripZiweiStageMarkers(rawContent, kind);
-    let issues: string[];
-    let debug: ZiweiWorkflowValidationDebug | undefined;
-
-    if (kind === 'verification') {
-        const analysis = analyzeZiweiVerificationStructure(cleanContent);
-        issues = analysis.issues;
-        debug = {
-            parsedVerificationBlockCount: analysis.parsedVerificationBlockCount,
-            parsedVerificationHeaders: analysis.parsedVerificationHeaders,
-        };
-    } else if (kind === 'five_year') {
-        const analysis = analyzeZiweiFiveYearStructure(cleanContent, asOf);
-        issues = analysis.issues;
-        debug = {
-            parsedYearBuckets: analysis.parsedYearBuckets,
-        };
-    } else {
-        issues = getZiweiWorkflowStructureIssues(kind, cleanContent);
-    }
-    if (!stripThinkingBlocks(rawContent).trim().endsWith(ZIWEI_STAGE_MARKERS[kind])) {
-        issues.unshift('回复未完整结束：缺少本阶段末尾完成标记');
-    }
-    if (marker && marker !== kind) {
-        issues.unshift(`阶段完成标记错误：期望 ${getExpectedMarker(kind, ZIWEI_STAGE_MARKERS)}`);
-    }
-
-    return {
-        success: issues.length === 0,
-        cleanContent,
-        marker,
-        issues,
-        debug,
-    };
+    const issues = getWorkflowCompletenessIssues(kind, rawContent, cleanContent, ZIWEI_STAGE_MARKERS);
+    return { success: issues.length === 0, cleanContent, marker, issues };
 }
 
 function buildBaziDigestText(digest: BaziAIConversationDigest): string {
@@ -1414,11 +922,11 @@ export function getLocalZiweiVerificationActions(): BaziVerificationAction[] {
 }
 
 export function buildBaziVerificationPrompt(): string {
-    return renderSkillRequest('bazi', 'verification', { completionMarker: BAZI_STAGE_MARKERS.verification });
+    return renderSkillRequest('bazi', 'verification', { outputFormat: renderVerificationFormat('bazi'), completionMarker: BAZI_STAGE_MARKERS.verification });
 }
 
 export function buildZiweiVerificationPrompt(): string {
-    return renderSkillRequest('ziwei', 'verification', { completionMarker: ZIWEI_STAGE_MARKERS.verification });
+    return renderSkillRequest('ziwei', 'verification', { outputFormat: renderVerificationFormat('ziwei'), completionMarker: ZIWEI_STAGE_MARKERS.verification });
 }
 
 export function buildBaziVerificationRetryPrompt(): string {
@@ -1427,13 +935,14 @@ export function buildBaziVerificationRetryPrompt(): string {
 
 export function buildBaziFiveYearPrompt(asOf: Date = new Date()): string {
     const { currentYear, futureStartYear, futureEndYear, todayText } = resolveBaziFutureWindow(asOf);
-    return renderSkillRequest('bazi', 'five_year', { currentYear, futureStartYear, futureEndYear, todayText, completionMarker: BAZI_STAGE_MARKERS.five_year });
+    return renderSkillRequest('bazi', 'five_year', { currentYear, futureStartYear, futureEndYear, todayText,
+        outputFormat: renderFiveYearFormat('bazi', currentYear, futureEndYear), completionMarker: BAZI_STAGE_MARKERS.five_year });
 }
 
 export function buildZiweiFiveYearPrompt(result: ZiweiRecordResult, asOf: Date = new Date()): string {
     const { currentYear, futureStartYear, futureEndYear, todayText } = resolveBaziFutureWindow(asOf);
-    return renderSkillRequest('ziwei', 'five_year', { currentYear, futureStartYear, futureEndYear, todayText, nextYear: futureStartYear + 1,
-        fiveElementsClass: result.fiveElementsClass, soul: result.soul, body: result.body, completionMarker: ZIWEI_STAGE_MARKERS.five_year });
+    return renderSkillRequest('ziwei', 'five_year', { currentYear, futureStartYear, futureEndYear, todayText,
+        outputFormat: renderFiveYearFormat('ziwei', currentYear, futureEndYear), fiveElementsClass: result.fiveElementsClass, soul: result.soul, body: result.body, completionMarker: ZIWEI_STAGE_MARKERS.five_year });
 }
 
 export function getLocalBaziFoundationActionLabel(): string {
