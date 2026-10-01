@@ -907,7 +907,7 @@ export function getLocalLiuyaoQuickReplies(result: PanResult): string[] {
 export function getLocalBaziVerificationActions(): BaziVerificationAction[] {
     return [
         { id: 'continue', label: '继续分析今年与未来五年' },
-        { id: 'retry_verification', label: '重新分析前事' },
+        { id: 'retry_verification', label: '重新核验前事' },
     ];
 }
 
@@ -918,7 +918,7 @@ export function getLocalZiweiQuickReplies(): string[] {
 export function getLocalZiweiVerificationActions(): BaziVerificationAction[] {
     return [
         { id: 'continue', label: '继续分析今年与未来五年' },
-        { id: 'retry_verification', label: '重新分析前事' },
+        { id: 'retry_verification', label: '重新核验前事' },
     ];
 }
 

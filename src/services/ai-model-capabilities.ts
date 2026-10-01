@@ -86,5 +86,9 @@ export function getReasoningLabel(value: AIProviderConfig['reasoning'], budget?:
     if (value === 'default') return '模型默认';
     if (value === 'off') return '关闭思考';
     if (value === 'budget') return `预算 ${budget ?? DEFAULT_THINKING_BUDGET}`;
-    return value;
+    return REASONING_EFFORT_LABELS[value] ?? value;
 }
+
+const REASONING_EFFORT_LABELS: Record<string, string> = {
+    none: '不思考', minimal: '极简', low: '低', medium: '中', high: '高', xhigh: '超高', max: '最高',
+};
