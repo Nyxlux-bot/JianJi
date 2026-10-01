@@ -18,6 +18,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { BaziFormatterContext, mergeBaziFormatterContext } from '../core/bazi-ai-context';
 import { normalizeGanZhiRelationSettings } from '../core/bazi-ganzhi-relation-engine';
 import { BaziAIConversationStage, PersistedAIChatMessage } from '../core/ai-meta';
+import { formatVerificationMarksShort, getActiveVerificationMarks, type AIVerificationMarkEntry } from '../core/ai-verification-marks';
 import { BaziResult } from '../core/bazi-types';
 import { getBaziBirthSignature } from '../core/bazi-ai-identity';
 import { formatBaziDisplayContent } from '../core/bazi-ai-display';
@@ -810,17 +811,20 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         });
     };
 
-    const handleStartVerification = async (override?: UIChatMessage[]) => {
+    const handleStartVerification = async (override?: UIChatMessage[], marks: Record<string, AIVerificationMarkEntry> = {}) => {
         if (!stagedMode) {
             return;
         }
 
         const baseMessagesOverride = override ?? (kinshipWorkflow
             ? hydrateMessages(latestResultRef.current.aiChatHistory ?? []) : trimWorkflowMessages(messages, 1));
-        const prompt = workflowMode === 'bazi' ? buildBaziVerificationPrompt() : buildZiweiVerificationPrompt();
-        await handleSend(prompt, {
+        const prompt = workflowMode === 'bazi' ? buildBaziVerificationPrompt(marks) : buildZiweiVerificationPrompt(marks);
+        const markedText = formatVerificationMarksShort(marks);
+        // Marks are the user's own feedback, so they stay visible in the
+        // conversation; the full instructions travel as requestContent.
+        await handleSend(markedText ? `按我的标记重新核验：${markedText}` : prompt, {
             baseMessagesOverride,
-            hiddenUser: true,
+            hiddenUser: !markedText,
             requestTextOverride: prompt,
             expectedCompletion: 'verification',
             nextWorkflowStage: 'verification_ready',
@@ -832,10 +836,11 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             return;
         }
 
+        const marks = getActiveVerificationMarks(latestResultRef.current as BaziResult | ZiweiRecordResult);
         if (kinshipWorkflow) {
             const history = hydrateMessages(latestResultRef.current.aiChatHistory ?? []);
             await saveAndSync(history, { quickReplies: [], aiConversationDigest: null, aiConversationStage: 'kinship_ready', aiVerificationSummary: null });
-            await handleStartVerification(history);
+            await handleStartVerification(history, marks);
             return;
         }
         const verificationPrompt = workflowMode === 'bazi' ? buildBaziVerificationPrompt() : buildZiweiVerificationPrompt();
@@ -845,19 +850,22 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             return;
         }
 
-        setMessages(retryPlan.baseMessages);
-        latestMessagesRef.current = retryPlan.baseMessages;
+        // A visible "按我的标记重新核验" message belongs to the verification being replaced.
+        const baseMessages = [...retryPlan.baseMessages];
+        while (baseMessages.length > 0 && baseMessages[baseMessages.length - 1].role === 'user') baseMessages.pop();
+        setMessages(baseMessages);
+        latestMessagesRef.current = baseMessages;
         setQuickReplies([]);
         setWorkflowStage('foundation_ready');
 
-        await saveAndSync(retryPlan.baseMessages, {
+        await saveAndSync(baseMessages, {
             quickReplies: [],
             aiConversationDigest: null,
             aiConversationStage: 'foundation_ready',
             aiVerificationSummary: null,
         });
 
-        await handleStartVerification(retryPlan.baseMessages);
+        await handleStartVerification(baseMessages, marks);
     };
 
     const handleVerificationConfirmed = async () => {

@@ -15,6 +15,7 @@ import {
 import { buildBaziAIEvidencePack, formatBaziAIEvidencePack, type BaziAIEvidencePack } from '../core/bazi-ai-evidence';
 import { BAZI_FORECAST_YEARS, resolveBaziEvidenceRequest } from '../core/bazi-ai-data-request';
 import { getBaziRequestHistory, getBaziStageBaselines, getBaziWorkflowVersion, normalizeBaziStage, resolveBaziConversationStage } from '../core/bazi-ai-workflow';
+import { buildVerificationMarksContext, buildVerificationRetryContext, getActiveVerificationMarks, type AIVerificationMarkEntry } from '../core/ai-verification-marks';
 import { buildKinshipContext, getCurrentKinshipVerification, isKinshipResponseKind, type KinshipResponseKind } from '../core/bazi-kinship';
 import { BaziResult } from '../core/bazi-types';
 import { getAllRelatedGua } from '../core/hexagramTransform';
@@ -921,12 +922,15 @@ export function getLocalZiweiVerificationActions(): BaziVerificationAction[] {
     ];
 }
 
-export function buildBaziVerificationPrompt(): string {
-    return renderSkillRequest('bazi', 'verification', { outputFormat: renderVerificationFormat('bazi'), completionMarker: BAZI_STAGE_MARKERS.verification });
+/** @param marks the user's per-event marks on the previous verification, when re-verifying. */
+export function buildBaziVerificationPrompt(marks: Record<string, AIVerificationMarkEntry> = {}): string {
+    return renderSkillRequest('bazi', 'verification', { retryContext: buildVerificationRetryContext(marks),
+        outputFormat: renderVerificationFormat('bazi'), completionMarker: BAZI_STAGE_MARKERS.verification }).replace(/\n{2,}/g, '\n');
 }
 
-export function buildZiweiVerificationPrompt(): string {
-    return renderSkillRequest('ziwei', 'verification', { outputFormat: renderVerificationFormat('ziwei'), completionMarker: ZIWEI_STAGE_MARKERS.verification });
+export function buildZiweiVerificationPrompt(marks: Record<string, AIVerificationMarkEntry> = {}): string {
+    return renderSkillRequest('ziwei', 'verification', { retryContext: buildVerificationRetryContext(marks),
+        outputFormat: renderVerificationFormat('ziwei'), completionMarker: ZIWEI_STAGE_MARKERS.verification }).replace(/\n{2,}/g, '\n');
 }
 
 export function buildBaziVerificationRetryPrompt(): string {
@@ -1028,9 +1032,11 @@ export async function buildBaziSystemMessage(
     const skillContext = composeSkillInstructions('bazi', stage, {
         workflowVersion, workflow, stage, kinshipContext,
     }, workflowVersion);
+    const marksContext = stage === 'five_year' || stage === 'followup'
+        ? buildVerificationMarksContext(getActiveVerificationMarks(result)) : '';
     return {
         role: 'system',
-        content: `${skillContext}\n\n${formatBaziAIEvidencePack(pack)}`,
+        content: [skillContext, marksContext, formatBaziAIEvidencePack(pack)].filter(Boolean).join('\n\n'),
     };
 }
 
@@ -1121,9 +1127,11 @@ function buildZiweiSystemBundle(
         workflowVersion: 1,
         completionMarker: '',
     });
+    const marksContext = workflowStage === 'five_year' || workflowStage === 'followup'
+        ? buildVerificationMarksContext(getActiveVerificationMarks(result)) : '';
     const message: AIChatMessage = {
         role: 'system',
-        content: `${skillContext}\n\n【命盘底稿】\n${stageContext.text}`,
+        content: [skillContext, marksContext, `【命盘底稿】\n${stageContext.text}`].filter(Boolean).join('\n\n'),
     };
     const skills = getSkillVersions('ziwei', workflowStage === 'digest' || workflowStage === 'quick_replies' ? 'digest' : workflowStage);
     return {

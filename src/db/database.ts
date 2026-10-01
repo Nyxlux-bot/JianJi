@@ -963,6 +963,7 @@ export async function clearAIAnalysis(id: string): Promise<RecordDetail | null> 
             aiChatHistory: undefined,
             aiConversationStage: undefined,
             aiVerificationSummary: undefined,
+            aiVerificationMarks: undefined,
             aiConversationDigest: undefined,
             quickReplies: undefined,
         };
@@ -981,6 +982,7 @@ export async function clearAIAnalysis(id: string): Promise<RecordDetail | null> 
             aiChatHistory: undefined,
             aiConversationStage: undefined,
             aiVerificationSummary: undefined,
+            aiVerificationMarks: undefined,
             aiConversationDigest: undefined,
             quickReplies: undefined,
         };

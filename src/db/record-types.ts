@@ -21,6 +21,7 @@ import { DivinationMethod, isLiuyaoSubject } from '../core/liuyao-data';
 import { ZiweiRecordResult } from '../features/ziwei/record';
 import { ZIWEI_SUPPORTED_TIMEZONE_OFFSET_MINUTES } from '../features/ziwei/runtime-meta';
 import { isBaziAnalysisProfile } from '../core/bazi-analysis-profile';
+import { normalizeVerificationMarks } from '../core/ai-verification-marks';
 
 export type DivinationEngine = 'liuyao' | 'bazi' | 'ziwei' | 'baziCompatibility';
 
@@ -492,6 +493,7 @@ export function isZiweiRecordResult(value: unknown): value is ZiweiRecordResult 
         && (candidate.aiConversationDigest === undefined || isZiweiConversationDigest(candidate.aiConversationDigest))
         && (candidate.aiConversationStage === undefined || isAIConversationStage(candidate.aiConversationStage))
         && (candidate.aiVerificationSummary === undefined || typeof candidate.aiVerificationSummary === 'string')
+        && (candidate.aiVerificationMarks === undefined || normalizeVerificationMarks(candidate.aiVerificationMarks) !== undefined)
         && (candidate.aiConfigSignature === undefined || typeof candidate.aiConfigSignature === 'string')
         && (candidate.aiInvalidatedAt === undefined || isIsoLikeString(candidate.aiInvalidatedAt))
         && isZiweiAIContextSnapshot(candidate.aiContextSnapshot)

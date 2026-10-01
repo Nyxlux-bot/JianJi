@@ -1,6 +1,7 @@
 import { BaziAIConversationDigest, BaziAIConversationStage, PersistedAIChatMessage } from './ai-meta';
 import { BaziFormatterContext } from './bazi-ai-context';
 import type { BaziKinshipVerification } from './bazi-kinship';
+import type { AIVerificationMarks } from './ai-verification-marks';
 
 export type BaziGender = 0 | 1;
 
@@ -314,6 +315,7 @@ export interface BaziResult {
     aiConversationDigest?: BaziAIConversationDigest;
     aiConversationStage?: BaziAIConversationStage;
     aiVerificationSummary?: string;
+    aiVerificationMarks?: AIVerificationMarks;
     aiContextSnapshot?: BaziFormatterContext;
     aiWorkflowVersion?: 1 | 2;
     aiWorkflowBirthSignature?: string;
