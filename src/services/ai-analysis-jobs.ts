@@ -80,6 +80,8 @@ export interface AIAnalysisJobRequest {
     expectedCompletion?: AIWorkflowResponseKind;
     nextWorkflowStage?: BaziAIConversationStage;
     formatterContext?: BaziFormatterContext | ZiweiFormatterContext;
+    /** Text already written before a cut-off; the model is asked to continue from its end. */
+    continuation?: { partial: string };
 }
 
 export interface AIAnalysisJobState {
@@ -307,6 +309,27 @@ function arePersistedMessagesEqual(left: PersistedAIChatMessage, right: Persiste
 function arePersistedMessageListsEqual(left: PersistedAIChatMessage[], right: PersistedAIChatMessage[]): boolean {
     return left.length === right.length
         && left.every((message, index) => arePersistedMessagesEqual(message, right[index]));
+}
+
+const CONTINUATION_PROMPT = '上一条回复因为长度或网络原因中断了。请从中断处直接接着写：不要重复已经写过的内容，不要重新开头，也不要重写已经出现过的标题；全部写完后，如果原要求有完成标记，照常在最后单独一行输出。';
+
+/** Join a cut-off reply with its continuation, dropping text the model repeated at the seam. */
+export function mergeContinuation(partial: string, continuation: string): string {
+    const head = partial.replace(/\s+$/u, '');
+    const tail = continuation.replace(/^\s+/u, '');
+    if (!tail) return partial;
+    const maxOverlap = Math.min(head.length, tail.length, 800);
+    for (let size = maxOverlap; size >= 6; size -= 1) {
+        if (head.endsWith(tail.slice(0, size))) return head + tail.slice(size);
+    }
+    // The model often restarts the line it was cut in: keep its complete version.
+    const lineStart = head.lastIndexOf('\n') + 1;
+    const lastLine = head.slice(lineStart);
+    if (lastLine.trim().length >= 4 && tail.startsWith(lastLine.slice(0, Math.min(lastLine.length, 12)))) {
+        return head.slice(0, lineStart) + tail;
+    }
+    const seam = partial.slice(head.length) || continuation.slice(0, continuation.length - tail.length);
+    return head + seam + tail;
 }
 
 function validateContent(
@@ -858,7 +881,7 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
         baseMessages: request.baseMessages,
         requestMessages: request.requestMessages,
         messages: request.requestMessages,
-        draftContent: '',
+        draftContent: request.continuation?.partial ?? '',
         validatedContent: '',
         startedAt: now,
         updatedAt: now,
@@ -882,6 +905,12 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
             const executionMeta: AIExecutionMeta = { ...runtime.meta, skills: built.debugMeta?.skills ?? [] };
             setJobState(key, { debugMeta: built.debugMeta, executionMeta });
 
+            const partial = request.continuation?.partial ?? '';
+            const requestMessages = partial
+                ? [...built.messages, { role: 'assistant' as const, content: partial }, { role: 'user' as const, content: CONTINUATION_PROMPT }]
+                : built.messages;
+            // Everything below sees the whole reply: what was written before plus this continuation.
+            const withPartial = (text: string) => (partial ? mergeContinuation(partial, text) : text);
             let rawContent = '';
             const requestOptions = {
                 runtime,
@@ -897,7 +926,7 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
             };
 
             const response = await analyzeWithAIChatStream(
-                built.messages,
+                requestMessages,
                 (chunk) => {
                     if (!isCurrentJob(key, job.jobId) || controller.signal.aborted) {
                         return;
@@ -905,7 +934,7 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                     rawContent += chunk;
                     setJobState(key, {
                         status: 'streaming',
-                        draftContent: cleanStreamContent(request.engineType, rawContent, request.expectedCompletion),
+                        draftContent: withPartial(cleanStreamContent(request.engineType, rawContent, request.expectedCompletion)),
                     }, { emit: 'deferred', persist: false });
                 },
                 controller.signal,
@@ -922,9 +951,11 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                     response.code ?? 'network_error',
                     response.error || 'AI 请求失败，请稍后重试。',
                     undefined,
+                    partial || undefined,
                 );
                 return;
             }
+            const fullContent = withPartial(partial ? stripThinkingBlocks(response.content) : response.content);
 
             if (!response.success) {
                 failJob(
@@ -933,12 +964,12 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                     response.code ?? 'network_error',
                     response.error || 'AI 请求失败，请稍后重试。',
                     undefined,
-                    cleanStreamContent(request.engineType, response.content, request.expectedCompletion),
+                    cleanStreamContent(request.engineType, fullContent, request.expectedCompletion),
                 );
                 return;
             }
 
-            let cleanContent = cleanFinalContent(request.engineType, response.content, request.expectedCompletion);
+            let cleanContent = cleanFinalContent(request.engineType, fullContent, request.expectedCompletion);
             setJobState(key, { status: 'validating' });
             let kinship: { response: KinshipResponse; pack: BaziAIEvidencePack; id: string } | undefined;
             let validation: AIAnalysisValidationResult;
@@ -955,7 +986,7 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                     validation = { success: false, issues: [error instanceof Error ? error.message : String(error)] };
                 }
             } else {
-                validation = validateContent(request, response.content, cleanContent);
+                validation = validateContent(request, fullContent, cleanContent);
             }
             if (!validation.success) {
                 void recordDiagnosticLog({
