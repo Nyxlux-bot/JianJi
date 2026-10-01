@@ -131,22 +131,28 @@ export function buildBaziAIEvidencePack(
     const settings = normalizeGanZhiRelationSettings(context?.ganZhiRelationSettings);
     const natalNodes = addNatalFacts(result, add);
     let relationCount = 0;
+    const fortuneRelationIds = new Map<string, string>();
     const relationsFor = (extra: Array<{ key: string; label: string; ganZhi: string }>): string[] => {
         const nodes = [...natalNodes, ...extra.filter((item) => item.ganZhi.length === 2)
             .map((item, index) => makeNode(item.key, item.label, item.ganZhi, 'suiyun', natalNodes.length + index))];
         return calculateGanZhiRelations(nodes, settings).map((relation) => {
             const members = relation.nodeOrders.map((order) => nodes[order].key);
-            const memberIds = relation.scope === 'yuanju' ? members
-                : members.map((member) => member.replace('fortune.dayun.', 'd').replace('fortune.preluck', 'p')
-                    .replace('fortune.unassigned', 'u').replace('fortune.month.', 'm')
-                    .replace('natal.', 'n.').replace('.year.', '.y').replace('.liunian', '.ln').replace('.xiaoyun', '.xy'));
-            const id = `relation:${relation.kind}:${memberIds.join('+')}:${relation.label}`;
+            const natalId = `relation:${relation.kind}:${members.join('+')}:${relation.label}`;
+            // 岁运关系在长跨度证据包里会被逐年反复引用，用短编号；原局关系 ID 保持稳定，六亲 evidenceIds 依赖它。
+            const fortuneKey = `${relation.kind}:${members.join('+')}:${relation.label}`;
+            let id = natalId;
+            if (relation.scope !== 'yuanju') {
+                const existing = fortuneRelationIds.get(fortuneKey);
+                id = existing ?? `fr${fortuneRelationIds.size + 1}`;
+                if (!existing) fortuneRelationIds.set(fortuneKey, id);
+            }
             if (!facts.has(id)) {
                 let summaryText = relation.summaryText.replace(/合化([木火土金水])/g,
                     '相合（规则所指五行为$1，是否成化未判定）');
                 // 名称（label）已是关系摘要，值里只留类别和参与对象，避免长跨度证据包被重复字段撑大。
+                // 岁运关系的名称已含关系类别，值里只留参与对象。
                 const definition: Record<string, unknown> = {
-                    kind: relation.kind,
+                    ...(relation.scope === 'yuanju' ? { kind: relation.kind } : {}),
                     between: relation.nodeOrders.map((order) => `${nodes[order].label}${nodes[order].pillar}`).join(' / '),
                 };
                 if (relation.kind === 'stem_control' && relation.controller && relation.controlled) {
@@ -228,12 +234,15 @@ export function buildBaziAIEvidencePack(
         if (yunGanZhi) add(parentId, '大运', yunGanZhi, 'fortune');
         add(`${id}.liunian`, `${annual.year}流年`, annual.ganZhi, 'fortune');
         if (!compactHistorical) add(`${id}.xiaoyun`, `${annual.year}小运`, annual.xiaoYunGanZhi, 'fortune');
+        // 只有交运年需要把大运起止时刻写在年条目里；其他年份整年属于 id 中的那步大运。
+        const isTransitionYear = Boolean(period && (new Date(period.yun.jiaoYunDateTimeIso).getFullYear() === annual.year
+            || (period.endAt && new Date(period.endAt).getFullYear() === annual.year)));
         add(id, `${annual.year}年岁运`, {
             year: annual.year, age: annual.age, ganZhi: annual.ganZhi, xiaoYun: annual.xiaoYunGanZhi,
-            ...(period ? { dayunPeriod: { ganZhi: period.yun.ganZhi,
+            ...(period && isTransitionYear ? { dayunPeriod: { ganZhi: period.yun.ganZhi,
                 startLocal: formatLocalDisplayDateTime(new Date(period.yun.jiaoYunDateTimeIso)),
                 endLocal: period.endAt ? formatLocalDisplayDateTime(new Date(period.endAt)) : null } } : {}),
-            parentId, snapshotCurrent: annual.isCurrent, relations: annualRelations,
+            ...(annual.isCurrent ? { snapshotCurrent: true } : {}), relations: annualRelations,
             shenSha: addShenSha(annual.ganZhi), ...(compactHistorical ? {} : { xiaoYunShenSha: addShenSha(annual.xiaoYunGanZhi) }),
         }, 'fortune');
         years.add(annual.year);
@@ -248,10 +257,7 @@ export function buildBaziAIEvidencePack(
     daYun.forEach(({ yun, index, endAt, annuals }) => {
         const id = `fortune.dayun.${index}`;
         const { liuNian: allAnnuals, ...data } = yun;
-        add(id, `第${index + 1}步大运`, {
-            ...data, snapshotCurrent: data.isCurrent, endAt: endAt ?? null,
-            boundary: '按 jiaoYunDateTimeIso 起运，endAt 交下一运；交运年可同时列于两步大运。逐年条目的 dayunPeriod 只在起止时刻之间属于这步大运，同一年出现在两步大运时按时刻分别解释，不按上半年/下半年近似。',
-        }, 'fortune');
+        add(id, `第${index + 1}步大运`, { ...data, snapshotCurrent: data.isCurrent, endAt: endAt ?? null }, 'fortune');
         add(`${id}.relations`, '大运与原局关系', relationsFor([{ key: id, label: '大运', ganZhi: yun.ganZhi }]), 'fortune');
         addShenSha(yun.ganZhi, result.shenShaV2.daYun.find((item) => item.index === index)?.bucket);
         const annualIds = annuals.map((annual) => addAnnual(annual, id, yun.ganZhi));
@@ -329,7 +335,8 @@ export function formatBaziAIEvidencePack(pack: BaziAIEvidencePack): string {
                     : pack.scope === 'focused'
                         ? `本轮 scope=focused，按问题取数，年份为 ${pack.coverage.requestedYears.join('、')}。`
                         : '本轮 scope=full，展开原局及岁运事实；coverage 描述本轮实际提供的范围。',
-        'age 沿用排盘库运龄，不转换为周岁。snapshotCurrent 为历史排盘参考标记；asOf 是本轮请求日期，查看焦点与今年分别解释。',
+        'age 沿用排盘库运龄，不转换为周岁。snapshotCurrent 为历史排盘参考标记（仅在为 true 时列出）；asOf 是本轮请求日期，查看焦点与今年分别解释。',
+        '大运按 jiaoYunDateTimeIso 起运、endAt 交下一运；交运年可同时列于两步大运，其年条目带 dayunPeriod 起止时刻，同一年按时刻分别解释，不按上半年/下半年近似。年条目 id 中的 dayun 序号即所属大运。fr 开头的 id 是岁运关系的短编号，名称即关系内容。',
         '原局事实与岁运事实分层使用。基础定局、六亲初验不得用所选岁运能量代替原局。流月仅覆盖 coverage.monthYears，其余月份未提供，禁止补造。',
         'coverage.years 是已提供年份；missingYears 与 missingMonthYears 是缺失资料，须明确告知，不能补算或声称已有完整依据。历史阶段的今年只能核对 asOf 之前的事件。',
         JSON.stringify({ ...metadata, facts: grouped }),
