@@ -1238,7 +1238,11 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         let meta: ChapterYearMeta | undefined;
         if (isBaziResult(result)) {
             const info = getBaziYearInfo(result, year);
-            if (info) meta = { ganZhi: info.ganZhi, meta: `${info.age}岁 · ${info.daYunGanZhi ? `大运 ${info.daYunGanZhi}` : '小运期'}` };
+            if (info) {
+                const daYun = info.daYunGanZhi
+                    ? `大运 ${info.previousDaYunGanZhi ? `${info.previousDaYunGanZhi}→` : ''}${info.daYunGanZhi}` : '小运期';
+                meta = { ganZhi: info.ganZhi, meta: `${info.age}岁 · ${daYun}` };
+            }
         } else if (isZiweiResult(result)) {
             const overview = getZiweiYearOverviews(result, [year])[year];
             if (overview) meta = { ganZhi: overview.ganZhi, meta: `大限 ${overview.decadalPalace}${overview.decadalRange ? `（${overview.decadalRange}）` : ''}` };
