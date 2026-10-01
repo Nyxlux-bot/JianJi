@@ -307,7 +307,9 @@ function buildAnalysisJobPendingMessage(job: AIAnalysisJobState): UIChatMessage 
 
 function buildAnalysisJobMessages(job: AIAnalysisJobState): UIChatMessage[] {
     const baseMessages = hydrateMessages(job.messages, `ai-job-${job.jobId}-history`);
-    const keepsDraftVisible = job.status === 'streaming'
+    // 继续生成时，已写出的部分从一开始就留在原处。
+    const keepsDraftVisible = ((job.status === 'running' || job.status === 'reasoning') && Boolean(job.draftContent))
+        || job.status === 'streaming'
         || job.status === 'validating'
         || job.status === 'postprocessing'
         || job.status === 'saving'
@@ -674,6 +676,8 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             requestTextOverride?: string;
             nextWorkflowStage?: BaziAIConversationStage;
             expectedCompletion?: AIWorkflowResponseKind;
+            /** Text written before a cut-off, for 继续生成. */
+            continuation?: string;
         } = {},
     ) => {
         const text = (textOverride || inputText).trim();
@@ -732,6 +736,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             phase,
             expectedCompletion: options.expectedCompletion,
             nextWorkflowStage: options.nextWorkflowStage,
+            ...(options.continuation ? { continuation: { partial: options.continuation } } : {}),
             formatterContext: workflowMode === 'bazi'
                 ? latestBaziContextRef.current
                 : (workflowMode === 'ziwei' ? latestZiweiContextRef.current : undefined),
@@ -1041,7 +1046,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         setMenuVisible(false);
     };
 
-    const handleRetryAnalysisJob = () => {
+    const handleRetryAnalysisJob = (continueFromDraft = false) => {
         if (!analysisJob || isActiveAIAnalysisJob(analysisJob)) {
             return;
         }
@@ -1065,6 +1070,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             requestTextOverride: failedUser.requestContent,
             expectedCompletion: analysisJob.expectedCompletion,
             nextWorkflowStage: analysisJob.nextWorkflowStage,
+            continuation: continueFromDraft ? analysisJob.draftContent : undefined,
         });
     };
 
@@ -1377,10 +1383,10 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     const describeFailure = (job: AIAnalysisJobState): { title: string; message: string } => {
         if (job.status === 'interrupted') return { title: '上次生成被中断', message: 'App 在生成途中被关闭，这次的内容没有保存。' };
         const code = job.failure?.code;
-        const kept = job.draftContent ? '已写出的部分留在上方，' : '';
-        if (code === 'token_limit') return { title: '回复写到一半被截断', message: `模型达到单次输出上限。${kept}可以重新生成；常被截断的话，在模型设置里调高输出上限。` };
-        if (code === 'network_error' || code === 'timeout') return { title: '连接中断', message: `和接口的连接断开了。${kept}可以重新生成。` };
-        if (code === 'invalid_response' || code === 'empty_response') return { title: '回复没有写完', message: `模型提前结束了回复。${kept}可以重新生成。` };
+        const kept = job.draftContent ? '已写出的部分留在上方，可以从断处继续生成，也可以整段重新生成。' : '可以重新生成。';
+        if (code === 'token_limit') return { title: '回复写到一半被截断', message: `模型达到单次输出上限。${kept}常被截断的话，在模型设置里调高输出上限。` };
+        if (code === 'network_error' || code === 'timeout') return { title: '连接中断', message: `和接口的连接断开了。${kept}` };
+        if (code === 'invalid_response' || code === 'empty_response') return { title: '回复没有写完', message: `模型提前结束了回复。${kept}` };
         if (code === 'record_changed') return { title: '记录已变化', message: job.failure?.message ?? '' };
         if (code === 'missing_api_key' || code === 'missing_api_url' || code === 'invalid_configuration') return { title: '接口还没配置好', message: job.failure?.message ?? '请到设置里检查接口与 Key。' };
         if (code === 'http_error') return { title: '接口返回错误', message: '接口拒绝了这次请求，常见原因是额度、模型名或 Key。详情里有接口原话。' };
@@ -1406,15 +1412,21 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         }
         if (analysisJob && jobFailed) {
             const failure = describeFailure(analysisJob);
+            // A cut-off reply can be finished from where it stopped; JSON stages (六亲) cannot.
+            const canContinue = analysisJob.status === 'failed' && Boolean(analysisJob.draftContent.trim())
+                && !isKinshipResponseKind(analysisJob.expectedCompletion)
+                && ['token_limit', 'network_error', 'timeout', 'invalid_response'].includes(analysisJob.failure?.code ?? '');
             return <FailureBanner title={failure.title} message={failure.message} styles={pageStyles}
                 detail={analysisJob.failure ? `${analysisJob.failure.code}：${analysisJob.failure.message}` : undefined}
-                actions={[{ label: '重新生成', primary: true, onPress: handleRetryAnalysisJob }]} />;
+                actions={canContinue
+                    ? [{ label: '继续生成', primary: true, onPress: () => handleRetryAnalysisJob(true) }, { label: '重新生成', onPress: () => handleRetryAnalysisJob() }]
+                    : [{ label: '重新生成', primary: true, onPress: () => handleRetryAnalysisJob() }]} />;
         }
         if (analysisJob?.status === 'cancelled') {
             return (
                 <View style={pageStyles.footer}>
                     <Text style={pageStyles.footerText}>已停止，这次的内容没有保存。</Text>
-                    <ActionButton label="重新生成" small styles={pageStyles} onPress={handleRetryAnalysisJob} />
+                    <ActionButton label="重新生成" small styles={pageStyles} onPress={() => handleRetryAnalysisJob()} />
                 </View>
             );
         }
