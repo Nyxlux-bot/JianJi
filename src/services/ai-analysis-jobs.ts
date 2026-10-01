@@ -7,7 +7,7 @@ import type { BaziAIEvidencePack } from '../core/bazi-ai-evidence';
 import { getBaziBirthSignature } from '../core/bazi-ai-identity';
 import { getBaziWorkflowVersion, isBaziWorkflowStale } from '../core/bazi-ai-workflow';
 import {
-    appendKinshipResponse, formatKinshipResponse,
+    appendKinshipResponse, formatKinshipResponse, getKinshipStateKey,
     getCurrentKinshipVerification, isKinshipResponseKind,
     MAX_KINSHIP_ATTEMPTS, parseKinshipResponse, type KinshipResponse,
 } from '../core/bazi-kinship';
@@ -636,7 +636,7 @@ function buildUpdatedResult(
             || JSON.stringify(current.schoolOptionsResolved) !== JSON.stringify(requestBazi.schoolOptionsResolved)) {
             return null;
         }
-        if (JSON.stringify(current.aiKinshipVerification) !== JSON.stringify(requestBazi.aiKinshipVerification)) return null;
+        if (getKinshipStateKey(current.aiKinshipVerification) !== getKinshipStateKey(requestBazi.aiKinshipVerification)) return null;
         const requestSnapshot = requestResult as BaziResult;
         return {
             ...current,
@@ -991,7 +991,7 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                 ),
             );
             if (!updatedResult) {
-                failJob(key, job.jobId, 'aborted', '记录已删除或排盘内容已变化，本次分析未写入。');
+                failJob(key, job.jobId, 'record_changed', '生成期间这份记录被修改或删除，本次结果没有写入。正文仍在上方，可以重新生成。', undefined, cleanContent);
                 return;
             }
             if (!isCurrentJob(key, job.jobId) || controller.signal.aborted) {

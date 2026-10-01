@@ -110,7 +110,8 @@ export type AIErrorCode =
     | 'aborted'
     | 'invalid_response'
     | 'empty_response'
-    | 'token_limit';
+    | 'token_limit'
+    | 'record_changed';
 
 export interface AIFailureInfo {
     code: AIErrorCode;
@@ -1639,7 +1640,42 @@ export async function buildZiweiSystemMessage(
     return buildZiweiSystemBundle(result, workflowStage, formatterContext).messages[0];
 }
 
+/**
+ * Anthropic Messages 要求首条非 system 消息为 user；阶段锚点与摘要截断都可能让 assistant 排在最前。
+ * 把开头连续的 assistant 消息合并为一条 user 背景消息，保证所有协议都能接受。
+ */
+export function ensureUserFirst(messages: AIChatMessage[]): AIChatMessage[] {
+    const firstIndex = messages.findIndex((message) => message.role !== 'system');
+    if (firstIndex < 0 || messages[firstIndex].role !== 'assistant') {
+        return messages;
+    }
+    let end = firstIndex;
+    while (end < messages.length && messages[end].role === 'assistant') {
+        end += 1;
+    }
+    const background: AIChatMessage = {
+        role: 'user',
+        content: ['【此前已保存的 AI 分析，仅作背景，不代表用户已确认】', ...messages.slice(firstIndex, end).map((message) => message.content)].join('\n\n'),
+    };
+    return [...messages.slice(0, firstIndex), background, ...messages.slice(end)];
+}
+
 export async function buildRequestBundle(
+    result: PanResult | BaziResult | ZiweiRecordResult,
+    chatHistory: PersistedAIChatMessage[],
+    formatterContext?: BaziFormatterContext | ZiweiFormatterContext,
+    requestContext: AIRequestBuildContext = {},
+): Promise<AIRequestBundle> {
+    const bundle = await buildRawRequestBundle(result, chatHistory, formatterContext, requestContext);
+    const messages = ensureUserFirst(bundle.messages);
+    return messages === bundle.messages ? bundle : {
+        ...bundle,
+        messages,
+        debugMeta: bundle.debugMeta ? { ...bundle.debugMeta, messageCount: messages.length } : bundle.debugMeta,
+    };
+}
+
+async function buildRawRequestBundle(
     result: PanResult | BaziResult | ZiweiRecordResult,
     chatHistory: PersistedAIChatMessage[],
     formatterContext?: BaziFormatterContext | ZiweiFormatterContext,

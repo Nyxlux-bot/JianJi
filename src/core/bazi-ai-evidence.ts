@@ -144,10 +144,10 @@ export function buildBaziAIEvidencePack(
             if (!facts.has(id)) {
                 let summaryText = relation.summaryText.replace(/合化([木火土金水])/g,
                     '相合（规则所指五行为$1，是否成化未判定）');
+                // 名称（label）已是关系摘要，值里只留类别和参与对象，避免长跨度证据包被重复字段撑大。
                 const definition: Record<string, unknown> = {
-                    kind: relation.kind, layer: relation.layer, scope: relation.scope,
-                    members, summaryText,
-                    memberPillars: relation.nodeOrders.map((order) => ({ object: nodes[order].label, ganZhi: nodes[order].pillar })),
+                    kind: relation.kind,
+                    between: relation.nodeOrders.map((order) => `${nodes[order].label}${nodes[order].pillar}`).join(' / '),
                 };
                 if (relation.kind === 'stem_control' && relation.controller && relation.controlled) {
                     const matchedNodes = relation.nodeOrders.map((order) => nodes[order]);
@@ -157,9 +157,6 @@ export function buildBaziAIEvidencePack(
                         summaryText = `${controllerNode.label}（${relation.controller}）克${controlledNode.label}（${relation.controlled}）`;
                         definition.controller = relation.controller;
                         definition.controlled = relation.controlled;
-                        definition.controllerNode = controllerNode.label;
-                        definition.controlledNode = controlledNode.label;
-                        definition.summaryText = summaryText;
                     }
                 }
                 add(id, summaryText, definition, relation.scope === 'yuanju' ? 'natal' : 'fortune');
@@ -224,17 +221,20 @@ export function buildBaziAIEvidencePack(
             { key: `${id}.liunian`, label: `${annual.year}流年`, ganZhi: annual.ganZhi },
             ...(parentId === 'fortune.preluck' ? [{ key: `${id}.xiaoyun`, label: `${annual.year}小运`, ganZhi: annual.xiaoYunGanZhi }] : []),
         ];
+        // 原局自身的关系已在 natal.relations 列出，逐年只保留岁运参与的关系，避免每年重复整套原局关系。
+        const annualRelations = relationsFor(frames).filter((relationId) => facts.get(relationId)?.scope !== 'natal');
+        // 前事核验跨度长，小运只作微观辅助，不逐年展开其神煞。
+        const compactHistorical = scope === 'historical' && parentId !== 'fortune.preluck';
         if (yunGanZhi) add(parentId, '大运', yunGanZhi, 'fortune');
         add(`${id}.liunian`, `${annual.year}流年`, annual.ganZhi, 'fortune');
-        add(`${id}.xiaoyun`, `${annual.year}小运`, annual.xiaoYunGanZhi, 'fortune');
+        if (!compactHistorical) add(`${id}.xiaoyun`, `${annual.year}小运`, annual.xiaoYunGanZhi, 'fortune');
         add(id, `${annual.year}年岁运`, {
             year: annual.year, age: annual.age, ganZhi: annual.ganZhi, xiaoYun: annual.xiaoYunGanZhi,
-            ...(period ? { dayunPeriod: { ganZhi: period.yun.ganZhi, startAt: period.yun.jiaoYunDateTimeIso, endAt: period.endAt ?? null,
+            ...(period ? { dayunPeriod: { ganZhi: period.yun.ganZhi,
                 startLocal: formatLocalDisplayDateTime(new Date(period.yun.jiaoYunDateTimeIso)),
-                endLocal: period.endAt ? formatLocalDisplayDateTime(new Date(period.endAt)) : null,
-                boundary: '仅在此起止时刻之间属于这步大运；同一年出现在两步大运时，按时刻分别解释，不按上半年/下半年近似。' } } : {}),
-            parentId, snapshotCurrent: annual.isCurrent, relations: relationsFor(frames),
-            shenSha: addShenSha(annual.ganZhi), xiaoYunShenSha: addShenSha(annual.xiaoYunGanZhi),
+                endLocal: period.endAt ? formatLocalDisplayDateTime(new Date(period.endAt)) : null } } : {}),
+            parentId, snapshotCurrent: annual.isCurrent, relations: annualRelations,
+            shenSha: addShenSha(annual.ganZhi), ...(compactHistorical ? {} : { xiaoYunShenSha: addShenSha(annual.xiaoYunGanZhi) }),
         }, 'fortune');
         years.add(annual.year);
         annualCount += 1;
@@ -250,7 +250,7 @@ export function buildBaziAIEvidencePack(
         const { liuNian: allAnnuals, ...data } = yun;
         add(id, `第${index + 1}步大运`, {
             ...data, snapshotCurrent: data.isCurrent, endAt: endAt ?? null,
-            boundary: '按 jiaoYunDateTimeIso 起运，endAt 交下一运；交运年可同时列于两步大运。',
+            boundary: '按 jiaoYunDateTimeIso 起运，endAt 交下一运；交运年可同时列于两步大运。逐年条目的 dayunPeriod 只在起止时刻之间属于这步大运，同一年出现在两步大运时按时刻分别解释，不按上半年/下半年近似。',
         }, 'fortune');
         add(`${id}.relations`, '大运与原局关系', relationsFor([{ key: id, label: '大运', ganZhi: yun.ganZhi }]), 'fortune');
         addShenSha(yun.ganZhi, result.shenShaV2.daYun.find((item) => item.index === index)?.bucket);

@@ -23,7 +23,7 @@ import { getBaziBirthSignature } from '../core/bazi-ai-identity';
 import { formatBaziDisplayContent } from '../core/bazi-ai-display';
 import { getBaziWorkflowVersion, isBaziWorkflowStale } from '../core/bazi-ai-workflow';
 import {
-    confirmKinshipVerification, formatKinshipResponse, getCurrentKinshipVerification, isKinshipResponseKind,
+    canConfirmKinshipAttempt, confirmKinshipVerification, formatKinshipResponse, getCurrentKinshipVerification, getKinshipStateKey, isKinshipResponseKind,
     withKinshipActualFeedback, withKinshipFeedback, KINSHIP_ACTUAL_FIELDS, KINSHIP_FEEDBACK_ID, KINSHIP_FEEDBACK_LABELS,
     type BaziKinshipVerification, type KinshipActualFacts, type KinshipFeedback,
 } from '../core/bazi-kinship';
@@ -382,9 +382,10 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     const stagedMode = workflowMode !== 'liuyao';
     const kinshipWorkflow = isBaziResult(result) && getBaziWorkflowVersion(result) === 2;
     const kinshipState = isBaziResult(result) ? getCurrentKinshipVerification(result) : undefined;
-    const kinshipFamily = kinshipState?.attempts.at(-1)?.prediction.family;
-    const kinshipUndetermined = !kinshipFamily || kinshipFamily.onlyChild === null || kinshipFamily.birthOrder === null
-        || Object.values(kinshipFamily.siblings).some((count) => count === null);
+    const latestKinshipAttempt = kinshipState?.attempts.at(-1);
+    // 与业务规则一致：只要独生与排行已判定就能确认；人数里看不准的部分不在确认范围内。
+    const kinshipUndetermined = !latestKinshipAttempt
+        || !canConfirmKinshipAttempt({ ...latestKinshipAttempt, feedback: { ...latestKinshipAttempt.feedback, [KINSHIP_FEEDBACK_ID]: 'matched' } });
     useEffect(() => {
         const session = `${result.id}:${visible}`;
         if (feedbackSessionRef.current === session) return;
@@ -895,7 +896,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         if (!isBaziResult(base)) throw new Error('当前不是八字会话');
         const saved = await updateExistingRecordResult(base.id, 'bazi', (current) => {
             if (!isBaziResult(current) || getBaziBirthSignature(current) !== next.birthSignature
-                || JSON.stringify(current.aiKinshipVerification) !== JSON.stringify(base.aiKinshipVerification)) return null;
+                || getKinshipStateKey(current.aiKinshipVerification) !== getKinshipStateKey(base.aiKinshipVerification)) return null;
             const actualFeedback = facts ? next.actualFeedback : undefined;
             const feedbackMessage: PersistedAIChatMessage[] = actualFeedback
                 && JSON.stringify(current.aiKinshipVerification?.actualFeedback) !== JSON.stringify(actualFeedback) ? [{
