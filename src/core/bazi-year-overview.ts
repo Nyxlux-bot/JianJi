@@ -7,17 +7,23 @@ export interface BaziYearInfo {
     age: number;
     /** 大运干支; undefined before the first 大运 (小运 period). */
     daYunGanZhi?: string;
+    /** Set when the 大运 changes during this year: the one before the switch. */
+    previousDaYunGanZhi?: string;
     daYunIndex: number;
     liuNianIndex: number;
 }
 
 /** App-side facts for one year, so headings the model writes never decide what is shown. */
 export function getBaziYearInfo(result: Readonly<BaziResult>, year: number): BaziYearInfo | null {
-    for (const daYun of result.daYun) {
+    for (const [position, daYun] of result.daYun.entries()) {
         const liuNianIndex = daYun.liuNian.findIndex((item) => item.year === year);
         if (liuNianIndex !== -1) {
             const liuNian = daYun.liuNian[liuNianIndex];
-            return { year, ganZhi: liuNian.ganZhi, age: liuNian.age, daYunGanZhi: daYun.ganZhi || undefined, daYunIndex: daYun.index, liuNianIndex };
+            const switchesThisYear = position > 0 && new Date(daYun.jiaoYunDateTimeIso).getFullYear() === year;
+            return {
+                year, ganZhi: liuNian.ganZhi, age: liuNian.age, daYunGanZhi: daYun.ganZhi || undefined, daYunIndex: daYun.index, liuNianIndex,
+                ...(switchesThisYear ? { previousDaYunGanZhi: result.daYun[position - 1].ganZhi } : {}),
+            };
         }
     }
     const xiaoYun = result.xiaoYun.find((item) => item.year === year);

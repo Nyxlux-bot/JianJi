@@ -128,6 +128,11 @@ function VerificationView<M extends ChapterMessage>({ content, streaming, props 
     );
 }
 
+/** Models often write a longer label than asked; the bead shows its first clause, the panel title the whole. */
+function shortTag(tag: string): string {
+    return tag.split(/[，,；;、]/u)[0].trim();
+}
+
 function segmentText(segment: ChapterSegment): string {
     return segment.type === 'markdown' ? segment.text : segment.raw;
 }
@@ -161,7 +166,7 @@ function FiveYearView<M extends ChapterMessage>({ content, streaming, props }: {
                                 <TouchableOpacity key={item.year} style={[styles.bead, on && styles.beadOn]} onPress={() => setPicked(item.year)}
                                     accessibilityRole="tab" accessibilityState={{ selected: on }}>
                                     <Text style={[styles.beadYear, on && styles.beadYearOn]}>{item.year}</Text>
-                                    <Text style={styles.beadTag} numberOfLines={1}>{[meta?.ganZhi ?? item.ganZhi, item.tag].filter(Boolean).join(' · ')}</Text>
+                                    <Text style={styles.beadTag} numberOfLines={1}>{[meta?.ganZhi ?? item.ganZhi, shortTag(item.tag)].filter(Boolean).join(' · ')}</Text>
                                 </TouchableOpacity>
                             );
                         })}
@@ -169,6 +174,9 @@ function FiveYearView<M extends ChapterMessage>({ content, streaming, props }: {
                     {selected ? (
                         <View>
                             {props.renderYearPanel?.(selected.year)}
+                            <Text style={[styles.yearTitle, { marginTop: 8 }]}>
+                                {[`${selected.year}`, props.yearMeta?.(selected.year)?.ganZhi ?? selected.ganZhi, selected.tag].filter(Boolean).join(' · ')}
+                            </Text>
                             <Md markdownStyles={markdownStyles}>{selected.body}</Md>
                         </View>
                     ) : null}
