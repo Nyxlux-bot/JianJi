@@ -42,10 +42,10 @@ export interface AISkillDefinition {
 export const COMMON_SKILL: AISkillDefinition = { id: 'jianji-common', version: 3, instructions: common, requests: { retry }, system: auxiliary };
 export const AI_SKILLS: Record<AISkillEngine, AISkillDefinition> = {
     liuyao: { id: 'jianji-liuyao', version: 3, instructions: liuyao, requests: { initial: liuyaoInitial, followup: liuyaoFollowup, quick_replies: liuyaoQuick } },
-    bazi: { id: 'jianji-bazi', version: 9, instructions: bazi, system: baziSystem,
+    bazi: { id: 'jianji-bazi', version: 10, instructions: bazi, system: baziSystem,
         requests: { foundation: baziFoundation, kinship: baziKinship, verification: baziVerification, five_year: baziFiveYear, followup: baziFollowup, digest: baziDigest, quick_replies: baziQuick } },
-    ziwei: { id: 'jianji-ziwei', version: 4, instructions: ziwei, system: ziweiSystem,
+    ziwei: { id: 'jianji-ziwei', version: 5, instructions: ziwei, system: ziweiSystem,
         requests: { foundation: ziweiFoundation, verification: ziweiVerification, five_year: ziweiFiveYear, followup: ziweiFollowup, digest: ziweiDigest, quick_replies: ziweiQuick } },
-    baziCompatibility: { id: 'jianji-bazi-compatibility', version: 3, instructions: compatibility, requests: { initial: compatibilityInitial } },
+    baziCompatibility: { id: 'jianji-bazi-compatibility', version: 4, instructions: compatibility, requests: { initial: compatibilityInitial } },
 };
 export const SKILL_REFERENCES = { liuyaoCompletion, baziKinshipBoundary, baziKinshipMethods, baziEvidenceFormat, baziEvidenceMethods };
