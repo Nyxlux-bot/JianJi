@@ -38,7 +38,7 @@ export interface ChapterLayout {
 const GAN_ZHI = /[甲乙丙丁戊己庚辛壬癸][子丑寅卯辰巳午未申酉戌亥]/u;
 const HEADING = /^(#{2,4})\s+(.+?)\s*#*\s*$/u;
 const BOLD_LINE = /^\*\*(.+?)\*\*\s*$/u;
-const SEPARATOR = /\s*[·•・|｜/／、，,]\s*|\s+[-—–]\s+/u;
+const SEPARATOR = /\s*[·•・|｜/／]\s*|\s+[-—–]\s+/u;
 const YEAR_START = /^(?:[一二三四五六七八九十\d]+[.)、．]\s*)?(?:今年\s*[（(]?\s*)?((?:19|20|21)\d{2})\s*年?\s*[）)]?/u;
 const FENCE = /^\s*(```|~~~)/u;
 
