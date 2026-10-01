@@ -842,7 +842,13 @@ export async function updateExistingRecordResult(
         if (index < 0) {
             return null;
         }
-        const nextResult = updater(records[index].fullResult);
+        // 与原生端 toRecordDetail 保持一致：更新函数拿到的必须是规范化后的结果。
+        const stored = records[index].fullResult;
+        const current = engineType === 'bazi' ? normalizeStoredBaziResult(stored) : stored;
+        if (!current) {
+            return null;
+        }
+        const nextResult = updater(current);
         if (!nextResult || inferEngineFromResult(nextResult) !== engineType) {
             return null;
         }

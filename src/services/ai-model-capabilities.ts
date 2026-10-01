@@ -32,9 +32,10 @@ export function getBuiltInModelMetadata(model: string, protocol: AIProviderProto
         id, supportsTemperature: true, temperatureWithReasoning: false,
         reasoning: { mode: 'adaptive', efforts: ['low', 'medium', 'high', 'max'], supportsOff: true, defaultEnabled: false },
     };
-    if (/^claude-(?:opus-4-[78]|opus-5|sonnet-5)(?:-\d{8})?$/.test(id)) return {
+    // 5 系列带小版本号（如 claude-opus-5-5、claude-fable-5-1）与日期后缀均视为同一能力档。
+    if (/^claude-(?:opus-4-[78]|(?:opus|sonnet|fable)-5(?:-\d{1,2})?)(?:-\d{8})?$/.test(id)) return {
         id, supportsTemperature: false,
-        reasoning: { mode: 'adaptive', efforts: ['low', 'medium', 'high', 'xhigh', 'max'], supportsOff: true, defaultEnabled: /-5(?:-|$)/.test(id) },
+        reasoning: { mode: 'adaptive', efforts: ['low', 'medium', 'high', 'xhigh', 'max'], supportsOff: true, defaultEnabled: /-5(?:-\d{1,2})?(?:-\d{8})?$/.test(id) },
     };
     if (/^claude-(?:opus|sonnet|haiku)-4-5(?:-\d{8})?$/.test(id)) return {
         id, supportsTemperature: true, temperatureWithReasoning: false,

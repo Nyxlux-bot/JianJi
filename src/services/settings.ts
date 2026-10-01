@@ -253,5 +253,8 @@ export function mergeImportedSettings(value: unknown, current: AISettings): AISe
                 models: source.models.map((model) => ({ ...model, protocolVerified: false })) });
         }
     }
-    return parseSettings({ ...current, providers });
+    // 恢复后若还没有当前接口，默认选中第一个，否则 AI 入口会一直显示“未配置”。
+    const activeProviderId = current.activeProviderId && providers.some((provider) => provider.id === current.activeProviderId)
+        ? current.activeProviderId : providers[0]?.id ?? null;
+    return parseSettings({ ...current, providers, activeProviderId });
 }
