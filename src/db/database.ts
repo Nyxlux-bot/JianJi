@@ -950,6 +950,9 @@ export async function clearAIAnalysis(id: string): Promise<RecordDetail | null> 
         const baziResult = result as BaziResult;
         const clearedResult: BaziResult = {
             ...baziResult,
+            aiWorkflowVersion: 2,
+            aiWorkflowBirthSignature: undefined,
+            aiKinshipVerification: undefined,
             aiAnalysis: undefined,
             aiChatHistory: undefined,
             aiConversationStage: undefined,

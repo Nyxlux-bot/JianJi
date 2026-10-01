@@ -1,12 +1,17 @@
+import type { AIExecutionMeta } from './ai-execution-meta';
+
 export type PersistedAIChatRole = 'system' | 'user' | 'assistant';
 export type AIConversationStage = 'foundation_pending' | 'foundation_ready' | 'verification_ready' | 'followup_ready';
-export type BaziAIConversationStage = AIConversationStage;
+export type BaziAIConversationStage = AIConversationStage | 'kinship_ready';
+export type BaziAIWorkflowStage = 'foundation' | 'kinship' | 'kinship_review' | 'verification' | 'five_year' | 'followup';
 
 export interface PersistedAIChatMessage {
     role: PersistedAIChatRole;
     content: string;
     hidden?: boolean;
     requestContent?: string;
+    workflowStage?: BaziAIWorkflowStage;
+    executionMeta?: AIExecutionMeta;
 }
 
 export interface BaziAIConversationFoundation {

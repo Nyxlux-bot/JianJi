@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     FlatList,
-    InteractionManager,
     Keyboard,
     KeyboardAvoidingView,
     Modal,
@@ -15,12 +14,24 @@ import {
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import Markdown from 'react-native-markdown-display';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BaziFormatterContext } from '../core/bazi-ai-context';
-import { AIConversationStage, PersistedAIChatMessage } from '../core/ai-meta';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { BaziFormatterContext, mergeBaziFormatterContext } from '../core/bazi-ai-context';
+import { normalizeGanZhiRelationSettings } from '../core/bazi-ganzhi-relation-engine';
+import { BaziAIConversationStage, PersistedAIChatMessage } from '../core/ai-meta';
 import { BaziResult } from '../core/bazi-types';
+import { getBaziBirthSignature } from '../core/bazi-ai-identity';
+import { formatBaziDisplayContent } from '../core/bazi-ai-display';
+import { getBaziWorkflowVersion, isBaziWorkflowStale } from '../core/bazi-ai-workflow';
+import {
+    confirmKinshipVerification, formatKinshipResponse, getCurrentKinshipVerification, isKinshipResponseKind,
+    withKinshipActualFeedback, withKinshipFeedback, KINSHIP_ACTUAL_FIELDS, KINSHIP_FEEDBACK_ID, KINSHIP_FEEDBACK_LABELS,
+    type BaziKinshipVerification, type KinshipActualFacts, type KinshipFeedback,
+} from '../core/bazi-kinship';
+import { buildBaziKinshipPrompt } from '../services/bazi-kinship-prompts';
+import BaziKinshipFeedbackModal from './BaziKinshipFeedbackModal';
+import AIModelSelector from './AIModelSelector';
 import { PanResult } from '../core/liuyao-calc';
-import { clearAIAnalysis, saveRecord } from '../db/database';
+import { clearAIAnalysis, saveRecord, updateExistingRecordResult } from '../db/database';
 import { ZiweiFormatterContext } from '../features/ziwei/ai-context';
 import {
     buildZiweiAIConfigSignature,
@@ -60,6 +71,7 @@ import {
 import { recordDiagnosticLog } from '../services/diagnostics';
 import { shareChatMarkdown } from '../services/share';
 import { BorderRadius, FontSize, Spacing } from '../theme/colors';
+import { getLuminance } from '../theme/bazi-theme';
 import { useTheme } from '../theme/ThemeContext';
 import { CustomAlert } from './CustomAlertProvider';
 import { ChatPresentationState, shouldAutoStartInitialAnalysis } from './ai-chat-lifecycle';
@@ -89,8 +101,13 @@ interface UIChatMessage extends PersistedAIChatMessage {
 
 let messageSeq = 0;
 
-function isBaziResult(result: PanResult | BaziResult | ZiweiRecordResult): result is BaziResult {
-    return Array.isArray((result as BaziResult).fourPillars);
+const BAZI_ELEMENT_COLOR_KEYS = {
+    木: 'elementWood', 火: 'elementFire', 土: 'elementEarth', 金: 'elementMetal', 水: 'elementWater',
+} as const;
+const BLACK_WHITE_TEXT_THRESHOLD = 0.179;
+
+function isBaziResult(result: unknown): result is BaziResult {
+    return typeof result === 'object' && result !== null && 'fourPillars' in result && Array.isArray(result.fourPillars);
 }
 
 function isZiweiResult(result: PanResult | BaziResult | ZiweiRecordResult): result is ZiweiRecordResult {
@@ -126,16 +143,20 @@ function areMessagesEqual(left: UIChatMessage[], right: UIChatMessage[]): boolea
             && message.content === other.content
             && message.hidden === other.hidden
             && message.pending === other.pending
-            && message.requestContent === other.requestContent;
+            && message.requestContent === other.requestContent
+            && message.workflowStage === other.workflowStage
+            && JSON.stringify(message.executionMeta) === JSON.stringify(other.executionMeta);
     });
 }
 
 function toPersistedMessages(messages: UIChatMessage[]): PersistedAIChatMessage[] {
-    return messages.map(({ role, content, hidden, requestContent }) => ({
+    return messages.map(({ role, content, hidden, requestContent, workflowStage, executionMeta }) => ({
         role,
         content,
         hidden,
         requestContent,
+        workflowStage,
+        executionMeta,
     }));
 }
 
@@ -228,67 +249,24 @@ function buildZiweiStaleNotice(isStale: boolean): { title: string; body: string 
     };
 }
 
-function buildWorkflowNotice(
-    mode: 'bazi' | 'ziwei' | 'liuyao',
-    stage: AIConversationStage | null,
-    isLoading: boolean,
-): { title: string; body: string; tone: 'neutral' | 'accent' | 'ready' } | null {
-    if (!stage || mode === 'liuyao') {
-        return null;
-    }
-
-    const foundationLabel = mode === 'ziwei' ? '基础命盘分析' : '基础定局';
-    const futureLabel = mode === 'ziwei' ? '今年与未来五年解析' : '未来五年解盘';
-
-    if (stage === 'foundation_pending') {
-        return {
-            title: isLoading ? `正在生成${foundationLabel}` : `${foundationLabel}尚未完成`,
-            body: isLoading
-                ? `系统当前只会输出${foundationLabel}；没有通过阶段结构校验前，不会进入前事核验。`
-                : `${foundationLabel}还未完整结束。你可以重试当前阶段，但此时不会开放前事核验或后续追问。`,
-            tone: 'neutral',
-        };
-    }
-
-    if (stage === 'foundation_ready') {
-        return {
-            title: `${foundationLabel}已完成`,
-            body: '现在才能开始前事核验。点击下方按钮后，系统会单独输出过去关键节点供你核对。',
-            tone: 'accent',
-        };
-    }
-
-    if (stage === 'verification_ready') {
-        return {
-            title: '前事核验已完成',
-            body: '请核对上方过去经历是否准确。若较准，继续进入未来五年解盘；若偏差，重新校验会保留基础定局并重新生成前事核验。',
-            tone: 'accent',
-        };
-    }
-
-    return {
-        title: `${futureLabel}已完成`,
-        body: `后续追问会自动继承${foundationLabel}、前事核验与未来阶段主线的上下文，不会从头丢失前文。`,
-        tone: 'ready',
-    };
-}
-
 function buildAnalysisJobPendingMessage(job: AIAnalysisJobState): UIChatMessage | null {
     const subject = job.engineType === 'liuyao'
         ? '六爻分析'
         : job.engineType === 'bazi'
             ? '八字分析'
             : '紫微分析';
-    const content = job.status === 'running'
-        ? `正在提交${subject}...\n可关闭弹窗，分析会在应用内继续；如需停止，请点右上角取消。`
+    const content = job.status === 'streaming' && isKinshipResponseKind(job.expectedCompletion)
+        ? '正在分析六亲...'
+        : job.status === 'running'
+        ? `正在提交${subject}...`
         : job.status === 'reasoning'
-            ? '强推理模型正在深度分析...\n首段正文可能需要等待较久，可关闭弹窗稍后回来查看。'
+            ? '正在分析...'
             : job.status === 'validating'
-                ? '正在校验盘据...\n校验通过后才会写入正式 AI 分析结果。'
+                ? '正在检查回复格式...'
                 : job.status === 'postprocessing'
-                    ? '正在整理追问与保存结果...\n很快就会写入正式 AI 分析结果。'
+                    ? '正在整理追问...'
                     : job.status === 'saving'
-                        ? '正在保存正式分析结果...\n此时将完成本次写入。'
+                        ? '正在保存...'
                     : '';
 
     if (!content) {
@@ -368,7 +346,6 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     const { Colors } = useTheme();
     const styles = useMemo(() => makeStyles(Colors), [Colors]);
     const markdownStyles = useMemo(() => makeMarkdownStyles(Colors), [Colors]);
-    const insets = useSafeAreaInsets();
     const flatListRef = useRef<FlatList>(null);
     const latestResultRef = useRef<PanResult | BaziResult | ZiweiRecordResult>(result);
     const latestBaziContextRef = useRef<BaziFormatterContext | undefined>(baziContext);
@@ -378,16 +355,24 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     const loadingRef = useRef(false);
     const modalShownRef = useRef(false);
     const autoStartPendingRef = useRef(false);
-    const autoStartTaskRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
+    const autoStartTaskRef = useRef<ReturnType<typeof requestAnimationFrame> | null>(null);
     const syncedAnalysisJobResultRef = useRef<PanResult | BaziResult | ZiweiRecordResult | null>(null);
 
     const [messages, setMessages] = useState<UIChatMessage[]>([]);
     const [inputText, setInputText] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [kinshipSaving, setKinshipSaving] = useState(false);
+    const [feedbackVisible, setFeedbackVisible] = useState(false);
+    const [feedbackChoice, setFeedbackChoice] = useState<KinshipFeedback | undefined>();
+    const [feedbackDraft, setFeedbackDraft] = useState<KinshipActualFacts>({ siblings: '', birthOrder: '', circumstances: '', unknowns: '' });
+    const [detailsVisible, setDetailsVisible] = useState(false);
+    const feedbackSessionRef = useRef('');
+    const kinshipActionRef = useRef(false);
     const [quickReplies, setQuickReplies] = useState<string[]>([]);
     const [artifactNotice, setArtifactNotice] = useState<string | null>(null);
     const [requestDebugMeta, setRequestDebugMeta] = useState<AIRequestDebugMeta | null>(null);
     const [menuVisible, setMenuVisible] = useState(false);
+    const [headerBottom, setHeaderBottom] = useState(0);
     const [hasFoundationAttempted, setHasFoundationAttempted] = useState(false);
     const [presentationState, setPresentationState] = useState<ChatPresentationState>('idle');
     const [analysisJob, setAnalysisJob] = useState<AIAnalysisJobState | null>(null);
@@ -395,29 +380,49 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         ? 'bazi'
         : (isZiweiResult(result) ? 'ziwei' : 'liuyao');
     const stagedMode = workflowMode !== 'liuyao';
-    const isAnalyzingPhase = presentationState === 'preparing_request'
-        || presentationState === 'reasoning'
-        || presentationState === 'streaming';
+    const kinshipWorkflow = isBaziResult(result) && getBaziWorkflowVersion(result) === 2;
+    const kinshipState = isBaziResult(result) ? getCurrentKinshipVerification(result) : undefined;
+    const kinshipFamily = kinshipState?.attempts.at(-1)?.prediction.family;
+    const kinshipUndetermined = !kinshipFamily || kinshipFamily.onlyChild === null || kinshipFamily.birthOrder === null
+        || Object.values(kinshipFamily.siblings).some((count) => count === null);
+    useEffect(() => {
+        const session = `${result.id}:${visible}`;
+        if (feedbackSessionRef.current === session) return;
+        feedbackSessionRef.current = session;
+        setFeedbackDraft(kinshipState?.actualFeedback ?? { siblings: '', birthOrder: '', circumstances: '', unknowns: '' });
+        setFeedbackChoice(kinshipState?.attempts.at(-1)?.feedback[KINSHIP_FEEDBACK_ID]);
+        setFeedbackVisible(false);
+    }, [result.id, visible, kinshipState]);
+    const kinshipMessageContents = useMemo(() => {
+        const content = new Map<string, string>();
+        let round = 0;
+        messages.forEach((message) => {
+            if (message.role !== 'assistant' || message.workflowStage !== 'kinship' || message.pending) return;
+            const attempt = kinshipState?.attempts[round++];
+            if (attempt) content.set(message.uiId, formatKinshipResponse(attempt.prediction, attempt.evidence));
+        });
+        return content;
+    }, [messages, kinshipState]);
+    const displayMessages = useMemo(() => messages.map((message) => workflowMode === 'bazi' && message.role === 'assistant'
+        ? { ...message, content: formatBaziDisplayContent(kinshipMessageContents.get(message.uiId) ?? message.content) }
+        : message), [messages, kinshipMessageContents, workflowMode]);
+    const baziAnalysisStale = isBaziResult(result) && isBaziWorkflowStale(result);
     const ziweiAnalysisStale = workflowMode === 'ziwei'
         && isZiweiResult(result)
         && isZiweiAIConfigStale(result);
-    const [workflowStage, setWorkflowStage] = useState<AIConversationStage | null>(
+    const [workflowStage, setWorkflowStage] = useState<BaziAIConversationStage | null>(
         workflowMode === 'bazi'
             ? getBaziConversationStage(result as BaziResult)
             : (workflowMode === 'ziwei' ? getZiweiConversationStage(result as ZiweiRecordResult) : null),
     );
     const headerMeta = buildHeaderMeta(result);
-    const workflowNotice = useMemo(
-        () => buildWorkflowNotice(workflowMode, workflowStage, isAnalyzingPhase),
-        [isAnalyzingPhase, workflowMode, workflowStage],
-    );
     const ziweiStaleNotice = useMemo(
-        () => buildZiweiStaleNotice(ziweiAnalysisStale),
-        [ziweiAnalysisStale],
+        () => baziAnalysisStale ? { title: '出生盘据已变化', body: '旧分析与六亲记录仍可查看，请按当前出生资料重新开始分析。' } : buildZiweiStaleNotice(ziweiAnalysisStale),
+        [ziweiAnalysisStale, baziAnalysisStale],
     );
 
     const cancelScheduledAutoStart = () => {
-        autoStartTaskRef.current?.cancel();
+        if (autoStartTaskRef.current !== null) cancelAnimationFrame(autoStartTaskRef.current);
         autoStartTaskRef.current = null;
     };
 
@@ -552,9 +557,12 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         overrides: {
             quickReplies?: string[];
             aiConversationDigest?: BaziResult['aiConversationDigest'] | ZiweiRecordResult['aiConversationDigest'] | null;
-            aiConversationStage?: AIConversationStage | null;
+            aiConversationStage?: BaziAIConversationStage | null;
             aiVerificationSummary?: string | null;
             aiContextSnapshot?: BaziResult['aiContextSnapshot'] | null;
+            aiWorkflowVersion?: 1 | 2;
+            aiWorkflowBirthSignature?: string | null;
+            aiKinshipVerification?: BaziKinshipVerification | null;
             aiConfigSignature?: string | null;
             aiInvalidatedAt?: string | null;
         } = {},
@@ -574,9 +582,14 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             || hasStageOverride
             || hasVerificationOverride;
 
+        if (!isBaziResult(baseResult) && overrides.aiConversationStage === 'kinship_ready') throw new Error('六亲阶段仅用于八字会话');
+        const commonStage = overrides.aiConversationStage === 'kinship_ready' ? undefined : overrides.aiConversationStage;
         const updatedResult: PanResult | BaziResult | ZiweiRecordResult = isBaziResult(baseResult)
             ? {
                 ...baseResult,
+                aiWorkflowVersion: overrides.aiWorkflowVersion ?? baseResult.aiWorkflowVersion,
+                aiWorkflowBirthSignature: overrides.aiWorkflowBirthSignature === null ? undefined : overrides.aiWorkflowBirthSignature ?? baseResult.aiWorkflowBirthSignature,
+                aiKinshipVerification: overrides.aiKinshipVerification === null ? undefined : overrides.aiKinshipVerification ?? baseResult.aiKinshipVerification,
                 aiAnalysis: lastAssistant,
                 aiChatHistory: persistedMessages,
                 quickReplies: overrides.quickReplies ?? baseResult.quickReplies ?? [],
@@ -596,7 +609,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                     aiConversationDigest: hasDigestOverride
                         ? ((overrides.aiConversationDigest as ZiweiRecordResult['aiConversationDigest'] | null | undefined) ?? undefined)
                         : baseResult.aiConversationDigest,
-                    aiConversationStage: hasStageOverride ? (overrides.aiConversationStage ?? undefined) : baseResult.aiConversationStage,
+                    aiConversationStage: hasStageOverride ? (commonStage ?? undefined) : baseResult.aiConversationStage,
                     aiVerificationSummary: hasVerificationOverride ? (overrides.aiVerificationSummary ?? undefined) : baseResult.aiVerificationSummary,
                     aiConfigSignature: hasConfigSignatureOverride
                         ? (overrides.aiConfigSignature ?? undefined)
@@ -636,7 +649,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             hiddenUser?: boolean;
             isQuickReply?: boolean;
             requestTextOverride?: string;
-            nextWorkflowStage?: AIConversationStage;
+            nextWorkflowStage?: BaziAIConversationStage;
             expectedCompletion?: AIWorkflowResponseKind;
         } = {},
     ) => {
@@ -668,6 +681,8 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                 hidden: options.hiddenUser,
                 requestContent: rewrittenText && rewrittenText !== text ? rewrittenText : undefined,
                 uiId: generateMessageId('user'),
+                ...(isBaziResult(latestResultRef.current) && getBaziWorkflowVersion(latestResultRef.current) === 2
+                    ? { workflowStage: options.expectedCompletion ?? 'followup' as const } : {}),
             },
         ];
         const phase = options.isAutoInitial ? 'initial' : 'followup';
@@ -716,7 +731,8 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         autoStartPendingRef.current = false;
         setPresentationState('preparing_request');
         cancelScheduledAutoStart();
-        autoStartTaskRef.current = InteractionManager.runAfterInteractions(() => {
+        // onShow 已确认弹窗展示完成，下一帧再启动请求以保留首屏绘制机会。
+        autoStartTaskRef.current = requestAnimationFrame(() => {
             autoStartTaskRef.current = null;
             if (!visibleRef.current || !modalShownRef.current || loadingRef.current || latestMessagesRef.current.length > 0) {
                 return;
@@ -737,7 +753,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     };
 
     const handleCopyLatestAssistant = async () => {
-        const assistantText = getLastAssistantContent(messages);
+        const assistantText = getLastAssistantContent(displayMessages);
         if (!assistantText) {
             CustomAlert.alert('暂无可复制内容', '当前没有助手回复可复制。');
             return;
@@ -777,6 +793,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             aiConversationDigest: null,
             aiConversationStage: 'foundation_pending',
             aiVerificationSummary: null,
+            ...(workflowMode === 'bazi' ? { aiWorkflowVersion: 2 as const, aiWorkflowBirthSignature: null, aiKinshipVerification: null } : {}),
             aiConfigSignature: workflowMode === 'ziwei' && isZiweiResult(latestResultRef.current)
                 ? buildZiweiAIConfigSignature(latestResultRef.current.config)
                 : undefined,
@@ -792,11 +809,13 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         });
     };
 
-    const handleStartVerification = async (baseMessagesOverride: UIChatMessage[] = trimWorkflowMessages(messages, 1)) => {
+    const handleStartVerification = async (override?: UIChatMessage[]) => {
         if (!stagedMode) {
             return;
         }
 
+        const baseMessagesOverride = override ?? (kinshipWorkflow
+            ? hydrateMessages(latestResultRef.current.aiChatHistory ?? []) : trimWorkflowMessages(messages, 1));
         const prompt = workflowMode === 'bazi' ? buildBaziVerificationPrompt() : buildZiweiVerificationPrompt();
         await handleSend(prompt, {
             baseMessagesOverride,
@@ -812,6 +831,12 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             return;
         }
 
+        if (kinshipWorkflow) {
+            const history = hydrateMessages(latestResultRef.current.aiChatHistory ?? []);
+            await saveAndSync(history, { quickReplies: [], aiConversationDigest: null, aiConversationStage: 'kinship_ready', aiVerificationSummary: null });
+            await handleStartVerification(history);
+            return;
+        }
         const verificationPrompt = workflowMode === 'bazi' ? buildBaziVerificationPrompt() : buildZiweiVerificationPrompt();
         const retryPlan = buildBaziVerificationRetryPlan(messages, verificationPrompt);
         if (!retryPlan) {
@@ -848,12 +873,92 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             return;
         }
         await handleSend(prompt, {
-            baseMessagesOverride: trimWorkflowMessages(messages, 2),
+            baseMessagesOverride: kinshipWorkflow ? hydrateMessages(latestResultRef.current.aiChatHistory ?? []) : trimWorkflowMessages(messages, 2),
             hiddenUser: true,
             requestTextOverride: prompt,
             expectedCompletion: 'five_year',
             nextWorkflowStage: 'followup_ready',
         });
+    };
+
+    const runKinshipAction = async (action: () => Promise<void>) => {
+        if (kinshipActionRef.current || isLoading) return;
+        kinshipActionRef.current = true;
+        setKinshipSaving(true);
+        try { await action(); } catch (error) {
+            CustomAlert.alert('暂时无法继续', error instanceof Error ? error.message : String(error));
+        } finally { kinshipActionRef.current = false; setKinshipSaving(false); }
+    };
+
+    const saveKinship = async (next: BaziKinshipVerification, facts?: KinshipActualFacts): Promise<void> => {
+        const base = latestResultRef.current;
+        if (!isBaziResult(base)) throw new Error('当前不是八字会话');
+        const saved = await updateExistingRecordResult(base.id, 'bazi', (current) => {
+            if (!isBaziResult(current) || getBaziBirthSignature(current) !== next.birthSignature
+                || JSON.stringify(current.aiKinshipVerification) !== JSON.stringify(base.aiKinshipVerification)) return null;
+            const actualFeedback = facts ? next.actualFeedback : undefined;
+            const feedbackMessage: PersistedAIChatMessage[] = actualFeedback
+                && JSON.stringify(current.aiKinshipVerification?.actualFeedback) !== JSON.stringify(actualFeedback) ? [{
+                role: 'user', workflowStage: 'verification',
+                content: ['我提供的实际家庭情况：', ...Object.entries(KINSHIP_ACTUAL_FIELDS).flatMap(([key, label]) => {
+                    const value = actualFeedback[key as keyof KinshipActualFacts];
+                    return value ? [`${label}：${value}`] : [];
+                })].join('\n'),
+            }] : [];
+            return { ...current, aiKinshipVerification: next,
+                aiChatHistory: [...(current.aiChatHistory ?? []), ...feedbackMessage] };
+        });
+        if (!saved || !isBaziResult(saved)) throw new Error('记录已变化，请重新打开当前命盘后核验');
+        latestResultRef.current = saved;
+        setWorkflowStage(getBaziConversationStage(saved));
+        onUpdateResult(saved);
+    };
+
+    const handleStartKinship = async () => {
+        const current = latestResultRef.current;
+        if (!isBaziResult(current)) return;
+        await handleSend(buildBaziKinshipPrompt(), {
+            baseMessagesOverride: hydrateMessages(current.aiChatHistory ?? []), hiddenUser: true,
+            expectedCompletion: 'kinship', nextWorkflowStage: 'kinship_ready',
+        });
+    };
+
+    const continueKinship = async (feedback?: KinshipFeedback, facts?: KinshipActualFacts, onSaved?: () => void) => {
+        const current = latestResultRef.current;
+        if (!isBaziResult(current) || isBaziWorkflowStale(current)) throw new Error('命盘已变化，请重新开始分析');
+        if (feedback || facts) {
+            const context = mergeBaziFormatterContext(current.aiContextSnapshot, latestBaziContextRef.current);
+            let next: BaziKinshipVerification = getCurrentKinshipVerification(current) ?? {
+                version: 2, birthSignature: getBaziBirthSignature(current), attempts: [],
+                relationSettings: normalizeGanZhiRelationSettings(context?.ganZhiRelationSettings),
+            };
+            if (feedback) {
+                next = withKinshipFeedback(next, KINSHIP_FEEDBACK_ID, feedback);
+                if (feedback === 'matched') next = confirmKinshipVerification(next);
+            }
+            if (facts) next = withKinshipActualFeedback(next, facts);
+            await saveKinship(next, facts);
+        }
+        onSaved?.();
+        await handleStartVerification(hydrateMessages(latestResultRef.current.aiChatHistory ?? []));
+    };
+    const handleKinshipContinue = (feedback?: KinshipFeedback) => runKinshipAction(() => continueKinship(feedback));
+    const saveFeedbackAndContinue = async () => {
+        if (kinshipActionRef.current) return;
+        kinshipActionRef.current = true;
+        setKinshipSaving(true);
+        try {
+            const hasFacts = Object.values(feedbackDraft).some((value) => value.trim());
+            await continueKinship(feedbackChoice, hasFacts ? feedbackDraft : undefined, () => {
+                const current = latestResultRef.current;
+                if (isBaziResult(current)) setFeedbackDraft(getCurrentKinshipVerification(current)?.actualFeedback
+                    ?? { siblings: '', birthOrder: '', circumstances: '', unknowns: '' });
+                setFeedbackVisible(false);
+            });
+        } finally {
+            kinshipActionRef.current = false;
+            setKinshipSaving(false);
+        }
     };
 
     const handleVerificationActionPress = (action: BaziVerificationAction) => {
@@ -867,7 +972,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
 
     const handleExportChat = async () => {
         try {
-            await shareChatMarkdown(latestResultRef.current, toPersistedMessages(messages));
+            await shareChatMarkdown(latestResultRef.current, toPersistedMessages(displayMessages));
         } catch (error: any) {
             const message = typeof error?.message === 'string' ? error.message : '导出失败，请稍后重试';
             void recordDiagnosticLog({
@@ -880,9 +985,21 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     };
 
     const handleClose = () => {
-        cancelScheduledAutoStart();
-        setMenuVisible(false);
-        onClose();
+        const close = () => {
+            cancelScheduledAutoStart();
+            setMenuVisible(false);
+            setFeedbackVisible(false);
+            onClose();
+        };
+        if (kinshipSaving) return;
+        const saved = kinshipState?.actualFeedback;
+        const dirty = (Object.keys(feedbackDraft) as Array<keyof KinshipActualFacts>).some((key) => feedbackDraft[key] !== (saved?.[key] ?? ''));
+        if (dirty) {
+            CustomAlert.alert('放弃未保存的反馈？', undefined, [
+                { text: '继续填写', style: 'cancel', onPress: () => setFeedbackVisible(true) },
+                { text: '放弃', style: 'destructive', onPress: close },
+            ]);
+        } else close();
     };
 
     const handleCancelAnalysisJob = () => {
@@ -892,6 +1009,11 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
 
     const handleRetryAnalysisJob = () => {
         if (!analysisJob || isActiveAIAnalysisJob(analysisJob)) {
+            return;
+        }
+        if (analysisJob.expectedCompletion === 'kinship_review') {
+            setMenuVisible(false);
+            void handleKinshipContinue();
             return;
         }
         const failedUser = [...analysisJob.requestMessages]
@@ -980,7 +1102,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             if (visibleRef.current && !loadingRef.current) {
                 cancelScheduledAutoStart();
 
-                autoStartTaskRef.current = InteractionManager.runAfterInteractions(() => {
+                autoStartTaskRef.current = requestAnimationFrame(() => {
                     autoStartTaskRef.current = null;
 
                     if (!visibleRef.current || loadingRef.current) {
@@ -1016,6 +1138,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     };
 
     const menuItems: OverflowMenuItem[] = [
+        { key: 'details', label: detailsVisible ? '收起分析详情' : '分析详情', onPress: () => { setDetailsVisible(!detailsVisible); setMenuVisible(false); } },
         ...(isCancellableAIAnalysisJob(analysisJob)
             ? [{ key: 'cancel-analysis', label: '取消本次分析', onPress: handleCancelAnalysisJob, destructive: true }]
             : []),
@@ -1024,16 +1147,19 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             ? [{ key: 'retry-analysis', label: '重试本次分析', onPress: handleRetryAnalysisJob }]
             : []),
         { key: 'copy', label: '复制回复', onPress: handleCopyLatestAssistant, disabled: isLoading },
-        { key: 'retry', label: '重试上一问', onPress: handleRetryLastQuestion, disabled: isLoading || ziweiAnalysisStale || (stagedMode && workflowStage !== 'followup_ready') },
+        { key: 'retry', label: '重试上一问', onPress: handleRetryLastQuestion, disabled: isLoading || ziweiAnalysisStale || (stagedMode && workflowStage !== 'followup_ready') || !buildRetryPlan(messages) },
         { key: 'export', label: '导出会话', onPress: handleExportChat, disabled: isLoading },
         { key: 'reset', label: '重置分析', onPress: handleResetAnalysis, disabled: isLoading, destructive: true },
     ];
     const showFoundationAction = stagedMode
+        && !kinshipWorkflow
         && !ziweiAnalysisStale
+        && !baziAnalysisStale
         && workflowStage === 'foundation_ready'
         && !isLoading;
     const showVerificationActions = stagedMode
         && !ziweiAnalysisStale
+        && !baziAnalysisStale
         && workflowStage === 'verification_ready'
         && !isLoading
         && Boolean(getLastAssistantContent(messages));
@@ -1043,7 +1169,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         messages.length,
         hasFoundationAttempted,
     ) && !ziweiAnalysisStale;
-    const inputLocked = isActiveAIAnalysisJob(analysisJob) || (stagedMode && workflowStage !== 'followup_ready') || ziweiAnalysisStale;
+    const inputLocked = isActiveAIAnalysisJob(analysisJob) || (stagedMode && workflowStage !== 'followup_ready') || ziweiAnalysisStale || baziAnalysisStale || kinshipSaving;
 
     const renderMessage = ({ item }: { item: UIChatMessage }) => {
         if (item.role === 'system' || item.hidden) {
@@ -1051,7 +1177,6 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         }
 
         const isUser = item.role === 'user';
-        const [pendingTitle, pendingBody] = item.pending ? item.content.split('\n', 2) : ['', ''];
         return (
             <View style={[styles.messageRow, isUser ? styles.messageRowUser : styles.messageRowAssistant]}>
                 <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAssistant]}>
@@ -1061,11 +1186,8 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                         <View style={styles.pendingBubble}>
                             <View style={styles.pendingBubbleHead}>
                                 <ActivityIndicator size="small" color={Colors.accent.gold} />
-                                <Text style={styles.pendingBubbleTitle}>{pendingTitle}</Text>
+                                <Text style={styles.pendingBubbleTitle}>{item.content}</Text>
                             </View>
-                            {pendingBody ? (
-                                <Text style={styles.pendingBubbleBody}>{pendingBody}</Text>
-                            ) : null}
                         </View>
                     ) : (
                         <Markdown style={markdownStyles}>{item.content}</Markdown>
@@ -1077,232 +1199,237 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
 
     return (
         <Modal visible={visible} animationType="slide" onRequestClose={handleClose} onShow={handleModalShow}>
-            <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-                <View style={styles.header}>
-                    <TouchableOpacity onPress={handleClose} style={styles.headerBtn}>
-                        <BackIcon size={24} color={Colors.text.primary} />
-                    </TouchableOpacity>
-                    <View style={styles.headerTitleWrap}>
-                        {stagedMode ? (
-                            <>
-                                <Text style={styles.headerPrimaryTitle} numberOfLines={1}>
-                                    {headerMeta.title}
-                                </Text>
-                                <Text style={styles.headerSecondaryTitle} numberOfLines={1}>
-                                    {headerMeta.subtitle}
-                                </Text>
-                            </>
-                        ) : (
-                            <View style={styles.hexagramHeaderRow}>
-                                <Text style={styles.headerGuaName} numberOfLines={1}>
-                                    {headerMeta.title}
-                                </Text>
-                                <GuaArrowIcon size={16} color={Colors.accent.gold} />
-                                <Text style={styles.headerGuaName} numberOfLines={1}>
-                                    {headerMeta.subtitle}
-                                </Text>
-                            </View>
-                        )}
-                    </View>
-                    <TouchableOpacity onPress={() => setMenuVisible((prev) => !prev)} style={styles.headerBtn}>
-                        <MoreVerticalIcon size={20} color={Colors.text.primary} />
-                    </TouchableOpacity>
-                </View>
-                <OverflowMenu
-                    visible={menuVisible}
-                    top={insets.top + 54}
-                    right={Spacing.lg}
-                    items={menuItems}
-                    onClose={() => setMenuVisible(false)}
-                />
-
-                {isBaziResult(result) && baziContext?.wuXingEnergy ? (
-                    <View style={styles.baziContextPreview}>
-                        <View style={styles.baziContextPreviewHead}>
-                            <Text style={styles.baziContextPreviewTitle}>当前岁运五行</Text>
-                            <Text style={styles.baziContextPreviewFocus} numberOfLines={1}>
-                                {baziContext.wuXingEnergy.focus.mode === 'xiaoyun' ? '小运' : '大运'} {baziContext.wuXingEnergy.focus.yunGanZhi || '—'}
-                                {' · '}流年 {baziContext.wuXingEnergy.focus.liuNianGanZhi || '—'}
-                                {' · '}流月 {baziContext.wuXingEnergy.focus.liuYueGanZhi || '—'}
-                            </Text>
-                        </View>
-                        <View style={styles.baziEnergyRow}>
-                            {baziContext.wuXingEnergy.elements.map((item) => (
-                                <View key={item.element} style={styles.baziEnergyItem}>
-                                    <Text style={styles.baziEnergyElement}>{item.element}</Text>
-                                    <Text style={styles.baziEnergyValue}>{item.percentage}%</Text>
+            <SafeAreaProvider style={styles.container}>
+                <SafeAreaView style={styles.container}>
+                    <View style={[styles.header, workflowMode === 'bazi' && styles.baziHeader]}
+                        onLayout={({ nativeEvent: { layout } }) => setHeaderBottom(layout.y + layout.height)}>
+                        <TouchableOpacity onPress={handleClose} style={styles.headerBtn} accessibilityRole="button" accessibilityLabel="关闭 AI 分析">
+                            <BackIcon size={24} color={Colors.text.primary} />
+                        </TouchableOpacity>
+                        <View style={styles.headerTitleWrap}>
+                            {stagedMode ? (
+                                <>
+                                    <Text style={styles.headerPrimaryTitle} numberOfLines={1}>
+                                        {headerMeta.title}
+                                    </Text>
+                                    <Text style={styles.headerSecondaryTitle} numberOfLines={1}>
+                                        {headerMeta.subtitle}
+                                    </Text>
+                                </>
+                            ) : (
+                                <View style={styles.hexagramHeaderRow}>
+                                    <Text style={styles.headerGuaName} numberOfLines={1}>
+                                        {headerMeta.title}
+                                    </Text>
+                                    <GuaArrowIcon size={16} color={Colors.accent.gold} />
+                                    <Text style={styles.headerGuaName} numberOfLines={1}>
+                                        {headerMeta.subtitle}
+                                    </Text>
                                 </View>
-                            ))}
+                            )}
                         </View>
-                        <View style={styles.baziPartyRow}>
-                            <View style={[styles.baziPartySame, { width: `${baziContext.wuXingEnergy.samePartyPercentage}%` }]} />
-                            <View style={[styles.baziPartyDifferent, { width: `${baziContext.wuXingEnergy.differentPartyPercentage}%` }]} />
-                        </View>
+                        <TouchableOpacity onPress={() => setMenuVisible((prev) => !prev)} style={styles.headerBtn}
+                            accessibilityRole="button" accessibilityLabel="更多操作" accessibilityState={{ expanded: menuVisible }}>
+                            <MoreVerticalIcon size={20} color={Colors.text.primary} />
+                        </TouchableOpacity>
                     </View>
-                ) : null}
-
-                <KeyboardAvoidingView
-                    style={styles.keyboardView}
-                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-                >
-                    <FlatList
-                        ref={flatListRef}
-                        data={messages}
-                        keyExtractor={(item) => item.uiId}
-                        renderItem={renderMessage}
-                        contentContainerStyle={styles.chatContainer}
-                        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-                        onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
-                        showsVerticalScrollIndicator={false}
+                    <OverflowMenu
+                        visible={menuVisible}
+                        top={headerBottom}
+                        right={Spacing.lg}
+                        items={menuItems}
+                        onClose={() => setMenuVisible(false)}
                     />
-
-                    <View style={styles.inputSection}>
-                        {ziweiStaleNotice ? (
-                            <View style={[styles.workflowCard, styles.workflowCardReady]}>
-                                <Text style={styles.workflowCardTitle}>{ziweiStaleNotice.title}</Text>
-                                <Text style={styles.workflowCardBody}>{ziweiStaleNotice.body}</Text>
-                                <TouchableOpacity
-                                    style={styles.workflowCardActionBtn}
-                                    onPress={() => {
-                                        void restartBaziWorkflow();
-                                    }}
-                                >
-                                    <Text style={styles.workflowCardActionText}>按当前配置重新开始 AI 分析</Text>
-                                </TouchableOpacity>
+                    {detailsVisible && isBaziResult(result) && baziContext?.wuXingEnergy ? (
+                        <View style={styles.baziContextPreview}>
+                            <View style={styles.baziContextPreviewHead}>
+                                <Text style={styles.baziContextPreviewTitle}>当前岁运五行</Text>
+                                <Text style={styles.baziContextPreviewFocus}>
+                                    {baziContext.wuXingEnergy.focus.mode === 'xiaoyun' ? '小运' : '大运'} {baziContext.wuXingEnergy.focus.yunGanZhi || '—'}
+                                    {' · '}流年 {baziContext.wuXingEnergy.focus.liuNianGanZhi || '—'}
+                                    {' · '}流月 {baziContext.wuXingEnergy.focus.liuYueGanZhi || '—'}
+                                </Text>
                             </View>
-                        ) : null}
-                        {stagedMode && workflowNotice && !ziweiStaleNotice ? (
-                            <View
-                                style={[
-                                    styles.workflowCard,
-                                    workflowNotice.tone === 'accent'
-                                        ? styles.workflowCardAccent
-                                        : (workflowNotice.tone === 'ready' ? styles.workflowCardReady : null),
-                                ]}
-                            >
-                                <Text style={styles.workflowCardTitle}>{workflowNotice.title}</Text>
-                                <Text style={styles.workflowCardBody}>{workflowNotice.body}</Text>
-                                {showInitialResetAction && !ziweiStaleNotice ? (
+                            <View style={styles.baziEnergyBar} accessible accessibilityRole="image"
+                                accessibilityLabel={`岁运五行占比：${baziContext.wuXingEnergy.elements.map((item) => `${item.element} ${item.percentage}%`).join('，')}`}>
+                                {baziContext.wuXingEnergy.elements.filter((item) => item.percentage > 0).map((item) => {
+                                    const backgroundColor = Colors.bazi[BAZI_ELEMENT_COLOR_KEYS[item.element]];
+                                    const color = getLuminance(backgroundColor) > BLACK_WHITE_TEXT_THRESHOLD ? '#000000' : '#FFFFFF';
+                                    return (
+                                        <View key={item.element} style={[styles.baziEnergySegment, {
+                                            width: `${item.percentage}%`, backgroundColor,
+                                        }]}>
+                                            <Text style={[styles.baziEnergyLabel, { color }]}
+                                                numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
+                                                {item.element} {item.percentage}%
+                                            </Text>
+                                        </View>
+                                    );
+                                })}
+                            </View>
+                        </View>
+                    ) : null}
+                    <AIModelSelector visible={visible} running={isActiveAIAnalysisJob(analysisJob) ? analysisJob?.executionMeta : undefined} />
+
+                    <KeyboardAvoidingView
+                        style={styles.keyboardView}
+                        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                    >
+                        <FlatList
+                            ref={flatListRef}
+                            data={displayMessages}
+                            keyExtractor={(item) => item.uiId}
+                            renderItem={renderMessage}
+                            contentContainerStyle={styles.chatContainer}
+                            onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+                            onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
+                            showsVerticalScrollIndicator={false}
+                            keyboardShouldPersistTaps="handled"
+                        />
+
+                        <View style={styles.inputSection}>
+                            {ziweiStaleNotice ? (
+                                <View style={[styles.workflowCard, styles.workflowCardReady]}>
+                                    <Text style={styles.workflowCardTitle}>{ziweiStaleNotice.title}</Text>
+                                    <Text style={styles.workflowCardBody}>{ziweiStaleNotice.body}</Text>
                                     <TouchableOpacity
                                         style={styles.workflowCardActionBtn}
                                         onPress={() => {
                                             void restartBaziWorkflow();
                                         }}
                                     >
-                                        <Text style={styles.workflowCardActionText}>
-                                            {workflowMode === 'ziwei' ? '重试基础命盘分析' : '重试基础定局'}
-                                        </Text>
+                                        <Text style={styles.workflowCardActionText}>按当前配置重新开始 AI 分析</Text>
                                     </TouchableOpacity>
-                                ) : null}
-                            </View>
-                        ) : null}
-
-                        {artifactNotice && !isLoading ? (
-                            <Text style={styles.artifactNoticeText}>{artifactNotice}</Text>
-                        ) : null}
-
-                        {formatRequestEvidenceNotice(requestDebugMeta) ? (
-                            <Text style={styles.requestEvidenceText}>{formatRequestEvidenceNotice(requestDebugMeta)}</Text>
-                        ) : null}
-
-                        {showFoundationAction ? (
-                            <View style={styles.verificationActionsWrap}>
-                                <TouchableOpacity
-                                    style={[styles.verificationActionBtn, styles.verificationActionPrimary]}
-                                    onPress={() => {
-                                        void handleStartVerification();
-                                    }}
-                                >
-                                    <Text style={[styles.verificationActionText, styles.verificationActionPrimaryText]}>
-                                        {workflowMode === 'ziwei' ? getLocalZiweiFoundationActionLabel() : getLocalBaziFoundationActionLabel()}
-                                    </Text>
+                                </View>
+                            ) : null}
+                            {showInitialResetAction && !ziweiStaleNotice && (
+                                <TouchableOpacity style={styles.workflowCardActionBtn} onPress={() => { void restartBaziWorkflow(); }}>
+                                    <Text style={styles.workflowCardActionText}>重试基础分析</Text>
                                 </TouchableOpacity>
-                            </View>
-                        ) : showVerificationActions ? (
-                            <View style={styles.verificationActionsWrap}>
-                                {(workflowMode === 'ziwei' ? getLocalZiweiVerificationActions() : getLocalBaziVerificationActions()).map((action) => (
+                            )}
+                            {kinshipWorkflow && (workflowStage === 'foundation_ready' || workflowStage === 'kinship_ready') && !baziAnalysisStale && !isLoading && (
+                                <View style={styles.verificationActionsWrap}>
+                                    <TouchableOpacity disabled={isLoading || kinshipSaving} style={[styles.verificationActionBtn, styles.verificationActionPrimary]}
+                                        onPress={() => { void handleKinshipContinue(feedbackChoice); }}>
+                                        <Text style={[styles.verificationActionText, styles.verificationActionPrimaryText]}>{workflowStage === 'kinship_ready' ? '继续前事核验' : '开始前事核验'}</Text>
+                                    </TouchableOpacity>
+                                    {!kinshipState?.attempts.length && !kinshipState?.actualFeedback && (
+                                        <TouchableOpacity disabled={isLoading || kinshipSaving} style={styles.verificationActionBtn}
+                                            onPress={() => { void runKinshipAction(handleStartKinship); }}>
+                                            <Text style={styles.verificationActionText}>六亲初验</Text>
+                                        </TouchableOpacity>
+                                    )}
+                                    {!!kinshipState?.attempts.length && <View style={styles.feedbackChoices} accessibilityRole="radiogroup" accessibilityLabel="六亲初验反馈">{(['matched', 'mismatched', 'unknown'] as const).map((choice) => {
+                                        const disabled = kinshipSaving || (choice === 'matched' && kinshipUndetermined);
+                                        return <TouchableOpacity key={choice} accessibilityRole="radio" accessibilityState={{ checked: feedbackChoice === choice, disabled }}
+                                            disabled={disabled} style={[styles.verificationActionBtn, { flex: 1, opacity: disabled ? 0.45 : 1, borderColor: feedbackChoice === choice ? Colors.accent.gold : Colors.border.normal }]}
+                                            onPress={() => { setFeedbackChoice(choice); if (choice === 'mismatched') setFeedbackVisible(true); }}>
+                                            <Text style={styles.verificationActionText}>{KINSHIP_FEEDBACK_LABELS[choice]}</Text>
+                                        </TouchableOpacity>;
+                                    })}</View>}
+                                    <TouchableOpacity disabled={isLoading || kinshipSaving} style={styles.verificationActionBtn} onPress={() => setFeedbackVisible(true)}>
+                                        <Text style={styles.verificationActionText}>填写实际情况</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            )}
+
+                            {artifactNotice && !isLoading ? (
+                                <Text style={styles.artifactNoticeText}>{artifactNotice}</Text>
+                            ) : null}
+
+                            {detailsVisible && formatRequestEvidenceNotice(requestDebugMeta) ? (
+                                <Text style={styles.requestEvidenceText}>{formatRequestEvidenceNotice(requestDebugMeta)}</Text>
+                            ) : null}
+
+                            {showFoundationAction ? (
+                                <View style={styles.verificationActionsWrap}>
                                     <TouchableOpacity
-                                        key={action.id}
-                                        style={[
-                                            styles.verificationActionBtn,
-                                            action.id === 'continue' ? styles.verificationActionPrimary : styles.verificationActionSecondary,
-                                        ]}
-                                        onPress={() => handleVerificationActionPress(action)}
+                                        style={[styles.verificationActionBtn, styles.verificationActionPrimary]}
+                                        onPress={() => {
+                                            void handleStartVerification();
+                                        }}
                                     >
-                                        <Text
-                                            style={[
-                                                styles.verificationActionText,
-                                                action.id === 'continue' ? styles.verificationActionPrimaryText : styles.verificationActionSecondaryText,
-                                            ]}
-                                        >
-                                            {action.label}
+                                        <Text style={[styles.verificationActionText, styles.verificationActionPrimaryText]}>
+                                            {workflowMode === 'ziwei' ? getLocalZiweiFoundationActionLabel() : getLocalBaziFoundationActionLabel()}
                                         </Text>
                                     </TouchableOpacity>
-                                ))}
-                            </View>
-                        ) : (
-                            <>
-                                {quickReplies.length > 0 && !isLoading && (!stagedMode || workflowStage === 'followup_ready') ? (
-                                    <FlatList
-                                        data={quickReplies}
-                                        horizontal
-                                        showsHorizontalScrollIndicator={false}
-                                        keyExtractor={(item, index) => `${item}-${index}`}
-                                        style={styles.quickRepliesList}
-                                        contentContainerStyle={{ paddingHorizontal: Spacing.md }}
-                                        renderItem={({ item }) => (
-                                            <TouchableOpacity
-                                                style={styles.quickReplyChip}
-                                                onPress={() => handleSend(item, { isQuickReply: stagedMode })}
+                                </View>
+                            ) : showVerificationActions ? (
+                                <View style={styles.verificationActionsWrap}>
+                                    {(workflowMode === 'ziwei' ? getLocalZiweiVerificationActions() : getLocalBaziVerificationActions()).map((action) => (
+                                        <TouchableOpacity
+                                            key={action.id}
+                                            style={[
+                                                styles.verificationActionBtn,
+                                                action.id === 'continue' ? styles.verificationActionPrimary : styles.verificationActionSecondary,
+                                            ]}
+                                            onPress={() => handleVerificationActionPress(action)}
+                                        >
+                                            <Text
+                                                style={[
+                                                    styles.verificationActionText,
+                                                    action.id === 'continue' ? styles.verificationActionPrimaryText : styles.verificationActionSecondaryText,
+                                                ]}
                                             >
-                                                <Text style={styles.quickReplyText}>{item}</Text>
-                                            </TouchableOpacity>
-                                        )}
-                                    />
-                                ) : null}
-                            </>
-                        )}
+                                                {action.label}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                            ) : (
+                                <>
+                                    {quickReplies.length > 0 && !isLoading && (!stagedMode || workflowStage === 'followup_ready') ? (
+                                        <FlatList
+                                            data={quickReplies}
+                                            horizontal
+                                            showsHorizontalScrollIndicator={false}
+                                            keyExtractor={(item, index) => `${item}-${index}`}
+                                            style={styles.quickRepliesList}
+                                            contentContainerStyle={{ paddingHorizontal: Spacing.md }}
+                                            renderItem={({ item }) => (
+                                                <TouchableOpacity
+                                                    style={styles.quickReplyChip}
+                                                    onPress={() => handleSend(item, { isQuickReply: stagedMode })}
+                                                >
+                                                    <Text style={styles.quickReplyText}>{item}</Text>
+                                                </TouchableOpacity>
+                                            )}
+                                        />
+                                    ) : null}
+                                </>
+                            )}
 
-                        <View style={styles.inputRow}>
-                            <TextInput
-                                style={styles.textInput}
-                                placeholder={stagedMode
-                                    ? (ziweiAnalysisStale
-                                        ? '当前 AI 基于旧配置失效，请先重新开始分析...'
-                                        : (workflowStage === 'foundation_pending'
-                                        ? (workflowMode === 'ziwei' ? '基础命盘分析完成前，暂不开放追问...' : '基础定局完成前，暂不开放追问...')
-                                        : (workflowStage === 'foundation_ready'
-                                            ? '点击“开始前事核验”后再继续...'
-                                            : (workflowStage === 'verification_ready'
-                                                ? '先确认前事核验，再进入未来五年...'
-                                                : (workflowMode === 'ziwei'
-                                                    ? '继续细问未来五年的事业、感情或关键年份...'
-                                                    : '继续细问未来五年里的财运、婚恋或事业...')))))
-                                    : (isActiveAIAnalysisJob(analysisJob) ? '分析运行中，可关闭弹窗稍后查看...' : '向 AI 追问更多细节...')}
-                                placeholderTextColor={Colors.text.tertiary}
-                                value={inputText}
-                                onChangeText={setInputText}
-                                multiline
-                                maxLength={240}
-                                returnKeyType="send"
-                                onSubmitEditing={() => handleSend()}
-                                editable={!isLoading && !inputLocked}
-                            />
-                            <TouchableOpacity
-                                style={[styles.sendBtn, (!inputText.trim() || inputLocked) && !isLoading ? { opacity: 0.5 } : null]}
-                                onPress={() => handleSend()}
-                                disabled={isLoading || !inputText.trim() || inputLocked}
-                            >
-                                {isLoading ? (
-                                    <ActivityIndicator size="small" color={Colors.text.inverse} />
-                                ) : (
-                                    <SendIcon size={20} color={Colors.text.inverse} />
-                                )}
-                            </TouchableOpacity>
+                            {!inputLocked && <View style={styles.inputRow}>
+                                <TextInput
+                                    style={styles.textInput}
+                                    placeholder="继续追问..."
+                                    placeholderTextColor={Colors.text.tertiary}
+                                    value={inputText}
+                                    onChangeText={setInputText}
+                                    multiline
+                                    maxLength={240}
+                                    returnKeyType="send"
+                                    onSubmitEditing={() => handleSend()}
+                                    editable={!isLoading && !inputLocked}
+                                />
+                                <TouchableOpacity
+                                    style={[styles.sendBtn, (!inputText.trim() || inputLocked) && !isLoading ? { opacity: 0.5 } : null]}
+                                    onPress={() => handleSend()}
+                                    disabled={isLoading || !inputText.trim() || inputLocked}
+                                >
+                                    {isLoading ? (
+                                        <ActivityIndicator size="small" color={Colors.text.inverse} />
+                                    ) : (
+                                        <SendIcon size={20} color={Colors.text.inverse} />
+                                    )}
+                                </TouchableOpacity>
+                            </View>}
                         </View>
-                    </View>
-                </KeyboardAvoidingView>
-            </View>
+                    </KeyboardAvoidingView>
+                    <BaziKinshipFeedbackModal visible={feedbackVisible} value={feedbackDraft} busy={kinshipSaving}
+                        onChange={setFeedbackDraft} onClose={() => setFeedbackVisible(false)} onSave={saveFeedbackAndContinue} />
+                </SafeAreaView>
+            </SafeAreaProvider>
         </Modal>
     );
 }
@@ -1320,6 +1447,9 @@ const makeMarkdownStyles = (Colors: any) => ({
     em: { fontStyle: 'italic' as any, color: Colors.text.secondary },
     blockquote: { backgroundColor: 'transparent', borderLeftColor: Colors.border.subtle, borderLeftWidth: 4, paddingLeft: Spacing.md, marginVertical: Spacing.sm },
     paragraph: { marginTop: 0, marginBottom: Spacing.sm },
+    code_inline: { color: Colors.text.primary, backgroundColor: 'transparent', borderWidth: 0, padding: 0 },
+    code_block: { color: Colors.text.primary, backgroundColor: Colors.bg.elevated, borderColor: Colors.border.normal },
+    fence: { color: Colors.text.primary, backgroundColor: Colors.bg.elevated, borderColor: Colors.border.normal },
 });
 
 const makeStyles = (Colors: any) => StyleSheet.create({
@@ -1336,9 +1466,13 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         borderBottomWidth: 1,
         borderBottomColor: Colors.border.subtle,
     },
+    baziHeader: {
+        paddingVertical: Spacing.xs,
+        borderBottomWidth: 0,
+    },
     headerBtn: {
-        width: 40,
-        height: 40,
+        width: 44,
+        height: 44,
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -1348,65 +1482,52 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         marginHorizontal: Spacing.sm,
     },
     baziContextPreview: {
-        marginHorizontal: Spacing.md,
-        marginTop: Spacing.sm,
-        padding: Spacing.sm,
-        borderWidth: 1,
-        borderColor: Colors.bazi.divider,
-        borderRadius: 14,
-        backgroundColor: Colors.bazi.surfaceMuted,
-        gap: 7,
+        paddingHorizontal: Spacing.xl,
+        paddingTop: Spacing.xs,
+        paddingBottom: Spacing.sm,
+        borderBottomWidth: 1,
+        borderBottomColor: Colors.border.subtle,
+        gap: Spacing.xs,
     },
     baziContextPreviewHead: {
         flexDirection: 'row',
+        flexWrap: 'wrap',
         alignItems: 'center',
         justifyContent: 'space-between',
         gap: Spacing.sm,
     },
     baziContextPreviewTitle: {
-        color: Colors.bazi.selectedText,
-        fontSize: FontSize.sm,
-        fontWeight: '700',
+        color: Colors.text.secondary,
+        fontSize: FontSize.xs,
+        fontWeight: '500',
     },
     baziContextPreviewFocus: {
-        flex: 1,
-        color: Colors.text.tertiary,
-        fontSize: 10,
+        flexShrink: 1,
+        marginLeft: 'auto',
+        color: Colors.text.secondary,
+        fontSize: FontSize.xs,
         textAlign: 'right',
     },
-    baziEnergyRow: {
-        flexDirection: 'row',
-    },
-    baziEnergyItem: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'baseline',
-        justifyContent: 'center',
-        gap: 2,
-    },
-    baziEnergyElement: {
-        color: Colors.text.secondary,
-        fontSize: 11,
-    },
-    baziEnergyValue: {
-        color: Colors.text.primary,
-        fontSize: 11,
-        fontWeight: '700',
-    },
-    baziPartyRow: {
-        height: 3,
+    baziEnergyBar: {
+        minHeight: 28,
         flexDirection: 'row',
         overflow: 'hidden',
-        borderRadius: 999,
+        borderRadius: BorderRadius.sm,
         backgroundColor: Colors.bazi.surfaceRaised,
     },
-    baziPartySame: {
-        height: '100%',
-        backgroundColor: Colors.bazi.statePositive,
+    baziEnergySegment: {
+        flexShrink: 0,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 2,
+        paddingVertical: Spacing.xs,
+        overflow: 'hidden',
     },
-    baziPartyDifferent: {
-        height: '100%',
-        backgroundColor: Colors.bazi.elementWater,
+    baziEnergyLabel: {
+        maxWidth: '100%',
+        fontSize: FontSize.xs,
+        fontWeight: '600',
+        textAlign: 'center',
     },
     hexagramHeaderRow: {
         flexDirection: 'row',
@@ -1460,11 +1581,10 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         borderBottomRightRadius: 4,
     },
     bubbleAssistant: {
-        width: '85%',
-        backgroundColor: Colors.bg.card,
-        borderBottomLeftRadius: 4,
-        borderWidth: 1,
-        borderColor: Colors.border.subtle,
+        width: '100%',
+        maxWidth: '100%',
+        backgroundColor: 'transparent',
+        paddingHorizontal: 0,
     },
     bubbleTextUser: {
         fontSize: FontSize.md,
@@ -1486,11 +1606,6 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         fontWeight: '600',
         lineHeight: 22,
     },
-    pendingBubbleBody: {
-        fontSize: FontSize.sm,
-        color: Colors.text.secondary,
-        lineHeight: 20,
-    },
     inputSection: {
         borderTopWidth: 1,
         borderTopColor: Colors.border.subtle,
@@ -1507,10 +1622,6 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         borderWidth: 1,
         borderColor: Colors.border.subtle,
         gap: Spacing.xs,
-    },
-    workflowCardAccent: {
-        borderColor: Colors.accent.gold,
-        backgroundColor: Colors.bg.elevated,
     },
     workflowCardReady: {
         borderColor: Colors.accent.jade,
@@ -1572,6 +1683,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         fontSize: FontSize.sm,
         color: Colors.accent.gold,
     },
+    feedbackChoices: { flexDirection: 'row', gap: Spacing.sm },
     verificationActionsWrap: {
         paddingHorizontal: Spacing.md,
         paddingTop: Spacing.sm,
@@ -1584,6 +1696,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         paddingVertical: Spacing.sm,
         justifyContent: 'center',
         borderWidth: 1,
+        borderColor: Colors.border.normal,
     },
     verificationActionPrimary: {
         backgroundColor: Colors.accent.gold,
@@ -1594,6 +1707,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         borderColor: Colors.border.subtle,
     },
     verificationActionText: {
+        color: Colors.text.primary,
         fontSize: FontSize.md,
         textAlign: 'center',
         fontWeight: '600',

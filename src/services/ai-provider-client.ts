@@ -1,16 +1,27 @@
 import EventSource from 'react-native-sse';
-import { getProviderCapabilities } from './ai-provider-discovery';
+import { resolveAIRequestRuntime } from './ai-request-runtime';
+import { getProtocolLabel, inferProviderProtocol } from './ai-endpoints';
+import type { AIExecutionMeta, AISkillVersion } from '../core/ai-execution-meta';
 import { recordDiagnosticLog } from './diagnostics';
 import {
     getWebCrossOriginMessage,
     getWebProxyUnavailableMessage,
     resolveAIWebTransport,
 } from './ai-web-proxy';
-import {
+import type {
     AIProviderCapabilities,
     AIProviderConfig,
     AIProviderProtocol,
+    AIRequestRuntime,
 } from './ai-provider-types';
+
+// Gateways may omit thinking metadata or events. Waiting must not depend on
+// model recognition or business stage names.
+const STREAM_TIMEOUTS = {
+    firstEventTimeoutMs: 120_000,
+    idleTimeoutMs: 480_000,
+    totalTimeoutMs: 900_000,
+} as const;
 
 export interface AIProviderMessage {
     role: 'system' | 'user' | 'assistant';
@@ -27,6 +38,7 @@ export type AIProviderFailureCode =
     | 'token_limit';
 
 export interface AIProviderRequestMeta {
+    executionMeta?: AIExecutionMeta;
     operationId: string;
     parentOperationId?: string;
     protocol: AIProviderProtocol;
@@ -38,6 +50,9 @@ export interface AIProviderRequestMeta {
     temperatureIncluded: boolean;
     metadataAvailable: boolean;
     metadataSource: AIProviderCapabilities['metadataSource'];
+    firstEventTimeoutMs: number;
+    idleTimeoutMs: number;
+    totalTimeoutMs: number;
     firstEventMs?: number;
     durationMs: number;
     streamEventCount: number;
@@ -68,22 +83,29 @@ export interface AIProviderConnectionTestResult {
     success: boolean;
     selectedProtocol?: AIProviderProtocol;
     selectedResult?: AIProviderResult;
-    attempts: AIProviderResult[];
+    attempts: AIProviderConnectionAttempt[];
     error?: string;
 }
 
+export interface AIProviderConnectionAttempt {
+    protocol: AIProviderProtocol;
+    success: boolean;
+    code?: AIProviderFailureCode | 'invalid_configuration';
+    error?: string;
+    result?: AIProviderResult;
+}
+
 export interface ProviderConnectionTestOptions {
-    preferredProtocol?: AIProviderProtocol;
+    signal?: AbortSignal;
+    onAttempt?: (protocol: AIProviderProtocol, index: number, total: number) => void;
 }
 
 export interface ProviderRequestOptions {
+    skills?: AISkillVersion[];
+    executionMeta?: AIExecutionMeta;
     maxTokens?: number;
     temperature?: number;
-    firstEventTimeoutMs?: number;
-    idleTimeoutMs?: number;
-    totalTimeoutMs?: number;
     signal?: AbortSignal;
-    acceptTokenLimit?: boolean;
     onChunk?: (text: string) => void;
     onReasoning?: () => void;
     parentOperationId?: string;
@@ -163,11 +185,12 @@ function splitSystemMessages(messages: AIProviderMessage[]): {
 }
 
 function buildRequestBody(
-    capabilities: AIProviderCapabilities,
+    runtime: AIRequestRuntime,
     messages: AIProviderMessage[],
     options: ProviderRequestOptions,
 ): Record<string, unknown> {
-    const maxOutputTokens = Math.min(options.maxTokens ?? capabilities.maxOutputTokens, capabilities.maxOutputTokens);
+    const { capabilities } = runtime;
+    const maxOutputTokens = runtime.config.maxOutputTokens;
     const temperature = capabilities.supportsTemperature ? options.temperature : undefined;
     const normalized = splitSystemMessages(messages);
     if (capabilities.protocol === 'responses') {
@@ -177,6 +200,7 @@ function buildRequestBody(
             input: normalized.messages,
             max_output_tokens: maxOutputTokens,
             ...(temperature === undefined ? {} : { temperature }),
+            ...runtime.parameters,
             stream: true,
         };
     }
@@ -186,6 +210,7 @@ function buildRequestBody(
         messages: normalized.messages,
         max_tokens: maxOutputTokens,
         ...(temperature === undefined ? {} : { temperature }),
+        ...runtime.parameters,
         stream: true,
     };
 }
@@ -347,6 +372,7 @@ function buildMeta(
     return {
         operationId,
         parentOperationId: options.parentOperationId,
+        executionMeta: options.executionMeta,
         protocol: capabilities.protocol,
         apiHost: capabilities.apiHost,
         endpointPath: capabilities.endpointPath,
@@ -356,6 +382,7 @@ function buildMeta(
         temperatureIncluded: capabilities.supportsTemperature && options.temperature !== undefined,
         metadataAvailable: capabilities.metadataAvailable,
         metadataSource: capabilities.metadataSource,
+        ...STREAM_TIMEOUTS,
         firstEventMs: state.firstEventAt ? state.firstEventAt - startedAt : undefined,
         durationMs: Date.now() - startedAt,
         streamEventCount: state.streamEventCount,
@@ -387,6 +414,7 @@ function logRequestStarted(
         context: {
             operationId,
             parentOperationId: options.parentOperationId,
+            executionMeta: options.executionMeta,
             stage: options.stage,
             requestType: options.requestType,
             protocol: capabilities.protocol,
@@ -398,6 +426,7 @@ function logRequestStarted(
             temperatureIncluded: capabilities.supportsTemperature && options.temperature !== undefined,
             metadataAvailable: capabilities.metadataAvailable,
             metadataSource: capabilities.metadataSource,
+            ...STREAM_TIMEOUTS,
             webCrossOrigin: transport.webCrossOrigin,
             webProxyUsed: transport.webProxyUsed,
             pageOrigin: transport.pageOrigin,
@@ -603,12 +632,12 @@ function handleStreamPayload(
 }
 
 function runStreamRequest(
-    config: AIProviderConfig,
-    capabilities: AIProviderCapabilities,
+    runtime: AIRequestRuntime,
     messages: AIProviderMessage[],
     options: ProviderRequestOptions,
     operationId: string,
 ): Promise<AIProviderResult> {
+    const { config, capabilities } = runtime;
     const startedAt = Date.now();
     const transport = resolveAIWebTransport(capabilities.endpoint);
     const state: StreamState = {
@@ -663,10 +692,6 @@ function runStreamRequest(
             resolve(result);
         };
         const finish = (code?: AIProviderFailureCode, error?: string) => {
-            if (code === 'token_limit' && options.acceptTokenLimit && state.content.trim()) {
-                settle(makeResult(true));
-                return;
-            }
             if (code) {
                 settle(makeResult(false, { code, error }));
                 return;
@@ -681,16 +706,13 @@ function runStreamRequest(
             settle(makeResult(true));
         };
         const resetIdleTimer = () => {
-            if (!options.idleTimeoutMs) {
-                return;
-            }
             if (idleTimer) clearTimeout(idleTimer);
             idleTimer = setTimeout(() => {
                 settle(makeResult(false, {
                     code: 'timeout',
-                    error: '流式响应空闲超时（' + Math.round(options.idleTimeoutMs! / 1000) + ' 秒）',
+                    error: '流式响应空闲超时（' + Math.round(STREAM_TIMEOUTS.idleTimeoutMs / 1000) + ' 秒）',
                 }));
-            }, options.idleTimeoutMs);
+            }, STREAM_TIMEOUTS.idleTimeoutMs);
         };
         const markFirstEvent = () => {
             if (state.firstEventAt) {
@@ -769,10 +791,14 @@ function runStreamRequest(
         };
 
         try {
+            if (options.signal?.aborted) {
+                handleAbort();
+                return;
+            }
             eventSource = new EventSource<string>(transport.endpoint, {
                 method: 'POST',
                 headers: getAuthHeaders(capabilities.protocol, config.apiKey, capabilities.endpoint),
-                body: JSON.stringify(buildRequestBody(capabilities, messages, options)),
+                body: JSON.stringify(buildRequestBody(runtime, messages, options)),
                 pollingInterval: 0,
             });
         } catch (error) {
@@ -786,22 +812,18 @@ function runStreamRequest(
             handleAbort();
             return;
         }
-        if (options.firstEventTimeoutMs) {
-            firstEventTimer = setTimeout(() => {
-                settle(makeResult(false, {
-                    code: 'timeout',
-                    error: '等待首个流式事件超时（' + Math.round(options.firstEventTimeoutMs! / 1000) + ' 秒）',
-                }));
-            }, options.firstEventTimeoutMs);
-        }
-        if (options.totalTimeoutMs) {
-            totalTimer = setTimeout(() => {
-                settle(makeResult(false, {
-                    code: 'timeout',
-                    error: '流式请求总超时（' + Math.round(options.totalTimeoutMs! / 1000) + ' 秒）',
-                }));
-            }, options.totalTimeoutMs);
-        }
+        firstEventTimer = setTimeout(() => {
+            settle(makeResult(false, {
+                code: 'timeout',
+                error: '等待首个流式事件超时（' + Math.round(STREAM_TIMEOUTS.firstEventTimeoutMs / 1000) + ' 秒）',
+            }));
+        }, STREAM_TIMEOUTS.firstEventTimeoutMs);
+        totalTimer = setTimeout(() => {
+            settle(makeResult(false, {
+                code: 'timeout',
+                error: '流式请求总超时（' + Math.round(STREAM_TIMEOUTS.totalTimeoutMs / 1000) + ' 秒）',
+            }));
+        }, STREAM_TIMEOUTS.totalTimeoutMs);
 
         const eventTypes = capabilities.protocol === 'responses'
             ? [
@@ -868,11 +890,13 @@ function runStreamRequest(
             }
             const errorMessage = !state.firstEventAt
                 && transport.webCrossOrigin
-                && (httpStatus === 0 || (transport.webProxyUsed && (httpStatus === 404 || httpStatus === 405)))
+                && httpStatus === 0
                 ? (transport.webProxyUsed ? getWebProxyUnavailableMessage() : getWebCrossOriginMessage())
                 : typeof providerEvent.message === 'string' && providerEvent.message
                 ? providerEvent.message.slice(0, 500)
-                : (!state.firstEventAt && transport.webCrossOrigin
+                : (httpStatus > 0 && httpStatus !== 200
+                    ? `接口返回 HTTP ${httpStatus}，请检查该协议是否可用以及 API Key 权限`
+                    : !state.firstEventAt && transport.webCrossOrigin
                     ? (transport.webProxyUsed ? getWebProxyUnavailableMessage() : getWebCrossOriginMessage())
                     : (isHttp200Cancel
                         ? '流式连接在收到完成事件前中断，已保留已生成的部分内容'
@@ -887,53 +911,19 @@ function runStreamRequest(
 }
 
 export async function streamProviderText(
-    config: AIProviderConfig,
+    runtime: AIRequestRuntime,
     messages: AIProviderMessage[],
     options: ProviderRequestOptions,
 ): Promise<AIProviderResult> {
-    const capabilities = await getProviderCapabilities(config);
-    const operationId = createOperationId();
-    logRequestStarted(operationId, capabilities, options);
-    return runStreamRequest(config, capabilities, messages, options, operationId);
-}
-
-const CONNECTION_TEST_MESSAGE: AIProviderMessage[] = [
-    { role: 'user', content: '请只回复 pong。' },
-];
-
-function getConnectionTestProtocols(preferredProtocol?: AIProviderProtocol): AIProviderProtocol[] {
-    const defaultProtocols: AIProviderProtocol[] = ['responses', 'anthropic_messages'];
-    if (!preferredProtocol) {
-        return defaultProtocols;
-    }
-    return [preferredProtocol, ...defaultProtocols.filter((protocol) => protocol !== preferredProtocol)];
-}
-
-function getConnectionAttemptLog(result: AIProviderResult): Record<string, unknown> {
-    return {
-        protocol: result.meta.protocol,
-        apiHost: result.meta.apiHost,
-        endpointPath: result.meta.endpointPath,
-        success: result.success,
-        code: result.code,
-        httpStatus: result.meta.httpStatus,
-        requestId: result.meta.requestId,
-        firstEventMs: result.meta.firstEventMs,
-        durationMs: result.meta.durationMs,
-        streamEventCount: result.meta.streamEventCount,
-        contentChunkCount: result.meta.contentChunkCount,
-        finishReason: result.meta.finishReason,
-        webCrossOrigin: result.meta.webCrossOrigin,
-        webProxyUsed: result.meta.webProxyUsed,
-        pageOrigin: result.meta.pageOrigin,
-        errorMessage: result.error,
+    const effectiveOptions: ProviderRequestOptions = {
+        ...options,
+        maxTokens: runtime.config.maxOutputTokens,
+        temperature: runtime.meta.temperature,
+        executionMeta: { ...runtime.meta, skills: options.skills ?? runtime.meta.skills },
     };
-}
-
-function formatConnectionTestFailure(attempts: AIProviderResult[]): string {
-    return attempts
-        .map((attempt) => attempt.error || (attempt.meta.protocol + ' 未返回有效正文'))
-        .join('\n\n');
+    const operationId = createOperationId();
+    logRequestStarted(operationId, runtime.capabilities, effectiveOptions);
+    return runStreamRequest(runtime, messages, effectiveOptions, operationId);
 }
 
 export async function testProviderConnection(
@@ -941,84 +931,38 @@ export async function testProviderConnection(
     options: ProviderConnectionTestOptions = {},
 ): Promise<AIProviderConnectionTestResult> {
     if (!config.apiUrl.trim() || !config.apiKey.trim() || !config.model.trim()) {
-        throw new Error('请先填写接口地址、API Key 与模型名称。');
+        throw new Error('请先填写接口地址、API Key，并选择模型。');
     }
-
     const operationId = 'connection-' + createOperationId();
-    const protocols = getConnectionTestProtocols(options.preferredProtocol);
-    const attempts: AIProviderResult[] = [];
-    void recordDiagnosticLog({
-        level: 'info',
-        source: 'AI:connectionTest',
-        message: 'connection_test_started',
-        context: {
-            operationId,
-            candidateProtocols: protocols,
-            model: config.model.trim(),
-        },
-    });
-
-    for (const protocol of protocols) {
-        const result = await streamProviderText(
-            { ...config, protocol },
-            CONNECTION_TEST_MESSAGE,
-            {
-                stage: 'connection_test',
-                requestType: 'connection_test',
-                maxTokens: 64,
-                firstEventTimeoutMs: 45_000,
-                idleTimeoutMs: 30_000,
-                totalTimeoutMs: 60_000,
-                acceptTokenLimit: true,
-                parentOperationId: operationId,
-            },
-        );
-        attempts.push(result);
-        void recordDiagnosticLog({
-            level: result.success ? 'info' : 'warn',
-            source: 'AI:connectionTest',
-            message: 'connection_test_attempt_completed',
-            context: {
-                operationId,
-                ...getConnectionAttemptLog(result),
-            },
-        });
-
-        if (result.success) {
-            void recordDiagnosticLog({
-                level: 'info',
-                source: 'AI:connectionTest',
-                message: 'connection_test_completed',
-                context: {
-                    operationId,
-                    selectedProtocol: protocol,
-                    attempts: attempts.map(getConnectionAttemptLog),
-                },
-            });
-            return {
-                operationId,
-                success: true,
-                selectedProtocol: protocol,
-                selectedResult: result,
-                attempts,
-            };
+    const first = config.protocolVerified ? config.protocol : inferProviderProtocol(config.apiUrl, config.model);
+    const protocols: AIProviderProtocol[] = config.protocolPreference === 'auto'
+        ? [first, first === 'responses' ? 'anthropic_messages' : 'responses']
+        : [config.protocolPreference];
+    const attempts: AIProviderConnectionAttempt[] = [];
+    for (const [index, protocol] of protocols.entries()) {
+        if (options.signal?.aborted) break;
+        options.onAttempt?.(protocol, index + 1, protocols.length);
+        let runtime: AIRequestRuntime;
+        try {
+            // Resolve capabilities for this candidate without changing the user's reasoning selection.
+            runtime = await resolveAIRequestRuntime({ ...config, protocol });
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : '读取模型配置失败';
+            attempts.push({ protocol, success: false, code: 'invalid_configuration', error: message });
+            continue;
         }
+        if (options.signal?.aborted) break;
+        const result = await streamProviderText(runtime, [{ role: 'user', content: '请只回复 pong。' }], {
+            stage: 'connection_test', requestType: 'connection_test', signal: options.signal,
+            parentOperationId: operationId,
+        });
+        attempts.push({ protocol, success: result.success, code: result.code, error: result.error, result });
+        if (result.success) return { operationId, success: true, attempts, selectedProtocol: protocol, selectedResult: result };
+        if (result.code === 'aborted') break;
     }
-
-    const error = formatConnectionTestFailure(attempts);
-    void recordDiagnosticLog({
-        level: 'warn',
-        source: 'AI:connectionTest',
-        message: 'connection_test_failed',
-        context: {
-            operationId,
-            attempts: attempts.map(getConnectionAttemptLog),
-        },
-    });
     return {
-        operationId,
-        success: false,
-        attempts,
-        error,
+        operationId, success: false, attempts,
+        error: options.signal?.aborted ? '连接测试已取消'
+            : attempts.map((attempt) => `${getProtocolLabel(attempt.protocol)}：${attempt.error || '未返回完整正文'}`).join('\n\n'),
     };
 }

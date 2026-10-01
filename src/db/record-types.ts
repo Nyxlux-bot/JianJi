@@ -3,6 +3,7 @@ import {
     ZiweiAIConversationDigest,
 } from '../core/ai-meta';
 import { BaziResult } from '../core/bazi-types';
+import { sanitizeAIExecutionMeta } from '../core/ai-execution-meta';
 import { PanResult } from '../core/liuyao-calc';
 import type {
     BaziCompatibilityResult,
@@ -209,7 +210,9 @@ function isPersistedAIChatMessage(value: unknown): boolean {
         && (value.role === 'user' || value.role === 'assistant')
         && typeof value.content === 'string'
         && (value.hidden === undefined || typeof value.hidden === 'boolean')
-        && (value.requestContent === undefined || typeof value.requestContent === 'string');
+        && (value.requestContent === undefined || typeof value.requestContent === 'string')
+        && (value.workflowStage === undefined || value.workflowStage === 'foundation' || value.workflowStage === 'kinship' || value.workflowStage === 'kinship_review' || value.workflowStage === 'verification' || value.workflowStage === 'five_year' || value.workflowStage === 'followup')
+        && (value.executionMeta === undefined || Boolean(sanitizeAIExecutionMeta(value.executionMeta)));
 }
 
 function isPersistedAIChatHistory(value: unknown): boolean {

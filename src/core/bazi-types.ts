@@ -1,5 +1,6 @@
 import { BaziAIConversationDigest, BaziAIConversationStage, PersistedAIChatMessage } from './ai-meta';
 import { BaziFormatterContext } from './bazi-ai-context';
+import type { BaziKinshipVerification } from './bazi-kinship';
 
 export type BaziGender = 0 | 1;
 
@@ -314,6 +315,9 @@ export interface BaziResult {
     aiConversationStage?: BaziAIConversationStage;
     aiVerificationSummary?: string;
     aiContextSnapshot?: BaziFormatterContext;
+    aiWorkflowVersion?: 1 | 2;
+    aiWorkflowBirthSignature?: string;
+    aiKinshipVerification?: BaziKinshipVerification;
     longitude: number | null;
     solarDate: string;
     solarTime: string;

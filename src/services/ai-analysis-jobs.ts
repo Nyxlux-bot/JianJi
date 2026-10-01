@@ -1,5 +1,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AIConversationStage, PersistedAIChatMessage } from '../core/ai-meta';
+import { sanitizeAIExecutionMeta, type AIExecutionMeta } from '../core/ai-execution-meta';
+import { resolveAIRequestRuntime } from './ai-request-runtime';
+import type { AIRequestRuntime } from './ai-provider-types';
+import { BaziAIConversationStage, PersistedAIChatMessage } from '../core/ai-meta';
+import type { BaziAIEvidencePack } from '../core/bazi-ai-evidence';
+import { getBaziBirthSignature } from '../core/bazi-ai-identity';
+import { getBaziWorkflowVersion, isBaziWorkflowStale } from '../core/bazi-ai-workflow';
+import {
+    appendKinshipResponse, formatKinshipResponse,
+    getCurrentKinshipVerification, isKinshipResponseKind,
+    MAX_KINSHIP_ATTEMPTS, parseKinshipResponse, type KinshipResponse,
+} from '../core/bazi-kinship';
 import { cloneBaziFormatterContext, mergeBaziFormatterContext, BaziFormatterContext } from '../core/bazi-ai-context';
 import { BaziResult } from '../core/bazi-types';
 import { PanResult, YaoDetail } from '../core/liuyao-calc';
@@ -22,7 +33,6 @@ import {
     generateQuickReplies,
     generateZiweiConversationDigest,
     getBaziConversationStage,
-    getChatRequestOptions,
     getLocalLiuyaoQuickReplies,
     getZiweiConversationStage,
     hasLiuyaoCompletionMarker,
@@ -38,6 +48,7 @@ import {
     validateZiweiWorkflowResponse,
 } from './ai';
 import { recordDiagnosticLog } from './diagnostics';
+import { getSkillVersions } from '../ai/skill-composer';
 
 export type AIAnalysisJobStatus =
     | 'running'
@@ -63,18 +74,19 @@ export interface AIAnalysisJobRequest {
     requestMessages: PersistedAIChatMessage[];
     phase: 'initial' | 'followup';
     expectedCompletion?: AIWorkflowResponseKind;
-    nextWorkflowStage?: AIConversationStage;
+    nextWorkflowStage?: BaziAIConversationStage;
     formatterContext?: BaziFormatterContext | ZiweiFormatterContext;
 }
 
 export interface AIAnalysisJobState {
+    executionMeta?: AIExecutionMeta;
     jobId: string;
     recordId: string;
     engineType: DivinationEngine;
     status: AIAnalysisJobStatus;
     phase: 'initial' | 'followup';
     expectedCompletion?: AIWorkflowResponseKind;
-    nextWorkflowStage?: AIConversationStage;
+    nextWorkflowStage?: BaziAIConversationStage;
     baseMessages: PersistedAIChatMessage[];
     requestMessages: PersistedAIChatMessage[];
     messages: PersistedAIChatMessage[];
@@ -236,12 +248,13 @@ function stripEmoji(content: string): string {
     return content.replace(/[\p{Extended_Pictographic}\uFE0F]/gu, '');
 }
 
-function cleanStreamContent(engineType: DivinationEngine, content: string): string {
+function cleanStreamContent(engineType: DivinationEngine, content: string, kind?: AIWorkflowResponseKind): string {
+    if (engineType === 'bazi' && isKinshipResponseKind(kind)) return '';
     if (engineType === 'bazi') {
-        return sanitizeBaziStreamingContent(content);
+        return sanitizeBaziStreamingContent(content, isKinshipResponseKind(kind) ? undefined : kind);
     }
     if (engineType === 'ziwei') {
-        return sanitizeZiweiStreamingContent(content);
+        return sanitizeZiweiStreamingContent(content, isKinshipResponseKind(kind) ? undefined : kind);
     }
     if (engineType === 'baziCompatibility') {
         return stripEmoji(stripThinkingBlocks(content)).trim();
@@ -252,12 +265,12 @@ function cleanStreamContent(engineType: DivinationEngine, content: string): stri
     return stripThinkingBlocks(content).trim();
 }
 
-function cleanFinalContent(engineType: DivinationEngine, content: string): string {
+function cleanFinalContent(engineType: DivinationEngine, content: string, kind?: AIWorkflowResponseKind): string {
     if (engineType === 'bazi') {
-        return stripBaziStageMarkers(content);
+        return stripBaziStageMarkers(content, isKinshipResponseKind(kind) ? undefined : kind);
     }
     if (engineType === 'ziwei') {
-        return stripZiweiStageMarkers(content);
+        return stripZiweiStageMarkers(content, isKinshipResponseKind(kind) ? undefined : kind);
     }
     if (engineType === 'baziCompatibility') {
         return stripEmoji(stripThinkingBlocks(content)).trim();
@@ -282,7 +295,9 @@ function arePersistedMessagesEqual(left: PersistedAIChatMessage, right: Persiste
     return left.role === right.role
         && left.content === right.content
         && left.hidden === right.hidden
-        && left.requestContent === right.requestContent;
+        && left.requestContent === right.requestContent
+        && left.workflowStage === right.workflowStage
+        && JSON.stringify(left.executionMeta) === JSON.stringify(right.executionMeta);
 }
 
 function arePersistedMessageListsEqual(left: PersistedAIChatMessage[], right: PersistedAIChatMessage[]): boolean {
@@ -290,34 +305,22 @@ function arePersistedMessageListsEqual(left: PersistedAIChatMessage[], right: Pe
         && left.every((message, index) => arePersistedMessagesEqual(message, right[index]));
 }
 
-function getRequestDebugMeta(request: AIAnalysisJobRequest): AIRequestDebugMeta | undefined {
-    if (request.engineType !== 'baziCompatibility') {
-        return undefined;
-    }
-    const messages = buildBaziMatchAIMessages(request.result as BaziCompatibilityResult);
-    return {
-        mode: 'bazi',
-        requestType: 'main',
-        workflowStage: 'followup',
-        usedDynamicEvidencePack: true,
-        usedDigest: false,
-        compatibilityMode: true,
-        systemCharCount: messages[0]?.content.length || 0,
-        messageCount: messages.length,
-    };
-}
-
 function validateContent(
     request: AIAnalysisJobRequest,
     rawContent: string,
     cleanContent: string,
+    asOf: Date,
 ): AIAnalysisValidationResult {
+    if (!cleanContent.trim()) return { success: false, issues: ['未识别到完整分析正文，请重试本次分析'] };
+    if (isKinshipResponseKind(request.expectedCompletion)) {
+        return { success: false, issues: ['六亲阶段须使用结构化盘据校验'] };
+    }
     if (request.engineType === 'bazi' && request.expectedCompletion) {
-        const validation = validateBaziWorkflowResponse(request.expectedCompletion, rawContent);
+        const validation = validateBaziWorkflowResponse(request.expectedCompletion, rawContent, asOf);
         return { success: validation.success, issues: validation.issues };
     }
     if (request.engineType === 'ziwei' && request.expectedCompletion) {
-        const validation = validateZiweiWorkflowResponse(request.expectedCompletion, rawContent);
+        const validation = validateZiweiWorkflowResponse(request.expectedCompletion, rawContent, asOf);
         return { success: validation.success, issues: validation.issues };
     }
     if (request.engineType === 'liuyao') {
@@ -448,15 +451,44 @@ export function validateLiuyaoAIContent(
     };
 }
 
-async function buildMessagesForRequest(request: AIAnalysisJobRequest): Promise<{
+function assertBaziRequestStage(request: AIAnalysisJobRequest, result: BaziResult): void {
+    if (getBaziWorkflowVersion(result) !== 2) {
+        if (isKinshipResponseKind(request.expectedCompletion)) throw new Error('旧会话请重置后再使用六亲初验');
+        return;
+    }
+    if (isBaziWorkflowStale(result)) throw new Error('出生资料或排盘口径已变化，请重新开始 AI 分析');
+    const stage = getBaziConversationStage(result);
+    const state = getCurrentKinshipVerification(result);
+    const kind = request.expectedCompletion;
+    if (kind === 'kinship') {
+        if (stage !== 'foundation_ready' && stage !== 'kinship_ready') throw new Error('请先完成基础定局');
+        if (state && (state.attempts.length >= MAX_KINSHIP_ATTEMPTS || state.actualFeedback)) throw new Error('六亲仅作一次可选初验，可填写实际情况或直接进入前事核验');
+        if (request.nextWorkflowStage !== 'kinship_ready') throw new Error('六亲初验目标阶段无效');
+        return;
+    }
+    if (kind === 'kinship_review') {
+        throw new Error('已取消单独六亲复核，请填写实际情况后直接进入前事核验');
+    }
+    if (kind === 'verification' && stage === 'foundation_pending') throw new Error('请先完成基础定局');
+    if (kind === 'five_year' && stage !== 'verification_ready' && stage !== 'followup_ready') throw new Error('请先完成前事核验并确认后再分析未来五年');
+    if (!kind && request.phase === 'followup' && stage !== 'followup_ready') throw new Error('请先完成未来五年分析再进行专题追问');
+}
+
+async function buildMessagesForRequest(request: AIAnalysisJobRequest, asOf: Date): Promise<{
     messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
     debugMeta?: AIRequestDebugMeta;
     requestResult: DivinationResult;
+    baziEvidencePack?: BaziAIEvidencePack;
 }> {
     if (request.engineType === 'baziCompatibility') {
+        const messages = buildBaziMatchAIMessages(request.result as BaziCompatibilityResult);
         return {
-            messages: buildBaziMatchAIMessages(request.result as BaziCompatibilityResult),
-            debugMeta: getRequestDebugMeta(request),
+            messages,
+            debugMeta: {
+                mode: 'baziCompatibility', requestType: 'main', workflowStage: 'followup',
+                usedDynamicEvidencePack: true, usedDigest: false, compatibilityMode: true,
+                skills: getSkillVersions('baziCompatibility', 'initial'), systemCharCount: messages[0].content.length, messageCount: messages.length,
+            },
             requestResult: request.result,
         };
     }
@@ -464,6 +496,8 @@ async function buildMessagesForRequest(request: AIAnalysisJobRequest): Promise<{
     let requestResult = request.result;
     let formatterContext = request.formatterContext;
     if (request.engineType === 'bazi') {
+        const bazi = request.result as BaziResult;
+        assertBaziRequestStage(request, bazi);
         const override = cloneBaziFormatterContext(request.formatterContext as BaziFormatterContext | undefined);
         const snapshot = mergeBaziFormatterContext(
             (request.result as BaziResult).aiContextSnapshot,
@@ -471,6 +505,9 @@ async function buildMessagesForRequest(request: AIAnalysisJobRequest): Promise<{
         );
         requestResult = {
             ...(request.result as BaziResult),
+            aiWorkflowVersion: getBaziWorkflowVersion(bazi),
+            aiWorkflowBirthSignature: getBaziWorkflowVersion(bazi) === 2
+                ? (bazi.aiWorkflowBirthSignature ?? getBaziBirthSignature(bazi)) : bazi.aiWorkflowBirthSignature,
             aiContextSnapshot: snapshot ?? (request.result as BaziResult).aiContextSnapshot,
         };
         formatterContext = override;
@@ -481,12 +518,13 @@ async function buildMessagesForRequest(request: AIAnalysisJobRequest): Promise<{
         requestResult as PanResult | BaziResult | ZiweiRecordResult,
         request.requestMessages,
         formatterContext,
-        { workflowStage },
+        { workflowStage, asOf },
     );
     return {
         messages: bundle.messages,
         debugMeta: bundle.debugMeta,
         requestResult,
+        baziEvidencePack: bundle.baziEvidencePack,
     };
 }
 
@@ -494,11 +532,14 @@ async function generateArtifacts(
     request: AIAnalysisJobRequest,
     result: PanResult | BaziResult | ZiweiRecordResult,
     finalMessages: PersistedAIChatMessage[],
-    nextStage?: AIConversationStage,
+    nextStage?: BaziAIConversationStage,
+    runtime?: AIRequestRuntime,
+    signal?: AbortSignal,
 ): Promise<{
     quickReplies: string[];
     digest?: BaziResult['aiConversationDigest'] | ZiweiRecordResult['aiConversationDigest'];
 }> {
+    if (!runtime) throw new Error('缺少本次任务的模型配置');
     const shouldGenerate = request.engineType === 'liuyao'
         || shouldGeneratePostResponseArtifacts(result, nextStage ?? request.phase);
     if (!shouldGenerate) {
@@ -509,11 +550,11 @@ async function generateArtifacts(
     let digestOutcome;
     try {
         [quickReplyOutcome, digestOutcome] = await Promise.all([
-            generateQuickReplies(result, finalMessages),
+            generateQuickReplies(result, finalMessages, runtime, signal),
             request.engineType === 'bazi'
-                ? generateBaziConversationDigest(result as BaziResult, finalMessages)
+                ? generateBaziConversationDigest(result as BaziResult, finalMessages, runtime, signal)
                 : request.engineType === 'ziwei'
-                    ? generateZiweiConversationDigest(result as ZiweiRecordResult, finalMessages)
+                    ? generateZiweiConversationDigest(result as ZiweiRecordResult, finalMessages, runtime, signal)
                     : Promise.resolve({ value: null }),
         ]);
     } catch (error) {
@@ -554,6 +595,7 @@ function buildUpdatedResult(
     finalMessages: PersistedAIChatMessage[],
     cleanContent: string,
     artifacts: Awaited<ReturnType<typeof generateArtifacts>>,
+    kinship?: { response: KinshipResponse; pack: BaziAIEvidencePack; id: string },
 ): DivinationResult | null {
     if (request.engineType === 'liuyao') {
         return {
@@ -584,7 +626,8 @@ function buildUpdatedResult(
     if (request.engineType === 'bazi') {
         const current = currentResult as BaziResult;
         const requestBazi = request.result as BaziResult;
-        if (current.calculatedAt !== requestBazi.calculatedAt
+        if (getBaziBirthSignature(current) !== getBaziBirthSignature(requestBazi)
+            || current.calculatedAt !== requestBazi.calculatedAt
             || current.gender !== requestBazi.gender
             || current.longitude !== requestBazi.longitude
             || current.solarDate !== requestBazi.solarDate
@@ -593,8 +636,15 @@ function buildUpdatedResult(
             || JSON.stringify(current.schoolOptionsResolved) !== JSON.stringify(requestBazi.schoolOptionsResolved)) {
             return null;
         }
+        if (JSON.stringify(current.aiKinshipVerification) !== JSON.stringify(requestBazi.aiKinshipVerification)) return null;
+        const requestSnapshot = requestResult as BaziResult;
         return {
             ...current,
+            aiWorkflowVersion: requestSnapshot.aiWorkflowVersion,
+            aiWorkflowBirthSignature: requestSnapshot.aiWorkflowBirthSignature,
+            aiKinshipVerification: kinship
+                ? appendKinshipResponse(getCurrentKinshipVerification(current), kinship.response, kinship.pack, kinship.id)
+                : current.aiKinshipVerification,
             aiAnalysis: cleanContent,
             aiChatHistory: finalMessages,
             quickReplies: artifacts.quickReplies,
@@ -608,6 +658,7 @@ function buildUpdatedResult(
     }
 
     const current = currentResult as ZiweiRecordResult;
+    if (nextStage === 'kinship_ready') return null;
     const requestZiwei = request.result as ZiweiRecordResult;
     if (current.birthLocal !== requestZiwei.birthLocal
         || current.trueSolarDateTimeLocal !== requestZiwei.trueSolarDateTimeLocal
@@ -669,9 +720,11 @@ async function enrichSavedResultWithArtifacts(input: {
     requestResult: DivinationResult;
     finalMessages: PersistedAIChatMessage[];
     cleanContent: string;
-    nextStage?: AIConversationStage;
+    nextStage?: BaziAIConversationStage;
+    runtime: AIRequestRuntime;
+    signal: AbortSignal;
 }): Promise<void> {
-    const { key, jobId, request, requestResult, finalMessages, cleanContent, nextStage } = input;
+    const { key, jobId, request, requestResult, finalMessages, cleanContent, nextStage, runtime, signal } = input;
     try {
         if (!isCurrentJob(key, jobId)) {
             return;
@@ -681,6 +734,7 @@ async function enrichSavedResultWithArtifacts(input: {
             requestResult as PanResult | BaziResult | ZiweiRecordResult,
             finalMessages,
             nextStage,
+            runtime, signal,
         );
         if (!isCurrentJob(key, jobId)) {
             void recordDiagnosticLog({
@@ -779,30 +833,29 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
     void persistJob(job);
     emit(key);
 
+    activeControllers.get(key)?.abort();
     const controller = new AbortController();
     activeControllers.set(key, controller);
 
     void (async () => {
         try {
-            const built = await buildMessagesForRequest(request);
+            const runtime = await resolveAIRequestRuntime();
+            if (controller.signal.aborted || !isCurrentJob(key, job.jobId)) return;
+            const built = await buildMessagesForRequest(request, new Date(now));
             if (!isCurrentJob(key, job.jobId) || controller.signal.aborted) {
                 return;
             }
-            setJobState(key, { debugMeta: built.debugMeta });
+            const executionMeta: AIExecutionMeta = { ...runtime.meta, skills: built.debugMeta?.skills ?? [] };
+            setJobState(key, { debugMeta: built.debugMeta, executionMeta });
 
             let rawContent = '';
-            const requestOptions = request.engineType === 'baziCompatibility'
-                ? { temperature: 0.3, stage: 'bazi_match', debugMeta: built.debugMeta }
-                : {
-                    ...getChatRequestOptions(
-                        built.requestResult as PanResult | BaziResult | ZiweiRecordResult,
-                        request.phase,
-                    ),
-                    stage: request.engineType === 'liuyao'
-                        ? request.phase
-                        : `${request.engineType}_${request.expectedCompletion ?? request.phase}`,
-                    debugMeta: built.debugMeta,
-                };
+            const requestOptions = {
+                runtime,
+                skills: executionMeta.skills,
+                stage: request.engineType === 'liuyao' ? request.phase : `${request.engineType}_${request.expectedCompletion ?? request.phase}`,
+                debugMeta: built.debugMeta,
+                onReasoning: () => {},
+            };
             requestOptions.onReasoning = () => {
                 if (isCurrentJob(key, job.jobId)) {
                     setJobState(key, { status: 'reasoning' });
@@ -818,7 +871,7 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                     rawContent += chunk;
                     setJobState(key, {
                         status: 'streaming',
-                        draftContent: cleanStreamContent(request.engineType, rawContent),
+                        draftContent: cleanStreamContent(request.engineType, rawContent, request.expectedCompletion),
                     }, { emit: 'deferred', persist: false });
                 },
                 controller.signal,
@@ -846,14 +899,30 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                     response.code ?? 'network_error',
                     response.error || 'AI 请求失败，请稍后重试。',
                     undefined,
-                    cleanStreamContent(request.engineType, response.content),
+                    cleanStreamContent(request.engineType, response.content, request.expectedCompletion),
                 );
                 return;
             }
 
-            const cleanContent = cleanFinalContent(request.engineType, response.content);
+            let cleanContent = cleanFinalContent(request.engineType, response.content, request.expectedCompletion);
             setJobState(key, { status: 'validating' });
-            const validation = validateContent(request, response.content, cleanContent);
+            let kinship: { response: KinshipResponse; pack: BaziAIEvidencePack; id: string } | undefined;
+            let validation: AIAnalysisValidationResult;
+            if (request.engineType === 'bazi' && isKinshipResponseKind(request.expectedCompletion)) {
+                cleanContent = '';
+                try {
+                    if (!built.baziEvidencePack) throw new Error('缺少本轮命盘证据包');
+                    const parsed = parseKinshipResponse(stripThinkingBlocks(response.content), request.expectedCompletion,
+                        built.baziEvidencePack, getCurrentKinshipVerification(built.requestResult as BaziResult)?.actualFeedback);
+                    kinship = { response: parsed, pack: built.baziEvidencePack, id: job.jobId };
+                    cleanContent = formatKinshipResponse(parsed, built.baziEvidencePack.facts);
+                    validation = { success: true, issues: [] };
+                } catch (error) {
+                    validation = { success: false, issues: [error instanceof Error ? error.message : String(error)] };
+                }
+            } else {
+                validation = validateContent(request, response.content, cleanContent, new Date(now));
+            }
             if (!validation.success) {
                 void recordDiagnosticLog({
                     level: 'warn',
@@ -879,7 +948,11 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
 
             const finalMessages: PersistedAIChatMessage[] = [
                 ...request.requestMessages,
-                { role: 'assistant', content: cleanContent },
+                {
+                    role: 'assistant', content: cleanContent, executionMeta,
+                    ...(request.engineType === 'bazi' && getBaziWorkflowVersion(built.requestResult as BaziResult) === 2
+                        ? { workflowStage: request.expectedCompletion ?? 'followup' as const } : {}),
+                },
             ];
             setJobState(key, {
                 status: 'saving',
@@ -914,6 +987,7 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                     finalMessages,
                     cleanContent,
                     initialArtifacts,
+                    kinship,
                 ),
             );
             if (!updatedResult) {
@@ -924,7 +998,6 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                 return;
             }
 
-            activeControllers.delete(key);
             setJobState(key, {
                 status: 'completed',
                 messages: finalMessages,
@@ -947,13 +1020,17 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                     requestResult: built.requestResult,
                     finalMessages,
                     cleanContent,
-                    nextStage,
-                }).finally(() => scheduleCompletedJobCleanup(key, job.jobId));
+                    nextStage, runtime, signal: controller.signal,
+                }).finally(() => {
+                    if (activeControllers.get(key) === controller) activeControllers.delete(key);
+                    scheduleCompletedJobCleanup(key, job.jobId);
+                });
             } else {
+                if (activeControllers.get(key) === controller) activeControllers.delete(key);
                 scheduleCompletedJobCleanup(key, job.jobId);
             }
         } catch (error) {
-            activeControllers.delete(key);
+            if (activeControllers.get(key) === controller) activeControllers.delete(key);
             void recordDiagnosticLog({
                 level: 'warn',
                 source: 'AI:analysisJob',
@@ -963,12 +1040,9 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                     error: error instanceof Error ? error.message : String(error),
                 },
             });
-            failJob(
-                key,
-                job.jobId,
-                'network_error',
-                error instanceof Error ? error.message : 'AI 请求失败，请稍后重试。',
-            );
+            const errorMessage = error instanceof Error ? error.message : 'AI 请求失败，请稍后重试。';
+            const errorCode: AIErrorCode = /配置|思考|token|模型|接口/u.test(errorMessage) ? 'invalid_configuration' : 'network_error';
+            failJob(key, job.jobId, errorCode, errorMessage);
         }
     })();
 
@@ -1099,6 +1173,7 @@ export async function recoverInterruptedAIAnalysisJob(
             engineType,
             status: recoveredStatus,
             phase: parsed.phase === 'followup' ? 'followup' : 'initial',
+            executionMeta: sanitizeAIExecutionMeta(parsed.executionMeta),
             expectedCompletion: parsed.expectedCompletion,
             nextWorkflowStage: parsed.nextWorkflowStage,
             baseMessages,

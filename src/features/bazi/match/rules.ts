@@ -619,7 +619,7 @@ function scoreMarriageTimingYear(result: BaziResult, profile: BaziMatchProfile, 
         const sanHui = getPairSanHuiElement(profile.dayBranch, yearBranch);
         if (sanHe || sanHui) {
             score += 6;
-            reasons.push(`流年${yearBranch}与夫妻宫${profile.dayBranch}成${sanHe ? `三合${sanHe}` : `三会${sanHui}`}势`);
+            reasons.push(`流年${yearBranch}与夫妻宫${profile.dayBranch}仅匹配${sanHe ? `三合${sanHe}` : `三会${sanHui}`}成员组，不代表三支齐备或成局；同支重复不增加成员`);
             referenceIds.add('EXP-01');
         }
     }
@@ -704,7 +704,7 @@ function getMarriageTriggerScore(profile: BaziMatchProfile, yearGanZhi: string, 
     const daySanHe = getPairSanHeElement(profile.dayBranch, yearBranch);
     if (daySanHe) {
         score += 5;
-        reasons.push(`${profile.name}夫妻宫与流年成三合${daySanHe}势`);
+        reasons.push(`${profile.name}夫妻宫${profile.dayBranch}与流年${yearBranch}仅匹配三合${daySanHe}成员组，不代表成局；同支重复不增加成员`);
     }
     if (profile.neededElements.includes(yearStemElement) || profile.neededElements.includes(yearBranchElement)) {
         score += 5;

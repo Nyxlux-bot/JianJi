@@ -1,3 +1,5 @@
+import type { BaziAIConversationStage, BaziAIWorkflowStage } from '../core/ai-meta';
+
 export type BasicChatRole = 'system' | 'user' | 'assistant';
 
 export interface BasicChatMessage {
@@ -5,6 +7,7 @@ export interface BasicChatMessage {
     content: string;
     hidden?: boolean;
     requestContent?: string;
+    workflowStage?: BaziAIWorkflowStage;
 }
 
 export interface RetryPlan<T extends BasicChatMessage> {
@@ -14,7 +17,7 @@ export interface RetryPlan<T extends BasicChatMessage> {
 }
 
 export function shouldShowBaziFoundationRetryAction(
-    stage: 'foundation_pending' | 'foundation_ready' | 'verification_ready' | 'followup_ready' | null,
+    stage: BaziAIConversationStage | null,
     isLoading: boolean,
     messageCount: number,
     hasFoundationAttempted: boolean,
@@ -85,6 +88,10 @@ export function buildBaziVerificationRetryPlan<T extends BasicChatMessage>(
 export function buildRetryPlan<T extends BasicChatMessage>(messages: T[]): RetryPlan<T> | null {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
         const message = messages[i];
+        // 阶段记录只能走阶段重试，普通追问不能截断已经完成的工作流。
+        if (message.workflowStage && message.workflowStage !== 'followup') {
+            return null;
+        }
         if (message.role !== 'user' || message.hidden) {
             continue;
         }

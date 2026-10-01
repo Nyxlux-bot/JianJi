@@ -1,10 +1,14 @@
 import { BaziCompatibilityResult, BaziMarriageYearCandidate, BaziMatchMatrixEntry, BaziMatchProfile, BaziMatchReview } from './types';
-import { formatClassicReferenceIds, getBaziMatchDimensionReferenceFallbackIds } from './classic-references';
+import { getBaziMatchClassicRefs, getBaziMatchDimensionReferenceFallbackIds } from './classic-references';
 import { buildBaziMatchEvidenceMatrix, buildBaziMatchReview } from './rules';
 
 const DISPLAY_MARRIAGE_MIN_AGE = 18;
 const DISPLAY_MARRIAGE_MAX_AGE = 45;
 const DISPLAY_MARRIAGE_LIMIT = 2;
+
+function formatReferenceNames(ids?: readonly string[]): string {
+    return getBaziMatchClassicRefs(ids).map((item) => `${item.title}（${item.source}）`).join('；');
+}
 
 function formatProfile(profile: BaziMatchProfile): string[] {
     return [
@@ -14,9 +18,9 @@ function formatProfile(profile: BaziMatchProfile): string[] {
         `日干/日支：${profile.dayStem}/${profile.dayBranch}`,
         `生肖地支：${profile.yearBranch}`,
         `命宫地支：${profile.mingGongBranch || '未记录'}`,
-        `五行计数：${Object.entries(profile.elementCounts).map(([key, value]) => `${key}${value}`).join('、')}`,
-        `偏需五行：${profile.neededElements.join('、') || '未见明显偏需'}`,
-        `旺势五行：${profile.dominantElements.join('、')}`,
+        `五行计数（统计，非旺衰定论）：${Object.entries(profile.elementCounts).map(([key, value]) => `${key}${value}`).join('、')}`,
+        `偏需五行（规则参考，非已定用神）：${profile.neededElements.join('、') || '未见明显偏需'}`,
+        `旺势五行（规则参考）：${profile.dominantElements.join('、')}`,
         `十神计数：${Object.entries(profile.starCounts).map(([key, value]) => `${key}${value}`).join('、') || '未记录'}`,
         `神煞：${profile.shenSha.join('、') || '无明显神煞'}`,
         `未来大运：${profile.futureDaYun.map((item) => `${item.startYear}-${item.endYear} ${item.ganZhi}`).join('；') || '未记录'}`,
@@ -62,7 +66,8 @@ export function formatBaziMatchForAI(result: BaziCompatibilityResult): string {
     formatProfile(result.maleProfile).forEach((line) => lines.push(`- ${line}`));
     lines.push('女方：');
     formatProfile(result.femaleProfile).forEach((line) => lines.push(`- ${line}`));
-    lines.push('【本地复核】');
+    lines.push('【本地规则参考】');
+    lines.push('以下总分、分级、总断和证据矩阵来自同一规则系统，不是独立验证或婚姻成功概率；高分不能抵消具体负面证据。');
     lines.push(`- 总分：${result.totalScore}（${result.grade}）`);
     lines.push(`- 总断：${review.mainLine}`);
     lines.push(`- 能否成局：${formatCanProceed(review.canProceed)}`);
@@ -70,30 +75,32 @@ export function formatBaziMatchForAI(result: BaziCompatibilityResult): string {
     lines.push(`- 最合之处：${review.bestFit}`);
     lines.push(`- 最大冲突：${review.mainConflict}`);
     lines.push(`- 矛盾优先级：${review.priorities.join('；')}`);
-    lines.push('【证据矩阵】');
+    lines.push('【证据矩阵（规则匹配及解释参考）】');
     evidenceMatrix.forEach((item: BaziMatchMatrixEntry) => {
-        const refs = formatClassicReferenceIds(item.referenceIds);
-        lines.push(`- ${item.title}：${item.direction} / ${item.strength}。${item.detail}${refs ? `（典籍依据：${refs}）` : ''}`);
+        const refs = formatReferenceNames(item.referenceIds);
+        const direction = { positive: '正向参考', negative: '负向参考', neutral: '中性参考' }[item.direction];
+        const strength = { high: '较强', medium: '中等', low: '较弱' }[item.strength];
+        lines.push(`- ${item.title}：${direction} / ${strength}。${item.detail}${refs ? `（取法依据：${refs}）` : ''}`);
     });
     lines.push('【五维分数参考】');
     result.dimensions.forEach((dimension) => {
-        const refs = formatClassicReferenceIds(getBaziMatchDimensionReferenceFallbackIds(dimension.key));
+        const refs = formatReferenceNames(getBaziMatchDimensionReferenceFallbackIds(dimension.key));
         lines.push(`- ${dimension.title}：${dimension.score}（${dimension.grade}，参考依据：${refs}）`);
         dimension.evidence.slice(0, 2).forEach((item) => {
-            const refs = formatClassicReferenceIds(item.referenceIds && item.referenceIds.length > 0
+            const refs = formatReferenceNames(item.referenceIds && item.referenceIds.length > 0
                 ? item.referenceIds
                 : getBaziMatchDimensionReferenceFallbackIds(dimension.key));
             lines.push(`  - ${item.label}：${item.detail}${refs ? `（典籍依据：${refs}）` : ''}`);
         });
     });
-    lines.push('【婚期判断】');
+    lines.push('【婚期候选（不代表确定结婚年份）】');
     if (displayMarriageYears.length === 0) {
         lines.push('- 两盘近年未见同年应期，暂不定具体婚年。');
     } else {
         displayMarriageYears.forEach((item) => {
-            const prefix = item.kind === 'trigger' ? '婚期较明' : '婚期可参';
+            const prefix = item.kind === 'trigger' ? '规则触发候选' : '参考候选';
             const ageText = item.maleAge && item.femaleAge ? `，男方${item.maleAge}岁，女方${item.femaleAge}岁` : '';
-            const refs = formatClassicReferenceIds(item.referenceIds);
+            const refs = formatReferenceNames(item.referenceIds);
             lines.push(`- ${prefix}：${item.year}年 ${item.ganZhi}${ageText}，依据：${item.reasons.slice(0, 3).join('；')}${refs ? `（典籍依据：${refs}）` : ''}`);
         });
     }

@@ -201,10 +201,11 @@ export function buildZiweiStructureLines(palace: ZiweiPalaceAnalysisView): strin
 
     return [
         `- ${palace.name}：三方四正 ${palace.surrounded.palaceNames.join(' / ')}`,
-        `  主星组合：${palace.surrounded.majorStars.join('、') || '无'} | 辅曜：${palace.surrounded.minorStars.join('、') || '无'} | 杂耀：${palace.surrounded.adjectiveStars.join('、') || '无'}`,
-        `  生年四化：${palace.flight.birthMutagens.join(' / ') || '无'} | 自化：${palace.flight.selfMutagens.join(' / ') || '无'} | 四化去向：${formatFlightTargets(palace)}`,
-        `  禄权科忌：${mutagenFlags || '无'}`,
-        `  判定标签：${palace.surrounded.checks.map((item) => `${item.label}${item.matched ? '✓' : '·'}`).join(' ｜ ')}`,
+        `  三方四正星曜汇总（不等于本宫同坐；星曜所在宫位见本命盘）：主星 ${palace.surrounded.majorStars.join('、') || '无'} | 辅曜 ${palace.surrounded.minorStars.join('、') || '无'} | 杂耀 ${palace.surrounded.adjectiveStars.join('、') || '无'}`,
+        `  本宫生年四化：${palace.flight.birthMutagens.join(' / ') || '无'} | 本宫自化：${palace.flight.selfMutagens.join(' / ') || '无'} | 本宫宫干飞化去向：${formatFlightTargets(palace)}`,
+        `  三方四正四化汇总：${mutagenFlags || '无'}`,
+        `  规则匹配成立：${palace.surrounded.checks.filter((item) => item.matched).map((item) => item.label).join('、') || '无'}`,
+        `  规则匹配不成立：${palace.surrounded.checks.filter((item) => !item.matched).map((item) => item.label).join('、') || '无'}`,
     ];
 }
 
@@ -275,7 +276,7 @@ function buildScopeSummaryLines(staticChart: ZiweiStaticChartResult, dynamic: Zi
         `- 当前流月：${dynamic.horoscopeSummary.monthly}`,
         `- 当前流日：${dynamic.horoscopeSummary.daily}`,
         `- 当前流时：${dynamic.horoscopeSummary.hourly}`,
-        `- 当前游标：${formatCursorDate(cursorDate)}`,
+        `- 本组动态资料时点：${formatCursorDate(cursorDate)}（仅对应此时点，不是其他年份的运限资料）`,
         `- 当前配置：${formatZiweiConfigSummary(staticChart.input)}`,
     ];
 }
@@ -442,6 +443,7 @@ function buildYearEvidenceLines(
 
     return [
         `- ${label}：${year}年 | 大限：${dynamic.horoscopeSummary.decadal} | 小限：${dynamic.horoscopeSummary.age} | 流年：${dynamic.horoscopeSummary.yearly}`,
+        '  - 以下宫位与四化是本组流年映射；本行所列大限、小限为该锚点背景，不代替本命宫位或其他年份的四化。',
         ...buildYearlyCorePalaceLines(staticChart, dynamic, palaceNames),
         `  - 重点宫位触发：${buildYearlyTriggerHighlights(staticChart, dynamic, palaceNames)}`,
     ];
@@ -489,6 +491,7 @@ function buildFiveYearEvidenceLines(staticChart: ZiweiStaticChartResult, context
     const years = Array.from({ length: 6 }, (_, index) => currentYear + index);
     const lines = [
         `- 年度窗口：${currentYear}-${currentYear + 5}`,
+        '- 每组年度资料只对应标注年份及其锚点；不同年份分别取证。7 月 1 日是取数锚点，不是预测事件日期，亦不证明该年所有时点的动态层相同。',
         `- 今年实时锚点：${formatCursorDate(cursorDate)}`,
     ];
 
@@ -516,7 +519,7 @@ function buildCompatibilityFullText(record: ZiweiRecordLike, context?: ZiweiForm
     const staticChart = computeZiweiStaticChart(payload);
     const cursorDate = parseCursorDate(context);
     const dynamic = computeZiweiDynamicHoroscope(staticChart, cursorDate);
-    const lines: string[] = ['【紫微斗数命盘】'];
+    const lines: string[] = ['【紫微斗数命盘】', '旧记录资料范围：下列本命资料与游标时点的动态资料分别使用；本请求没有逐年年度证据包，不得把单一时点外推到整个五年。'];
 
     lines.push(...buildZiweiHeaderLinesFromRecord(record));
     lines.push('');
@@ -543,7 +546,7 @@ export function buildZiweiStageContext(
     record: ZiweiRecordLike,
     stage: ZiweiAIWorkflowStage,
     runtimeContext?: ZiweiFormatterContext,
-    options: { enhancedEvidence?: boolean } = {},
+    options: { enhancedEvidence?: boolean; asOf?: Date } = {},
 ): ZiweiStageContextBundle {
     if (!options.enhancedEvidence) {
         const payload = toInputPayload(record);
@@ -559,7 +562,8 @@ export function buildZiweiStageContext(
 
     const payload = toInputPayload(record);
     const staticChart = computeZiweiStaticChart(payload);
-    const runtimeDate = resolveStageRuntimeDate(stage, runtimeContext);
+    const runtimeDate = options.asOf && (stage === 'verification' || stage === 'five_year')
+        ? options.asOf : resolveStageRuntimeDate(stage, runtimeContext);
     const effectiveContext: ZiweiFormatterContext | undefined = runtimeContext
         ? {
             ...runtimeContext,
@@ -595,7 +599,8 @@ export function buildZiweiStageContext(
 
     if (stage === 'five_year' || stage === 'followup' || stage === 'digest') {
         lines.push('');
-        lines.push('【当前选中宫位六层映射】');
+        lines.push(`【当前选中宫位六层映射 · ${formatCursorDate(runtimeDate)}】`);
+        lines.push('各行分别属于本命、大限、小限、流年、流月、流日或流时，不可跨层替代；月日时只描述本组时点。');
         lines.push(...buildSelectedPalaceMatrixLines(staticChart, dynamic, effectiveContext));
     }
 

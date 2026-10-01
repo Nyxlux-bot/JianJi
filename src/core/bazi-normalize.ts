@@ -21,6 +21,8 @@ import {
 import { BAZI_SHENSHA_ALIAS_TO_FULLNAME, BAZI_SHENSHA_CATALOG } from './bazi-shensha-catalog';
 import { buildBaziShenShaBucketMap } from './bazi-shensha';
 import { normalizeBaziFormatterContext } from './bazi-ai-context';
+import { normalizeKinshipVerification } from './bazi-kinship';
+import { getBaziWorkflowVersion, isBaziWorkflowStage, resolveBaziConversationStage } from './bazi-ai-workflow';
 import { buildJiaoYunRuleDetail, createEmptyJiaoYunRuleDetail } from './jiaoyun-rule';
 import { calculateRenYuanDuty, createEmptyRenYuanDutyDetail } from './renyuan-duty';
 import { buildBaziAnalysisProfile, isBaziAnalysisProfile } from './bazi-analysis-profile';
@@ -459,49 +461,22 @@ export function normalizeBaziResultV2(result: BaziResult): BaziResult {
             subject,
         });
 
-    const rawStage = normalized.aiConversationStage as string | undefined;
-    const normalizedStage = rawStage === 'foundation_pending'
-        || rawStage === 'foundation_ready'
-        || rawStage === 'verification_ready'
-        || rawStage === 'followup_ready'
-        ? rawStage
-        : (rawStage === 'verification_confirmed'
-            ? 'followup_ready'
-            : (rawStage === 'initial_pending'
-                ? 'foundation_pending'
-                : (rawStage === 'verification_pending' ? 'verification_ready' : undefined)));
+    const workflowVersion = getBaziWorkflowVersion(normalized);
+    const kinship = normalizeKinshipVerification(normalized.aiKinshipVerification);
+    if (normalized.aiChatHistory?.some((message) => message.workflowStage !== undefined && !isBaziWorkflowStage(message.workflowStage))) {
+        throw new Error('八字会话的阶段标识无效');
+    }
 
-    const visibleHistory = (normalized.aiChatHistory || []).filter((message) => !message.hidden && message.role !== 'system');
-    const hasFollowUpHistory = visibleHistory.some((message) => message.role === 'user')
-        || visibleHistory.filter((message) => message.role === 'assistant').length > 1;
-    const latestAssistant = [...(normalized.aiChatHistory || [])]
-        .reverse()
-        .find((message) => message.role === 'assistant' && message.content.trim())?.content
-        || normalized.aiAnalysis
-        || '';
-    const hasVerificationMarker = latestAssistant.includes('[[BAZI_STAGE:VERIFICATION_DONE]]')
-        || normalized.aiVerificationSummary?.includes('[[BAZI_STAGE:VERIFICATION_DONE]]');
-    const hasFoundationMarker = latestAssistant.includes('[[BAZI_STAGE:FOUNDATION_DONE]]');
-
-    return {
+    const normalizedResult: BaziResult = {
         ...normalized,
         timeMeta,
         solarDate: timeMeta.solarDate,
         solarTime: timeMeta.solarTime,
         trueSolarTime: timeMeta.trueSolarTime,
         childLimit: normalizeChildLimit(normalized.childLimit),
-        aiConversationStage: normalizedStage
-            ?? ((normalized.aiConversationDigest
-                || (normalized.quickReplies && normalized.quickReplies.length > 0)
-                || hasFollowUpHistory)
-                ? 'followup_ready'
-                : (hasVerificationMarker
-                    ? 'verification_ready'
-                    : (((normalized.aiAnalysis
-                        || (normalized.aiChatHistory && normalized.aiChatHistory.length > 0)
-                        || hasFoundationMarker)
-                        ? 'foundation_ready'
-                        : undefined)))),
+        aiWorkflowVersion: workflowVersion,
+        aiWorkflowBirthSignature: typeof normalized.aiWorkflowBirthSignature === 'string' ? normalized.aiWorkflowBirthSignature : undefined,
+        aiKinshipVerification: kinship,
         aiVerificationSummary: normalized.aiVerificationSummary,
         aiContextSnapshot: normalizeBaziFormatterContext(normalized.aiContextSnapshot),
         subject,
@@ -512,6 +487,7 @@ export function normalizeBaziResultV2(result: BaziResult): BaziResult {
         schoolOptionsResolved,
         shenShaV2,
     };
+    return { ...normalizedResult, aiConversationStage: resolveBaziConversationStage(normalizedResult) };
 }
 
 export function normalizeStoredBaziResult(value: unknown): BaziResult | null {

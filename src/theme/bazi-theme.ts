@@ -116,7 +116,7 @@ function toRgba(hex: string, alpha: number): string {
     return `rgba(${rgb.r},${rgb.g},${rgb.b},${alpha})`;
 }
 
-function getLuminance(hex: string): number {
+export function getLuminance(hex: string): number {
     const { r, g, b } = hexToRgb(hex);
     const channel = (value: number): number => {
         const normalized = value / 255;

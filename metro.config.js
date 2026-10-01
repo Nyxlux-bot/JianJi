@@ -122,6 +122,8 @@ const config = getDefaultConfig(__dirname);
 
 // Add 'wasm' to asset extensions to resolve SQLite for web
 config.resolver.assetExts.push('wasm');
+config.resolver.sourceExts.push('md');
+config.transformer.babelTransformerPath = require.resolve('./scripts/markdown-transformer.cjs');
 
 const defaultEnhanceMiddleware = config.server.enhanceMiddleware;
 config.server.enhanceMiddleware = (middleware, server) => {

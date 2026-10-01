@@ -1,4 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { isAIReasoningEffort, isAIThinkingMode } from '../core/ai-execution-meta';
+import { resolveModelBehavior } from './ai-model-capabilities';
 import {
     getEndpointLogMeta,
     resolveModelsUrl,
@@ -10,16 +12,16 @@ import {
     resolveAIWebTransport,
 } from './ai-web-proxy';
 import { recordDiagnosticLog } from './diagnostics';
-import {
+import type {
     AIModelMetadata,
     AIProviderCapabilities,
     AIProviderConfig,
     AIProviderDiscoveryResult,
     AIProviderProtocol,
+    AIReasoningCapability,
 } from './ai-provider-types';
 
-const DEFAULT_MAX_OUTPUT_TOKENS = 16 * 1024;
-const MODEL_METADATA_CACHE_PREFIX = 'ai_provider_model_metadata_v4_';
+const MODEL_METADATA_CACHE_PREFIX = 'ai_provider_model_metadata_v5_';
 const MODEL_METADATA_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const CATALOG_REQUEST_TIMEOUT_MS = 8000;
 
@@ -117,6 +119,18 @@ function findExplicitBoolean(source: unknown, keys: readonly string[], depth = 0
     return undefined;
 }
 
+function parseReasoningMetadata(source: Record<string, unknown>): AIReasoningCapability | undefined {
+    const capability = isRecord(source.capabilities) ? source.capabilities : source;
+    const raw = isRecord(capability.reasoning) ? capability.reasoning : undefined;
+    if (!raw || !isAIThinkingMode(raw.mode)) return undefined;
+    return {
+        mode: raw.mode,
+        efforts: normalizeStringList(raw.efforts ?? raw.supported_efforts).filter(isAIReasoningEffort),
+        supportsOff: raw.supportsOff === true || raw.supports_off === true,
+        defaultEnabled: raw.defaultEnabled === true || raw.default_enabled === true,
+    };
+}
+
 function parseModelMetadata(item: unknown): AIModelMetadata | null {
     if (!isRecord(item)) {
         return null;
@@ -150,6 +164,8 @@ function parseModelMetadata(item: unknown): AIModelMetadata | null {
         ]),
         supportedParameters: supportedParameters.length > 0 ? supportedParameters : undefined,
         supportsTemperature,
+        temperatureWithReasoning: findExplicitBoolean(item, ['temperatureWithReasoning', 'temperature_with_reasoning']),
+        reasoning: parseReasoningMetadata(item),
     };
 }
 
@@ -158,27 +174,14 @@ function hasExplicitMetadata(metadata: AIModelMetadata | undefined): metadata is
         metadata
         && (metadata.maxOutputTokens !== undefined
             || metadata.supportsTemperature !== undefined
-            || metadata.supportedParameters?.length),
+            || metadata.supportedParameters?.length
+            || metadata.reasoning),
     );
 }
 
-function hashCacheKey(value: string): string {
-    let hash = 2166136261;
-    for (let index = 0; index < value.length; index += 1) {
-        hash ^= value.charCodeAt(index);
-        hash = Math.imul(hash, 16777619);
-    }
-    return (hash >>> 0).toString(36);
-}
-
 function getMetadataCacheKey(config: AIProviderConfig): string {
-    const identity = [
-        config.apiUrl.trim(),
-        config.apiKey.trim(),
-        config.model.trim(),
-        config.protocol,
-    ].join('|');
-    return MODEL_METADATA_CACHE_PREFIX + hashCacheKey(identity);
+    return MODEL_METADATA_CACHE_PREFIX + [config.providerId, config.connectionRevision, config.model.trim(), config.protocol]
+        .map((part) => encodeURIComponent(String(part))).join(':');
 }
 
 function getAuthHeaders(
@@ -189,6 +192,7 @@ function getAuthHeaders(
     if (protocol === 'anthropic_messages') {
         const headers: Record<string, string> = {
             'Content-Type': 'application/json',
+            Accept: 'application/json',
             'x-api-key': apiKey.trim(),
             'anthropic-version': '2023-06-01',
         };
@@ -203,60 +207,62 @@ function getAuthHeaders(
     }
     return {
         'Content-Type': 'application/json',
+        Accept: 'application/json',
         Authorization: 'Bearer ' + apiKey.trim(),
     };
 }
 
-async function fetchWithCatalogTimeout(url: string, init: RequestInit): Promise<Response> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), CATALOG_REQUEST_TIMEOUT_MS);
-    try {
-        return await fetch(url, {
-            ...init,
-            signal: controller.signal as RequestInit['signal'],
-        });
-    } finally {
-        clearTimeout(timeoutId);
-    }
-}
-
-function validateConfig(config: AIProviderConfig): void {
-    if (!config.apiUrl.trim() || !config.apiKey.trim() || !config.model.trim()) {
+function validateConfig(config: AIProviderConfig, requireModel = true): void {
+    if (!config.apiUrl.trim() || !config.apiKey.trim() || (requireModel && !config.model.trim())) {
         throw new Error('请先配置接口地址、API Key 与模型名称');
     }
+    let url: URL;
+    try { url = new URL(config.apiUrl.trim()); }
+    catch { throw new Error('接口地址无效，请填写以 https:// 或 http:// 开头的完整地址。'); }
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('接口地址只支持 https:// 或 http://。');
+    if (url.username || url.password) throw new Error('请将凭据填写到 API Key 字段，不要放入接口地址。');
 }
 
-async function fetchModelCatalog(config: AIProviderConfig): Promise<AIModelMetadata[]> {
+async function fetchModelCatalog(config: AIProviderConfig, signal?: AbortSignal): Promise<AIModelMetadata[]> {
     const endpoint = resolveModelsUrl(config.apiUrl);
     const transport = resolveAIWebTransport(endpoint);
-    let response: Response;
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) controller.abort();
+    const timeoutId = setTimeout(abort, CATALOG_REQUEST_TIMEOUT_MS);
     try {
-        response = await fetchWithCatalogTimeout(transport.endpoint, {
-            method: 'GET',
-            headers: getAuthHeaders(config.protocol, config.apiKey, endpoint),
-        });
-    } catch (error) {
-        if (transport.webCrossOrigin) {
-            throw new Error(transport.webProxyUsed ? getWebProxyUnavailableMessage() : getWebCrossOriginMessage());
+        let response: Response;
+        try {
+            response = await fetch(transport.endpoint, {
+                method: 'GET',
+                headers: getAuthHeaders(config.protocol, config.apiKey, endpoint),
+                signal: controller.signal,
+            });
+        } catch (error) {
+            if (controller.signal.aborted) throw error;
+            if (transport.webCrossOrigin) throw new Error(transport.webProxyUsed ? getWebProxyUnavailableMessage() : getWebCrossOriginMessage());
+            throw error;
         }
+        if (!response.ok) {
+            const message = (await response.text()).slice(0, 300);
+            throw new Error(`模型列表请求失败（HTTP ${response.status}）${message ? ': ' + message : ''}`);
+        }
+        const body: unknown = await response.json();
+        const source = isRecord(body) ? body : {};
+        const items = Array.isArray(source.data) ? source.data : Array.isArray(source.models) ? source.models : undefined;
+        if (!items) throw new Error('接口返回的内容不是模型列表，请检查 API 地址；也可手动填写模型名称。');
+        const models = items.map(parseModelMetadata).filter((item): item is AIModelMetadata => Boolean(item));
+        return [...new Map(models.map((model) => [model.id, model])).values()];
+    } catch (error) {
+        if (signal?.aborted) throw new Error('获取模型已取消');
+        if (controller.signal.aborted) throw new Error('获取模型列表超时（8 秒）');
+        if (error instanceof SyntaxError) throw new Error('接口未返回有效 JSON 模型列表，请检查 API 地址。');
         throw error;
+    } finally {
+        clearTimeout(timeoutId);
+        signal?.removeEventListener('abort', abort);
     }
-    if (transport.webProxyUsed && (response.status === 404 || response.status === 405)) {
-        throw new Error(getWebProxyUnavailableMessage());
-    }
-    if (!response.ok) {
-        const message = (await response.text()).slice(0, 300);
-        throw new Error(
-            '模型列表请求失败（HTTP ' + response.status + '）'
-            + (message ? ': ' + message : ''),
-        );
-    }
-    const body = await response.json() as unknown;
-    const source = isRecord(body) ? body : {};
-    const items = Array.isArray(source.data)
-        ? source.data
-        : (Array.isArray(source.models) ? source.models : []);
-    return items.map(parseModelMetadata).filter((item): item is AIModelMetadata => Boolean(item));
 }
 
 async function readCachedModelMetadata(config: AIProviderConfig): Promise<AIModelMetadata | undefined> {
@@ -297,15 +303,14 @@ function buildCapabilities(
 ): AIProviderCapabilities {
     const endpoint = resolveProviderEndpoint(config.apiUrl, config.protocol);
     const explicitMetadata = hasExplicitMetadata(metadata) ? metadata : undefined;
+    const behavior = resolveModelBehavior(config, explicitMetadata);
     return {
         protocol: config.protocol,
         endpoint,
         ...getEndpointLogMeta(endpoint),
         model: config.model.trim(),
-        maxOutputTokens: explicitMetadata?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
-        maxOutputTokensSource: explicitMetadata?.maxOutputTokens ? 'model_metadata' : 'default',
-        supportsTemperature: explicitMetadata?.supportsTemperature === true,
-        temperatureSource: explicitMetadata?.supportsTemperature === true ? 'metadata' : 'omitted',
+        ...behavior,
+        maxOutputTokens: config.maxOutputTokens,
         metadataAvailable: Boolean(explicitMetadata),
         metadataSource: explicitMetadata ? metadataSource : 'default',
         discoveredAt: new Date().toISOString(),
@@ -340,11 +345,11 @@ function logCatalog(
     });
 }
 
-export async function discoverProvider(config: AIProviderConfig): Promise<AIProviderDiscoveryResult> {
-    validateConfig(config);
+export async function discoverProvider(config: AIProviderConfig, signal?: AbortSignal): Promise<AIProviderDiscoveryResult> {
+    validateConfig(config, false);
     let models: AIModelMetadata[];
     try {
-        models = await fetchModelCatalog(config);
+        models = await fetchModelCatalog(config, signal);
     } catch (error) {
         const endpoint = resolveModelsUrl(config.apiUrl);
         const endpointMeta = getEndpointLogMeta(endpoint);
@@ -366,8 +371,9 @@ export async function discoverProvider(config: AIProviderConfig): Promise<AIProv
         });
         throw error;
     }
+    if (signal?.aborted) throw new Error('获取模型已取消');
     const selectedMetadata = models.find((item) => item.id === config.model.trim());
-    await cacheModelMetadata(config, selectedMetadata);
+    await Promise.all(models.map((metadata) => cacheModelMetadata({ ...config, model: metadata.id }, metadata)));
     const capabilities = buildCapabilities(
         config,
         selectedMetadata,

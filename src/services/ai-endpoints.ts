@@ -1,4 +1,21 @@
-import { AIProviderProtocol } from './ai-provider-types';
+import type { AIProviderProtocol } from './ai-provider-types';
+
+export function getProtocolLabel(protocol: AIProviderProtocol): string {
+    return protocol === 'responses' ? 'Responses' : 'Anthropic Messages';
+}
+
+/** The URL is a stronger hint than the model name on gateways serving both families. */
+export function inferProviderProtocol(apiUrl: string, model = ''): AIProviderProtocol {
+    try {
+        const url = new URL(apiUrl);
+        if (/\/responses\/?$/.test(url.pathname)) return 'responses';
+        if (url.hostname === 'api.anthropic.com' || /\/(messages|anthropic)(\/|$)/.test(url.pathname)) return 'anthropic_messages';
+        if (url.hostname === 'api.openai.com') return 'responses';
+    } catch {
+        // The request boundary reports malformed URLs before any network request.
+    }
+    return /^claude-/.test(model.trim()) ? 'anthropic_messages' : 'responses';
+}
 
 const DEFAULT_API_BASE_PATH = '/v1';
 

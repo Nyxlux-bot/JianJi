@@ -994,6 +994,7 @@ export function calculateBazi(params: CalculateBaziParams): BaziResult {
         createdAt: createdAt.toISOString(),
         calculatedAt: normalized.chartDate.toISOString(),
         gender: normalized.gender,
+        aiWorkflowVersion: 2,
         longitude: normalized.longitude,
         solarDate: timeMeta.solarDate,
         solarTime: timeMeta.solarTime,

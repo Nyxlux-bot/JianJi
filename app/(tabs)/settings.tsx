@@ -1,10 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Animated,
     BackHandler,
     Easing,
+    KeyboardAvoidingView,
     Modal,
+    Platform,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -15,8 +17,8 @@ import {
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
-import * as Clipboard from 'expo-clipboard';
 import { useFocusEffect, useNavigation } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path, Text as SvgText } from 'react-native-svg';
 import { CustomAlert } from '../../src/components/CustomAlertProvider';
 import {
@@ -37,14 +39,13 @@ import {
     getSettings,
     mergeImportedSettings,
     saveSettings,
+    buildBackupSettings,
+    getActiveProvider,
+    getActiveModel,
+    subscribeSettings,
 } from '../../src/services/settings';
 import { exportDiagnosticLogFile, recordDiagnosticLog } from '../../src/services/diagnostics';
-import { fetchProviderDiscovery } from '../../src/services/ai-models';
-import { testProviderConnection } from '../../src/services/ai-provider-client';
-import {
-    AIProviderCapabilities,
-    AIProviderProtocolPreference,
-} from '../../src/services/ai-provider-types';
+import AIProviderSettings, { type AIProviderSettingsHandle } from '../../src/components/AIProviderSettings';
 import { CloseIcon, ChevronRightIcon } from '../../src/components/Icons';
 import appConfig from '../../app.json';
 import { registerSettingsLeaveHandler } from '../../src/services/settings-leave-guard';
@@ -55,14 +56,6 @@ type SheetType = 'ai' | 'calendar' | 'data' | 'about' | null;
 const APP_VERSION = appConfig.expo.version;
 const HEXAGRAMS = Array.from({ length: 64 }, (_, index) => String.fromCharCode(0x4DC0 + index));
 
-function buildBackupSettings(settings: AISettings): AISettings {
-    return {
-        ...settings,
-        apiKey: '',
-        geocoderApiKey: '',
-    };
-}
-
 function getHostLabel(value: string): string {
     if (!value.trim()) return '未配置';
     try {
@@ -72,55 +65,8 @@ function getHostLabel(value: string): string {
     }
 }
 
-function normalizeTemperatureInput(value: string): number {
-    if (!value.trim()) return DEFAULT_SETTINGS.temperature;
-    const parsed = Number(value);
-    if (!Number.isFinite(parsed)) return DEFAULT_SETTINGS.temperature;
-    return Math.max(0, Math.min(2, Number(parsed.toFixed(2))));
-}
-
-function getProtocolLabel(protocol: AIProviderProtocolPreference): string {
-    if (protocol === 'responses') return 'Responses';
-    return 'Anthropic';
-}
-
-function formatTokenLimit(value: number): string {
-    if (value >= 1024 && value % 1024 === 0) {
-        return `${value / 1024}k`;
-    }
-    return String(value);
-}
-
-function isSameProviderConfiguration(left: AISettings, right: AISettings): boolean {
-    return left.apiUrl.trim() === right.apiUrl.trim()
-        && left.apiKey.trim() === right.apiKey.trim()
-        && left.model.trim() === right.model.trim();
-}
-
 function areSettingsEqual(left: AISettings, right: AISettings): boolean {
-    return left.apiUrl === right.apiUrl
-        && left.apiKey === right.apiKey
-        && left.model === right.model
-        && left.protocol === right.protocol
-        && left.protocolVerified === right.protocolVerified
-        && left.temperature === right.temperature
-        && left.geocoderApiKey === right.geocoderApiKey;
-}
-
-function EyeIcon({ color, hidden, size = 20 }: { color: string; hidden: boolean; size?: number }) {
-    return (
-        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-            <Path
-                d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"
-                stroke={color}
-                strokeWidth="1.7"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-            />
-            <Circle cx="12" cy="12" r="3" stroke={color} strokeWidth="1.7" />
-            {hidden && <Path d="M4 20L20 4" stroke={color} strokeWidth="1.9" strokeLinecap="round" />}
-        </Svg>
-    );
+    return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function TaijiHub({
@@ -199,17 +145,12 @@ export default function SettingsPage() {
     const themeProgress = useRef(new Animated.Value(theme === 'yang' ? 1 : 0)).current;
     const [settings, setSettings] = useState<AISettings>(DEFAULT_SETTINGS);
     const [savedSettings, setSavedSettings] = useState<AISettings>(DEFAULT_SETTINGS);
-    const [temperatureText, setTemperatureText] = useState(String(DEFAULT_SETTINGS.temperature));
     const [savedTheme, setSavedTheme] = useState<ThemeType>(theme);
     const [isInitializing, setIsInitializing] = useState(true);
+    const [initializationError, setInitializationError] = useState('');
     const [isBackingUp, setIsBackingUp] = useState(false);
     const [isRestoring, setIsRestoring] = useState(false);
     const [isExportingDiagnostics, setIsExportingDiagnostics] = useState(false);
-    const [fetchingModels, setFetchingModels] = useState(false);
-    const [testingAI, setTestingAI] = useState(false);
-    const [availableModels, setAvailableModels] = useState<string[]>([]);
-    const [providerCapabilities, setProviderCapabilities] = useState<AIProviderCapabilities | null>(null);
-    const [modelDropdownVisible, setModelDropdownVisible] = useState(false);
     const [activeSheet, setActiveSheet] = useState<SheetType>(null);
     const [previewVisible, setPreviewVisible] = useState(false);
     const [pendingRecords, setPendingRecords] = useState<DivinationRecordEnvelope[]>([]);
@@ -218,10 +159,10 @@ export default function SettingsPage() {
     const [pendingDuplicateCount, setPendingDuplicateCount] = useState(0);
     const settingsRef = useRef(settings);
     const savedSettingsRef = useRef(savedSettings);
-    const temperatureTextRef = useRef(temperatureText);
     const themeRef = useRef(theme);
     const savedThemeRef = useRef(savedTheme);
     const isPersistingSettingsRef = useRef(false);
+    const aiProviderSettingsRef = useRef<AIProviderSettingsHandle>(null);
     const bypassNavigationGuardRef = useRef(false);
     const {
         settings: ganZhiRelationSettings,
@@ -229,33 +170,38 @@ export default function SettingsPage() {
         replaceSettings: replaceGanZhiRelationSettings,
     } = useGanZhiRelationSettings();
 
-    const filteredModels = useMemo(() => {
-        const keyword = settings.model.trim().toLowerCase();
-        if (!keyword) return availableModels;
-        return availableModels.filter((item) => item.toLowerCase().includes(keyword));
-    }, [availableModels, settings.model]);
-
-    useEffect(() => {
-        getSettings().then((nextSettings) => {
+    const loadSettings = async () => {
+        setIsInitializing(true);
+        setInitializationError('');
+        try {
+            const nextSettings = await getSettings();
             settingsRef.current = nextSettings;
             savedSettingsRef.current = nextSettings;
             setSettings(nextSettings);
             setSavedSettings(nextSettings);
-            temperatureTextRef.current = String(nextSettings.temperature);
-            setTemperatureText(String(nextSettings.temperature));
             savedThemeRef.current = theme;
             setSavedTheme(theme);
+        } catch (error: unknown) {
+            setInitializationError(error instanceof Error ? error.message : '读取设置失败');
+        } finally {
             setIsInitializing(false);
-        });
-    }, []);
+        }
+    };
+    useEffect(() => { void loadSettings(); }, []);
+
+    useEffect(() => subscribeSettings((nextSettings) => {
+        const hasDraft = !areSettingsEqual(settingsRef.current, savedSettingsRef.current);
+        savedSettingsRef.current = nextSettings;
+        setSavedSettings(nextSettings);
+        if (!hasDraft) {
+            settingsRef.current = nextSettings;
+            setSettings(nextSettings);
+        }
+    }), []);
 
     useEffect(() => {
         settingsRef.current = settings;
     }, [settings]);
-
-    useEffect(() => {
-        temperatureTextRef.current = temperatureText;
-    }, [temperatureText]);
 
     useEffect(() => {
         themeRef.current = theme;
@@ -270,33 +216,15 @@ export default function SettingsPage() {
         }).start();
     }, [theme, themeProgress]);
 
-    useEffect(() => {
-        setAvailableModels([]);
-        setProviderCapabilities(null);
-        setModelDropdownVisible(false);
-    }, [settings.apiKey, settings.apiUrl]);
-
-    useEffect(() => {
-        setProviderCapabilities(null);
-    }, [settings.model]);
-
     const updateSettings = useCallback((nextState: React.SetStateAction<AISettings>) => {
-        const previous = settingsRef.current;
-        const candidate = typeof nextState === 'function' ? nextState(previous) : nextState;
-        const next = !isSameProviderConfiguration(previous, candidate)
-            ? {
-                ...candidate,
-                protocol: 'responses' as const,
-                protocolVerified: false,
-            }
-            : candidate;
+        const next = typeof nextState === 'function' ? nextState(settingsRef.current) : nextState;
         settingsRef.current = next;
         setSettings(next);
     }, []);
 
     const getHasUnsavedChanges = useCallback(() => {
-        return !areSettingsEqual(settingsRef.current, savedSettingsRef.current)
-            || normalizeTemperatureInput(temperatureTextRef.current) !== savedSettingsRef.current.temperature
+        return Boolean(aiProviderSettingsRef.current?.hasPendingModel())
+            || !areSettingsEqual(settingsRef.current, savedSettingsRef.current)
             || themeRef.current !== savedThemeRef.current;
     }, []);
 
@@ -311,6 +239,7 @@ export default function SettingsPage() {
             return false;
         }
         isPersistingSettingsRef.current = true;
+        aiProviderSettingsRef.current?.commitPendingModel();
         const settingsToPersist = settingsRef.current;
         const themeToPersist = themeRef.current;
         try {
@@ -337,27 +266,13 @@ export default function SettingsPage() {
         const themeToRestore = savedThemeRef.current;
         settingsRef.current = settingsToRestore;
         setSettings(settingsToRestore);
-        temperatureTextRef.current = String(settingsToRestore.temperature);
-        setTemperatureText(String(settingsToRestore.temperature));
         themeRef.current = themeToRestore;
         setTheme(themeToRestore);
     }, [setTheme]);
 
-    const commitTemperatureDraft = useCallback(() => {
-        const normalized = normalizeTemperatureInput(temperatureTextRef.current);
-        const current = settingsRef.current;
-        const next = current.temperature === normalized
-            ? current
-            : { ...current, temperature: normalized };
-        settingsRef.current = next;
-        setSettings(next);
-        temperatureTextRef.current = String(normalized);
-        setTemperatureText(String(normalized));
-        return next;
-    }, []);
-
     const requestLeave = useCallback((proceed: () => void) => {
-        const currentSettings = commitTemperatureDraft();
+        aiProviderSettingsRef.current?.commitPendingModel();
+        const currentSettings = settingsRef.current;
         const currentHasUnsavedChanges = !areSettingsEqual(currentSettings, savedSettingsRef.current)
             || themeRef.current !== savedThemeRef.current;
         if (!currentHasUnsavedChanges) {
@@ -383,7 +298,7 @@ export default function SettingsPage() {
                 },
             },
         ]);
-    }, [commitTemperatureDraft, discardDraft, persistDraft]);
+    }, [discardDraft, persistDraft]);
 
     const requestCloseSheet = useCallback(() => {
         if (activeSheet === null) {
@@ -437,78 +352,6 @@ export default function SettingsPage() {
         return () => subscription.remove();
     }, [activeSheet, getHasUnsavedChanges, requestCloseSheet, requestLeave]));
 
-    const fetchModels = async () => {
-        if (!settings.apiUrl.trim() || !settings.apiKey.trim()) {
-            CustomAlert.alert('提示', '请先填写接口地址与 API Key。');
-            return;
-        }
-
-        setFetchingModels(true);
-        try {
-            const discovery = await fetchProviderDiscovery(settings);
-            const models = discovery.models.map((item) => item.id).sort((left, right) => left.localeCompare(right));
-            setAvailableModels(models);
-            setProviderCapabilities(discovery.capabilities);
-            setModelDropdownVisible(models.length > 0);
-            CustomAlert.alert(
-                '模型列表已同步',
-                `${models.length > 0 ? `已获取 ${models.length} 个模型。` : '模型列表未公开。'}模型列表仅用于选择模型，接口请使用“测试连接”验证。`,
-            );
-        } catch (error: unknown) {
-            setAvailableModels([]);
-            setProviderCapabilities(null);
-            setModelDropdownVisible(false);
-            const message = error instanceof Error ? error.message : '获取模型失败';
-            CustomAlert.alert('获取模型失败', message);
-        } finally {
-            setFetchingModels(false);
-        }
-    };
-
-    const testAIConnection = async () => {
-        if (!settings.apiUrl.trim() || !settings.apiKey.trim() || !settings.model.trim()) {
-            CustomAlert.alert('提示', '请先填写接口地址、API Key 与模型名称。');
-            return;
-        }
-
-        setTestingAI(true);
-        try {
-            const configAtStart = settings;
-            const response = await testProviderConnection(configAtStart, {
-                preferredProtocol: configAtStart.protocolVerified ? configAtStart.protocol : undefined,
-            });
-            if (!response.success) {
-                throw new Error(response.error || '两种协议均未返回有效内容');
-            }
-            if (!response.selectedProtocol || !response.selectedResult) {
-                throw new Error('连接测试未返回已选择协议');
-            }
-            if (!isSameProviderConfiguration(settingsRef.current, configAtStart)) {
-                CustomAlert.alert('连接结果未应用', '测试期间接口地址、API Key 或模型名称已变更，请重新测试。');
-                return;
-            }
-
-            const verifiedSettings: AISettings = {
-                ...settingsRef.current,
-                protocol: response.selectedProtocol,
-                protocolVerified: true,
-            };
-            settingsRef.current = verifiedSettings;
-            setSettings(verifiedSettings);
-            setProviderCapabilities(null);
-
-            CustomAlert.alert(
-                '连接正常',
-                `已自动选择 ${getProtocolLabel(response.selectedProtocol)}。测试编号：${response.operationId}；请求编号：${response.selectedResult.meta.operationId}`,
-            );
-        } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : '测试连接失败';
-            CustomAlert.alert('测试失败', message);
-        } finally {
-            setTestingAI(false);
-        }
-    };
-
     const handleBackup = async () => {
         if (!ganZhiRelationSettingsReady) {
             CustomAlert.alert('设置加载中', '干支关系设置尚未加载完成，请稍后再导出备份。');
@@ -518,7 +361,7 @@ export default function SettingsPage() {
             setIsBackingUp(true);
             const records = await exportAllRecords();
             const backupData = {
-                version: 3,
+                version: 4,
                 timestamp: new Date().toISOString(),
                 settings: buildBackupSettings(settingsRef.current),
                 ganZhiRelationSettings,
@@ -629,8 +472,6 @@ export default function SettingsPage() {
                 savedSettingsRef.current = normalizedSettings;
                 setSettings(normalizedSettings);
                 setSavedSettings(normalizedSettings);
-                temperatureTextRef.current = String(normalizedSettings.temperature);
-                setTemperatureText(String(normalizedSettings.temperature));
             }
             if (pendingGanZhiRelationSettingsRaw !== undefined) {
                 await replaceGanZhiRelationSettings(pendingGanZhiRelationSettingsRaw);
@@ -670,9 +511,6 @@ export default function SettingsPage() {
                     const resetSettings = { ...DEFAULT_SETTINGS };
                     settingsRef.current = resetSettings;
                     setSettings(resetSettings);
-                    temperatureTextRef.current = String(resetSettings.temperature);
-                    setTemperatureText(String(resetSettings.temperature));
-                    setProviderCapabilities(null);
                     themeRef.current = 'yin';
                     setTheme('yin');
                     CustomAlert.alert('已恢复', '已恢复默认值，离开设置页时可选择保存。');
@@ -680,6 +518,16 @@ export default function SettingsPage() {
             },
         ]);
     };
+
+    if (initializationError) {
+        return <View style={styles.container}>
+            <StatusBarDecor />
+            <View style={{ padding: Spacing.lg, gap: Spacing.md }}>
+                <Text accessibilityRole="alert" style={{ color: Colors.accent.red }}>读取设置失败：{initializationError}</Text>
+                <ActionButton label="重新读取设置" Colors={Colors} onPress={() => { void loadSettings(); }} />
+            </View>
+        </View>;
+    }
 
     if (isInitializing) {
         return (
@@ -705,8 +553,8 @@ export default function SettingsPage() {
                 <View style={styles.cardGrid}>
                     <SettingCard
                         title="AI 中枢"
-                        value={settings.apiKey ? settings.model || '已配置' : '未配置'}
-                        meta={getHostLabel(settings.apiUrl)}
+                        value={getActiveModel(getActiveProvider(settings))?.model || '待选择模型'}
+                        meta={getHostLabel(getActiveProvider(settings)?.apiUrl || '')}
                         Colors={Colors}
                         onPress={() => setActiveSheet('ai')}
                     />
@@ -734,34 +582,10 @@ export default function SettingsPage() {
                 </View>
             </View>
 
-            <SettingsSheet visible={activeSheet !== null} title={getSheetTitle(activeSheet)} Colors={Colors} onClose={requestCloseSheet}>
+            <SettingsSheet visible={activeSheet !== null} title={getSheetTitle(activeSheet)} Colors={Colors} onClose={requestCloseSheet} independentContent={activeSheet === 'ai'}>
                 {activeSheet === 'ai' && (
-                    <AISettingsSheet
-                        settings={settings}
-                        Colors={Colors}
-                        styles={styles}
-                        fetchingModels={fetchingModels}
-                        testingAI={testingAI}
-                        filteredModels={filteredModels}
-                        modelDropdownVisible={modelDropdownVisible}
-                        providerCapabilities={providerCapabilities}
-                        setModelDropdownVisible={setModelDropdownVisible}
-                        updateSettings={updateSettings}
-                        temperatureText={temperatureText}
-                        onTemperatureTextChange={(value) => {
-                            temperatureTextRef.current = value;
-                            setTemperatureText(value);
-                            if (value.trim() && Number.isFinite(Number(value))) {
-                                updateSettings((prev) => ({
-                                    ...prev,
-                                    temperature: normalizeTemperatureInput(value),
-                                }));
-                            }
-                        }}
-                        commitTemperature={commitTemperatureDraft}
-                        fetchModels={fetchModels}
-                        testAIConnection={testAIConnection}
-                    />
+                    <AIProviderSettings ref={aiProviderSettingsRef} settings={settings} onChange={updateSettings} onSave={persistDraft}
+                        hasUnsavedChanges={!areSettingsEqual(settings, savedSettings) || theme !== savedTheme} />
                 )}
                 {activeSheet === 'calendar' && (
                     <View style={styles.sheetBlock}>
@@ -876,237 +700,43 @@ function SettingsSheet({
     Colors,
     children,
     onClose,
+    independentContent = false,
 }: {
     visible: boolean;
     title: string;
-    Colors: any;
+    Colors: ReturnType<typeof useTheme>['Colors'];
     children: React.ReactNode;
     onClose: () => void;
+    independentContent?: boolean;
 }) {
     const sheetStyles = makeSheetStyles(Colors);
+    const insets = useSafeAreaInsets();
     return (
         <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-            <View style={sheetStyles.overlay}>
-                <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-                <View style={sheetStyles.sheet}>
+            <KeyboardAvoidingView style={sheetStyles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined} enabled={independentContent}>
+                <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="关闭设置" accessibilityRole="button" />
+                <View style={[sheetStyles.sheet, independentContent && sheetStyles.aiSheet,
+                    independentContent && { paddingBottom: Math.max(insets.bottom, 8) }]}>
                     <View style={sheetStyles.handle} />
-                    <View style={sheetStyles.header}>
+                    <View style={[sheetStyles.header, independentContent && sheetStyles.aiHeader]}>
                         <Text style={sheetStyles.title}>{title}</Text>
-                        <Pressable style={sheetStyles.closeButton} onPress={onClose}>
+                        <Pressable style={sheetStyles.closeButton} onPress={onClose} accessibilityRole="button" accessibilityLabel="关闭设置">
                             <CloseIcon size={20} color={Colors.text.primary} />
                         </Pressable>
                     </View>
-                    <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                        {children}
-                    </ScrollView>
+                    {independentContent ? children : (
+                        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                            {children}
+                        </ScrollView>
+                    )}
                 </View>
-            </View>
+            </KeyboardAvoidingView>
         </Modal>
     );
 }
 
 function FieldLabel({ label }: { label: string }) {
     return <Text style={fieldLabelStyles.label}>{label}</Text>;
-}
-
-function AISettingsSheet({
-    settings,
-    Colors,
-    styles,
-    fetchingModels,
-    testingAI,
-    filteredModels,
-    modelDropdownVisible,
-    providerCapabilities,
-    setModelDropdownVisible,
-    updateSettings,
-    temperatureText,
-    onTemperatureTextChange,
-    commitTemperature,
-    fetchModels,
-    testAIConnection,
-}: {
-    settings: AISettings;
-    Colors: any;
-    styles: ReturnType<typeof makeStyles>;
-    fetchingModels: boolean;
-    testingAI: boolean;
-    filteredModels: string[];
-    modelDropdownVisible: boolean;
-    providerCapabilities: AIProviderCapabilities | null;
-    setModelDropdownVisible: (value: boolean) => void;
-    updateSettings: (nextState: React.SetStateAction<AISettings>) => void;
-    temperatureText: string;
-    onTemperatureTextChange: (value: string) => void;
-    commitTemperature: () => void;
-    fetchModels: () => void;
-    testAIConnection: () => void;
-}) {
-    const [apiKeyVisible, setApiKeyVisible] = useState(false);
-
-    const copyValue = async (label: string, value: string) => {
-        const text = value.trim();
-        if (!text) {
-            CustomAlert.alert('暂无可复制内容', `请先填写${label}。`);
-            return;
-        }
-        await Clipboard.setStringAsync(text);
-        CustomAlert.alert('复制成功', `${label}已复制。`);
-    };
-
-    const pasteApiUrl = async () => {
-        const text = (await Clipboard.getStringAsync()).trim();
-        if (!text) {
-            CustomAlert.alert('剪贴板为空', '没有可粘贴内容。');
-            return;
-        }
-        updateSettings((prev) => ({ ...prev, apiUrl: text }));
-    };
-
-    const pasteApiKey = async () => {
-        const text = (await Clipboard.getStringAsync()).trim();
-        if (!text) {
-            CustomAlert.alert('剪贴板为空', '没有可粘贴内容。');
-            return;
-        }
-        updateSettings((prev) => ({ ...prev, apiKey: text }));
-    };
-
-    return (
-        <View style={styles.sheetBlock}>
-            <FieldLabel label="接口地址" />
-            <View style={styles.inputRow}>
-                <TextInput
-                    style={styles.inputInRow}
-                    value={settings.apiUrl}
-                    onChangeText={(value) => updateSettings((prev) => ({ ...prev, apiUrl: value }))}
-                    placeholder="https://api.openai.com/v1"
-                    placeholderTextColor={Colors.text.tertiary}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                />
-                <View style={styles.inputActions}>
-                    <Pressable style={styles.inputTextButton} onPress={() => copyValue('接口地址', settings.apiUrl)}>
-                        <Text style={styles.inputTextButtonLabel}>复制</Text>
-                    </Pressable>
-                    <Pressable style={styles.inputTextButton} onPress={pasteApiUrl}>
-                        <Text style={styles.inputTextButtonLabel}>粘贴</Text>
-                    </Pressable>
-                </View>
-            </View>
-
-            <FieldLabel label="API Key" />
-            <View style={styles.inputRow}>
-                <TextInput
-                    style={styles.inputInRow}
-                    value={settings.apiKey}
-                    onChangeText={(value) => updateSettings((prev) => ({ ...prev, apiKey: value }))}
-                    placeholder="sk-..."
-                    placeholderTextColor={Colors.text.tertiary}
-                    secureTextEntry={!apiKeyVisible}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                />
-                <View style={styles.inputActions}>
-                    <Pressable
-                        style={styles.inputIconButton}
-                        onPress={() => setApiKeyVisible((prev) => !prev)}
-                        accessibilityLabel={apiKeyVisible ? '隐藏 API Key' : '显示 API Key'}
-                    >
-                        <EyeIcon color={Colors.text.secondary} hidden={!apiKeyVisible} />
-                    </Pressable>
-                    <Pressable style={styles.inputTextButton} onPress={() => copyValue('API Key', settings.apiKey)}>
-                        <Text style={styles.inputTextButtonLabel}>复制</Text>
-                    </Pressable>
-                    <Pressable style={styles.inputTextButton} onPress={pasteApiKey}>
-                        <Text style={styles.inputTextButtonLabel}>粘贴</Text>
-                    </Pressable>
-                </View>
-            </View>
-
-            <FieldLabel label="模型名称" />
-            <TextInput
-                style={styles.input}
-                value={settings.model}
-                onChangeText={(value) => {
-                    updateSettings((prev) => ({ ...prev, model: value }));
-                    setModelDropdownVisible(true);
-                }}
-                onFocus={() => setModelDropdownVisible(filteredModels.length > 0)}
-                placeholder="gpt-4o"
-                placeholderTextColor={Colors.text.tertiary}
-                autoCapitalize="none"
-                autoCorrect={false}
-            />
-            {modelDropdownVisible && filteredModels.length > 0 && (
-                <View style={styles.modelDropdown}>
-                    <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-                        {filteredModels.map((item) => (
-                            <Pressable
-                                key={item}
-                                style={({ pressed }) => [styles.modelOption, item === settings.model && styles.modelOptionActive, pressed && styles.pressed]}
-                                onPress={() => {
-                                    updateSettings((prev) => ({ ...prev, model: item }));
-                                    setModelDropdownVisible(false);
-                                }}
-                            >
-                                <Text style={[styles.modelOptionText, item === settings.model && styles.modelOptionTextActive]}>{item}</Text>
-                            </Pressable>
-                        ))}
-                    </ScrollView>
-                </View>
-            )}
-
-            <FieldLabel label="连接协议" />
-            <View style={styles.capabilityRow}>
-                <View style={styles.capabilityDetails}>
-                    <Text style={styles.capabilityLabel}>自动选择</Text>
-                    <Text style={styles.capabilityValue}>
-                        {settings.protocolVerified ? `已验证 ${getProtocolLabel(settings.protocol)}` : '尚未验证'}
-                    </Text>
-                </View>
-                <Text style={styles.capabilitySource}>
-                    {settings.protocolVerified ? '测试连接可重新校验' : '测试时自动选择可用协议'}
-                </Text>
-            </View>
-
-            {providerCapabilities && (
-                <View style={styles.capabilityRow}>
-                    <View style={styles.capabilityDetails}>
-                        <Text style={styles.capabilityLabel}>当前能力</Text>
-                        <Text style={styles.capabilityValue}>
-                            {getProtocolLabel(providerCapabilities.protocol)} · {formatTokenLimit(providerCapabilities.maxOutputTokens)} tokens
-                        </Text>
-                    </View>
-                    <Text style={styles.capabilitySource}>
-                        {providerCapabilities.metadataAvailable ? '模型元数据已声明' : '未声明模型参数能力'}
-                    </Text>
-                </View>
-            )}
-
-            <FieldLabel label="温度" />
-            <TextInput
-                style={styles.input}
-                value={temperatureText}
-                onChangeText={onTemperatureTextChange}
-                onBlur={commitTemperature}
-                onSubmitEditing={commitTemperature}
-                placeholder="0.7"
-                placeholderTextColor={Colors.text.tertiary}
-                keyboardType="decimal-pad"
-            />
-            <Text style={styles.capabilitySource}>
-                {providerCapabilities?.supportsTemperature
-                    ? '当前模型已声明支持温度参数。'
-                    : '未声明模型能力时不会发送温度参数。'}
-            </Text>
-
-            <View style={styles.sheetActions}>
-                <ActionButton label={fetchingModels ? '获取中...' : '获取模型'} Colors={Colors} onPress={fetchModels} disabled={fetchingModels} />
-                <ActionButton label={testingAI ? '测试中...' : '测试连接'} Colors={Colors} onPress={testAIConnection} disabled={testingAI} variant="secondary" />
-            </View>
-        </View>
-    );
 }
 
 function ActionButton({
@@ -1227,7 +857,7 @@ const fieldLabelStyles = StyleSheet.create({
     },
 });
 
-const makeSheetStyles = (Colors: any) => StyleSheet.create({
+const makeSheetStyles = (Colors: ReturnType<typeof useTheme>['Colors']) => StyleSheet.create({
     overlay: {
         flex: 1,
         justifyContent: 'flex-end',
@@ -1243,6 +873,19 @@ const makeSheetStyles = (Colors: any) => StyleSheet.create({
         paddingBottom: Spacing.xxl,
         borderWidth: 1,
         borderColor: Colors.border.subtle,
+    },
+    aiSheet: {
+        width: '100%',
+        maxWidth: 920,
+        alignSelf: 'center',
+        height: '90%',
+        maxHeight: '96%',
+        paddingHorizontal: 0,
+        overflow: 'hidden',
+    },
+    aiHeader: {
+        paddingHorizontal: 24,
+        marginBottom: 4,
     },
     handle: {
         width: 46,

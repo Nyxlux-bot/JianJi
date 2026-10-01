@@ -130,6 +130,8 @@ export interface GanZhiRelationFact {
     label: string;
     summaryText: string;
     priority: number;
+    controller?: string;
+    controlled?: string;
 }
 
 interface PairRule {
@@ -256,6 +258,8 @@ function buildFact(input: {
     label: string;
     summaryText: string;
     discriminator?: string;
+    controller?: string;
+    controlled?: string;
 }): GanZhiRelationFact {
     const orders = [...input.orders].sort((left, right) => left - right);
     return {
@@ -270,6 +274,8 @@ function buildFact(input: {
         label: input.label,
         summaryText: input.summaryText,
         priority: KIND_PRIORITY[input.kind],
+        ...(input.controller ? { controller: input.controller } : {}),
+        ...(input.controlled ? { controlled: input.controlled } : {}),
     };
 }
 
@@ -349,8 +355,10 @@ function appendStemFacts(
                     tone: 'obstructive',
                     orders: [left.order, right.order],
                     label: '克',
-                    summaryText: `${meta.controller}${meta.controlled}相克`,
+                    summaryText: `${meta.controller}克${meta.controlled}`,
                     discriminator: meta.key,
+                    controller: meta.controller,
+                    controlled: meta.controlled,
                 }));
             }
         }

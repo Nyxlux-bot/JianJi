@@ -1,4 +1,5 @@
 import { normalizeStoredBaziResult } from '../core/bazi-normalize';
+import { sanitizeAIExecutionMeta } from '../core/ai-execution-meta';
 import { BaziResult } from '../core/bazi-types';
 import { PanResult } from '../core/liuyao-calc';
 import { BaziCompatibilityResult } from '../features/bazi/match/types';
@@ -26,12 +27,15 @@ function isPersistedAIChatMessageStruct(value: unknown): value is {
     content: string;
     hidden?: boolean;
     requestContent?: string;
+    executionMeta?: unknown;
 } {
     return isObject(value)
         && (value.role === 'user' || value.role === 'assistant')
         && typeof value.content === 'string'
         && (value.hidden === undefined || typeof value.hidden === 'boolean')
-        && (value.requestContent === undefined || typeof value.requestContent === 'string');
+        && (value.requestContent === undefined || typeof value.requestContent === 'string')
+        && (value.workflowStage === undefined || value.workflowStage === 'foundation' || value.workflowStage === 'kinship' || value.workflowStage === 'kinship_review' || value.workflowStage === 'verification' || value.workflowStage === 'five_year' || value.workflowStage === 'followup')
+        && (value.executionMeta === undefined || Boolean(sanitizeAIExecutionMeta(value.executionMeta)));
 }
 
 function assertCreatedAt(value: unknown, index: number): void {
@@ -67,7 +71,7 @@ function validateZiweiRecord(result: unknown, index: number): ZiweiRecordResult 
     const sanitized = isObject(result) && Array.isArray(result.aiChatHistory)
         ? {
             ...result,
-            aiChatHistory: result.aiChatHistory.filter((item) => isPersistedAIChatMessageStruct(item)),
+            aiChatHistory: result.aiChatHistory.filter((item) => isPersistedAIChatMessageStruct(item)).map((item) => ({ ...item, executionMeta: sanitizeAIExecutionMeta(item.executionMeta) })),
         }
         : result;
 
