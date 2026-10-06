@@ -117,33 +117,42 @@ function matchField(line: string): { key: VerificationFieldKey; text: string } |
     return null;
 }
 
+/** A paragraph that addresses the reader about the whole list, not this event. */
+const CLOSING_REMARK = /^(?:以上|上述|这些|请|烦请|欢迎|你可以|可以逐条)[^\n]*(?:核对|比对|核验|反馈|标记|确认)/u;
+const RULE = /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/u;
+
 function parseEventBody(lines: string[]): { fields: EventSegment['fields']; extra: string; trailing: string[] } {
     const fields: EventSegment['fields'] = {};
     const extra: string[] = [];
-    const fieldCount = VERIFICATION_CONTRACT.fields.length;
     let current: VerificationFieldKey | null = null;
+    let blankBefore = false;
     let index = 0;
     for (; index < lines.length; index += 1) {
         const line = lines[index];
+        if (RULE.test(line)) break;
+        if (!line.trim()) {
+            blankBefore = true;
+            continue;
+        }
         const field = matchField(line);
         if (field && fields[field.key] === undefined) {
             current = field.key;
             fields[current] = field.text;
+            blankBefore = false;
             continue;
         }
-        if (current && line.trim()) {
-            fields[current] = [fields[current], line.trim()].filter(Boolean).join('\n');
-            continue;
+        // A closing remark to the reader ends the event, even right after the last field.
+        if (blankBefore && Object.keys(fields).length && CLOSING_REMARK.test(line.trim())) break;
+        if (current) {
+            // Later paragraphs of a field stay in it as paragraphs.
+            fields[current] = [fields[current], line.trim()].filter(Boolean).join(blankBefore ? '\n\n' : '\n');
+        } else {
+            extra.push(line);
         }
-        if (!line.trim()) {
-            current = null;
-            // Once every field is filled, a paragraph after a blank line is
-            // the chapter's closing remark rather than part of this event.
-            if (Object.keys(fields).length === fieldCount) break;
-            continue;
-        }
-        extra.push(line);
+        blankBefore = false;
     }
+    // Leading blank lines of what follows belong to the trailing text.
+    while (index > 0 && !lines[index - 1].trim() && index < lines.length) index -= 1;
     return { fields, extra: extra.join('\n').trim(), trailing: lines.slice(index) };
 }
 
