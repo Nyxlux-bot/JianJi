@@ -133,6 +133,8 @@ export function CompatChartSummary({ result, styles }: { result: BaziCompatibili
 
 export function EnergyPanel({ energy, title, styles, Colors }: { energy: BaziWuXingEnergySnapshot; title: string; styles: AIPageStyles; Colors: any }) {
     const items = energy.elements.filter((item) => item.percentage > 0);
+    // One text colour per theme: picking black/white per segment flips between neighbours in the light theme.
+    const color = getLuminance(Colors.bg.primary) > 0.42 ? '#FFFFFF' : '#121212';
     return (
         <View style={styles.yearPanel}>
             <View style={styles.yearPanelHead}>
@@ -143,10 +145,10 @@ export function EnergyPanel({ energy, title, styles, Colors }: { energy: BaziWuX
                 accessibilityLabel={`五行占比：${items.map((item) => `${item.element} ${item.percentage}%`).join('，')}`}>
                 {items.map((item) => {
                     const backgroundColor = Colors.bazi[ELEMENT_COLOR_KEYS[item.element]];
-                    const color = getLuminance(backgroundColor) > 0.179 ? '#000000' : '#FFFFFF';
+                    const label = item.percentage >= 12 ? `${item.element}${item.percentage}%` : item.percentage >= 6 ? `${item.percentage}%` : '';
                     return (
                         <View key={item.element} style={[styles.energySeg, { flexGrow: item.percentage, flexBasis: 0, backgroundColor }]}>
-                            <Text style={[styles.energyText, { color }]} numberOfLines={1}>{item.percentage >= 9 ? `${item.element}${item.percentage}` : ''}</Text>
+                            <Text style={[styles.energyText, { color }]} numberOfLines={1}>{label}</Text>
                         </View>
                     );
                 })}
