@@ -44,3 +44,14 @@ export function getBaziYearEnergy(result: Readonly<BaziResult>, year: number): B
         return null;
     }
 }
+
+/** 原局五行：只计四柱、藏干与宫位，不带任何岁运（缺省的岁运来源记在 omittedSources）。 */
+export function getBaziNatalEnergy(result: Readonly<BaziResult>): BaziWuXingEnergySnapshot | null {
+    try {
+        return buildBaziWuXingEnergy(result, {
+            mode: 'dayun', selectedDaYunIndex: -1, selectedXiaoYunIndex: -1, selectedLiuNianIndex: -1, selectedLiuYueIndex: -1,
+        });
+    } catch {
+        return null;
+    }
+}
