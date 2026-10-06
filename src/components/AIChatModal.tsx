@@ -313,7 +313,8 @@ function buildAnalysisJobMessages(job: AIAnalysisJobState): UIChatMessage[] {
         || job.status === 'validating'
         || job.status === 'postprocessing'
         || job.status === 'saving'
-        || job.status === 'failed';
+        || job.status === 'failed'
+        || job.status === 'interrupted';
     if (keepsDraftVisible && job.draftContent) {
         const draftMessage: UIChatMessage = {
             role: 'assistant',
@@ -1386,9 +1387,9 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
 
     /* ---------- footer: progress, failure, or the next step ---------- */
     const describeFailure = (job: AIAnalysisJobState): { title: string; message: string } => {
-        if (job.status === 'interrupted') return { title: '上次生成被中断', message: 'App 在生成途中被关闭，这次的内容没有保存。' };
-        const code = job.failure?.code;
         const kept = job.draftContent ? '已写出的部分留在上方，可以从断处继续生成，也可以整段重新生成。' : '可以重新生成。';
+        if (job.status === 'interrupted') return { title: '上次生成被中断', message: `App 在生成途中被系统关闭。${kept}` };
+        const code = job.failure?.code;
         if (code === 'token_limit') return { title: '回复写到一半被截断', message: `模型达到单次输出上限。${kept}常被截断的话，在模型设置里调高输出上限。` };
         if (code === 'network_error' || code === 'timeout') return { title: '连接中断', message: `和接口的连接断开了。${kept}` };
         if (code === 'invalid_response' || code === 'empty_response') return { title: '回复没有写完', message: `模型提前结束了回复。${kept}` };
@@ -1418,9 +1419,10 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         if (analysisJob && jobFailed) {
             const failure = describeFailure(analysisJob);
             // A cut-off reply can be finished from where it stopped; JSON stages (六亲) cannot.
-            const canContinue = analysisJob.status === 'failed' && Boolean(analysisJob.draftContent.trim())
+            const canContinue = Boolean(analysisJob.draftContent.trim())
                 && !isKinshipResponseKind(analysisJob.expectedCompletion)
-                && ['token_limit', 'network_error', 'timeout', 'invalid_response'].includes(analysisJob.failure?.code ?? '');
+                && (analysisJob.status === 'interrupted'
+                    || ['token_limit', 'network_error', 'timeout', 'invalid_response'].includes(analysisJob.failure?.code ?? ''));
             return <FailureBanner title={failure.title} message={failure.message} styles={pageStyles}
                 detail={analysisJob.failure ? `${analysisJob.failure.code}：${analysisJob.failure.message}` : undefined}
                 actions={canContinue
