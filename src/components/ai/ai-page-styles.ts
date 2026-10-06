@@ -134,7 +134,7 @@ export const makeAIPageStyles = (Colors: any) => StyleSheet.create({
     partyLabel: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.text.secondary },
     partyTrack: { flex: 1, height: 20, flexDirection: 'row', overflow: 'hidden', borderRadius: 999, backgroundColor: Colors.bazi.surfaceMuted },
     partySegment: { height: '100%', alignItems: 'center', justifyContent: 'center', minWidth: 0 },
-    partyText: { fontSize: 11.5, fontWeight: '700', color: Colors.text.inverse },
+    partyText: { fontSize: 11.5, fontWeight: '700', color: Colors.text.heading },
     wxHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.sm, marginBottom: 10 },
     wxTitle: { flexShrink: 1, fontSize: FontSize.xs, color: Colors.text.secondary },
     wxSeg: { flexDirection: 'row', borderWidth: 1, borderColor: Colors.border.normal, borderRadius: 999, padding: 2 },
