@@ -1,3 +1,4 @@
+import { normalizeVerificationMarks } from '../core/ai-verification-marks';
 import { normalizeStoredBaziResult } from '../core/bazi-normalize';
 import { sanitizeAIExecutionMeta } from '../core/ai-execution-meta';
 import { BaziResult } from '../core/bazi-types';
@@ -74,6 +75,9 @@ function validateZiweiRecord(result: unknown, index: number): ZiweiRecordResult 
             aiChatHistory: result.aiChatHistory.filter((item) => isPersistedAIChatMessageStruct(item)).map((item) => ({ ...item, executionMeta: sanitizeAIExecutionMeta(item.executionMeta) })),
         }
         : result;
+    if (isObject(sanitized) && sanitized.aiVerificationMarks !== undefined) {
+        (sanitized as Record<string, unknown>).aiVerificationMarks = normalizeVerificationMarks(sanitized.aiVerificationMarks);
+    }
 
     if (!isZiweiRecordResult(sanitized)) {
         throw new Error(`第${index + 1}条记录格式无效：紫微结果结构非法`);

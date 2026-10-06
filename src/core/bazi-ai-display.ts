@@ -22,6 +22,7 @@ const REFERENCE_PATTERN = new RegExp(
     'relation:[a-z_]+:[A-Za-z0-9_.+]+:[^\\s`，。、；：！？（）()\\[\\]<>]+'
     + '|fortune\\.shensha\\.[甲乙丙丁戊己庚辛壬癸][子丑寅卯辰巳午未申酉戌亥]'
     + '|(?:natal|fortune|reference|context)\\.[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)*'
+    + '|\\bfr\\d+\\b'
     + '|\\b(?:' + Object.keys(RELATION_NAMES).join('|') + ')\\b', 'g',
 );
 
@@ -30,6 +31,8 @@ function describeReference(id: string): string {
     if (Object.hasOwn(RELATION_NAMES, id)) return RELATION_NAMES[id];
     const pillar = id.match(/^(?:natal|n)\.(year|month|day|hour)(?:\.(roots|天干|藏干.+))?$/u);
     if (pillar) return PILLAR_NAMES[pillar[1]] + (pillar[2] === 'roots' ? '透干根气来源' : pillar[2] ?? '');
+    // 岁运关系短编号本身不含内容，漏进正文时只说明它是岁运关系。
+    if (/^fr\d+$/.test(id)) return '岁运关系';
     if (id.startsWith('relation:')) {
         const [, , members, label] = id.split(':');
         return `${members.split('+').map(describeReference).join('与')}${label}`;

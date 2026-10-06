@@ -4,6 +4,8 @@ import type { BaziAIEvidenceRequest } from './bazi-ai-evidence';
 import type { BaziResult } from './bazi-types';
 
 export const BAZI_FORECAST_YEARS = 5;
+/** 前事核验逐年展开的最近年数；更早只保留交运年，避免证据包随年龄线性膨胀。 */
+export const BAZI_VERIFICATION_RECENT_YEARS = 30;
 
 function yearRange(from: number, to: number): number[] {
     return Array.from({ length: Math.max(0, to - from + 1) }, (_, index) => from + index);
@@ -40,7 +42,13 @@ export function resolveBaziEvidenceRequest(
     if (stage === 'foundation' || stage === 'kinship') return { scope: 'natal' };
     const currentYear = asOf.getFullYear();
     if (stage === 'verification') {
-        return { scope: 'historical', years: yearRange(Number(result.solarDate.slice(0, 4)), currentYear), monthYears: [] };
+        const birthYear = Number(result.solarDate.slice(0, 4));
+        const recentFrom = Math.max(birthYear, currentYear - BAZI_VERIFICATION_RECENT_YEARS + 1);
+        const transitionYears = result.daYun
+            .map((yun) => new Date(yun.jiaoYunDateTimeIso).getFullYear())
+            .filter((year) => Number.isFinite(year) && year >= birthYear && year < recentFrom);
+        const years = [...new Set([...transitionYears, ...yearRange(recentFrom, currentYear)])].sort((a, b) => a - b);
+        return { scope: 'historical', years, monthYears: [] };
     }
     if (stage === 'five_year') {
         return { scope: 'forecast', years: yearRange(currentYear, currentYear + BAZI_FORECAST_YEARS), monthYears: [] };

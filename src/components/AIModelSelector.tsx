@@ -6,10 +6,12 @@ import { getActiveModel, getActiveProvider, getSettings, saveSettings, subscribe
 import { useTheme } from '../theme/ThemeContext';
 import AIModelControls, { AIChoice } from './AIModelControls';
 
-export default function AIModelSelector({ visible, running }: { visible: boolean; running?: AIExecutionMeta }) {
+/** alwaysExpanded: rendered inside a sheet, so the list is shown without its own toggle. */
+export default function AIModelSelector({ visible, running, alwaysExpanded = false }: { visible: boolean; running?: AIExecutionMeta; alwaysExpanded?: boolean }) {
     const { Colors } = useTheme();
     const [settings, setSettings] = useState<AISettings | null>(null);
-    const [expanded, setExpanded] = useState(false);
+    const [expandedState, setExpanded] = useState(false);
+    const expanded = alwaysExpanded || expandedState;
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
     useEffect(() => {
@@ -34,13 +36,13 @@ export default function AIModelSelector({ visible, running }: { visible: boolean
         } catch (reason: unknown) { setError(reason instanceof Error ? reason.message : '保存模型选择失败'); }
         finally { setBusy(false); }
     };
-    return <View style={[styles.container, { borderBottomColor: Colors.border.subtle }]}>
-        <Pressable accessibilityRole="button" accessibilityLabel="切换接口、模型与思考等级" accessibilityState={{ expanded }} onPress={() => setExpanded(!expanded)} style={styles.trigger}>
+    return <View style={[styles.container, { borderBottomColor: Colors.border.subtle }, alwaysExpanded && styles.sheetContainer]}>
+        {!alwaysExpanded && <Pressable accessibilityRole="button" accessibilityLabel="切换接口、模型与思考等级" accessibilityState={{ expanded }} onPress={() => setExpanded(!expanded)} style={styles.trigger}>
             <Text style={[styles.label, { color: Colors.accent.gold }]}>{runningLabel ?? selectionLabel}</Text>
             <Text style={{ color: Colors.text.secondary }}>{expanded ? '收起' : '切换'}</Text>
-        </Pressable>
+        </Pressable>}
         {running && expanded && <Text style={{ color: Colors.text.secondary }}>本次：{running.providerName} · {getReasoningLabel(running.reasoning, running.thinkingBudgetTokens)}；下次：{selectionLabel}</Text>}
-        {expanded && <ScrollView style={styles.options} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+        {expanded && <ScrollView style={alwaysExpanded ? styles.sheetOptions : styles.options} nestedScrollEnabled keyboardShouldPersistTaps="handled">
             {!settings?.providers.length && <Text style={{ color: Colors.text.secondary }}>请先在设置的 AI 中枢添加接口与模型。</Text>}
             {settings?.providers.map((entry) => <View key={entry.id} style={styles.group}>
                 <Text style={{ color: Colors.text.secondary }}>{entry.name}{!entry.apiKey.trim() ? ' · 待配置 Key' : ''}</Text>
@@ -66,5 +68,5 @@ export default function AIModelSelector({ visible, running }: { visible: boolean
 const styles = StyleSheet.create({
     container: { paddingHorizontal: 20, paddingBottom: 8, borderBottomWidth: 1, gap: 8 },
     trigger: { flexDirection: 'row', minHeight: 44, alignItems: 'center', gap: 12 }, label: { flex: 1, fontSize: 13, lineHeight: 20 },
-    options: { maxHeight: 290 }, group: { gap: 10, paddingVertical: 12 }, row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    options: { maxHeight: 290 }, sheetContainer: { borderBottomWidth: 0 }, sheetOptions: { maxHeight: 460 }, group: { gap: 10, paddingVertical: 12 }, row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
 });
