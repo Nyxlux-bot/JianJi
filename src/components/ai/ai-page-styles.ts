@@ -2,22 +2,27 @@ import { Platform, StyleSheet } from 'react-native';
 import { FontSize, Spacing } from '../../theme/colors';
 
 /* Colors comes from useTheme(); typed loosely like the rest of the app's style factories. */
+/* The markdown library defaults code to Courier/monospace and em to italic; in
+   Chinese prose both read as a stray font, so they fall back to the body font. */
+const BODY_FONT = Platform.select({ ios: 'System', android: 'sans-serif', default: undefined });
+
 export const makeAIMarkdownStyles = (Colors: any) => ({
-    body: { fontSize: FontSize.md, color: Colors.text.primary, lineHeight: 25 },
-    heading1: { fontSize: FontSize.md, color: Colors.text.heading, marginTop: Spacing.md, marginBottom: Spacing.xs, fontWeight: '700' as const },
-    heading2: { fontSize: FontSize.md, color: Colors.text.heading, marginTop: Spacing.md, marginBottom: Spacing.xs, fontWeight: '700' as const },
-    heading3: { fontSize: FontSize.md, color: Colors.text.heading, marginTop: Spacing.sm, marginBottom: 2, fontWeight: '600' as const },
-    heading4: { fontSize: FontSize.md, color: Colors.text.heading, marginTop: Spacing.sm, marginBottom: 2, fontWeight: '600' as const },
+    body: { fontSize: FontSize.md, color: Colors.text.primary, lineHeight: 26 },
+    heading1: { fontSize: 17, lineHeight: 24, color: Colors.text.heading, marginTop: Spacing.lg, marginBottom: Spacing.sm, fontWeight: '700' as const },
+    heading2: { fontSize: 17, lineHeight: 24, color: Colors.text.heading, marginTop: Spacing.lg, marginBottom: Spacing.sm, fontWeight: '700' as const },
+    heading3: { fontSize: 16, lineHeight: 23, color: Colors.text.heading, marginTop: Spacing.md, marginBottom: Spacing.xs, fontWeight: '600' as const },
+    heading4: { fontSize: FontSize.md, lineHeight: 22, color: Colors.text.heading, marginTop: Spacing.sm, marginBottom: 2, fontWeight: '600' as const },
     strong: { fontWeight: '600' as const, color: Colors.text.heading },
-    em: { fontStyle: 'italic' as const, color: Colors.text.secondary },
-    blockquote: { backgroundColor: 'transparent', borderLeftColor: Colors.border.normal, borderLeftWidth: 3, paddingLeft: Spacing.md, marginVertical: Spacing.xs },
-    paragraph: { marginTop: 0, marginBottom: Spacing.sm },
-    bullet_list: { marginBottom: Spacing.sm },
-    ordered_list: { marginBottom: Spacing.sm },
-    hr: { backgroundColor: Colors.border.subtle, marginVertical: Spacing.sm },
-    code_inline: { color: Colors.text.primary, backgroundColor: 'transparent', borderWidth: 0, padding: 0 },
-    code_block: { color: Colors.text.primary, backgroundColor: Colors.bg.elevated, borderColor: Colors.border.normal },
-    fence: { color: Colors.text.primary, backgroundColor: Colors.bg.elevated, borderColor: Colors.border.normal },
+    em: { fontStyle: 'normal' as const, color: Colors.text.heading },
+    blockquote: { backgroundColor: 'transparent', borderLeftColor: Colors.border.normal, borderLeftWidth: 3, marginLeft: 0, paddingLeft: Spacing.md, marginVertical: Spacing.xs },
+    paragraph: { marginTop: 0, marginBottom: Spacing.md },
+    bullet_list: { marginBottom: Spacing.md },
+    ordered_list: { marginBottom: Spacing.md },
+    list_item: { marginBottom: Spacing.xs },
+    hr: { backgroundColor: Colors.border.subtle, marginVertical: Spacing.md },
+    code_inline: { fontFamily: BODY_FONT, color: Colors.text.heading, backgroundColor: 'transparent', borderWidth: 0, padding: 0 },
+    code_block: { fontFamily: BODY_FONT, fontSize: FontSize.sm, color: Colors.text.primary, backgroundColor: Colors.bg.elevated, borderColor: Colors.border.normal },
+    fence: { fontFamily: BODY_FONT, fontSize: FontSize.sm, color: Colors.text.primary, backgroundColor: Colors.bg.elevated, borderColor: Colors.border.normal },
 });
 
 export const makeAIPageStyles = (Colors: any) => StyleSheet.create({

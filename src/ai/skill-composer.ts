@@ -39,7 +39,10 @@ export function composeSkillInstructions(engine: AISkillEngine, stage: AISkillSt
     }
     const skill = AI_SKILLS[engine];
     const parts = [COMMON_SKILL.instructions, skill.instructions];
-    if (stage !== 'kinship') parts.push('分析正文直接从正式 Markdown 标题开始，不输出前置自言自语。');
+    if (stage !== 'kinship') {
+        parts.push('分析正文直接从正式 Markdown 标题开始，不输出前置自言自语。');
+        parts.push('正文要分段：一段只讲一层意思，约 2-4 句、不超过 150 字，段与段之间空一行；一节内容较多时拆成几段，不要整节写成一大段。不用斜体和行内代码。');
+    }
     if (skill.system) parts.push(render(skill.system, { ...variables, stage, workflowVersion }));
     if (engine === 'bazi') {
         const methods = stage === 'kinship'
