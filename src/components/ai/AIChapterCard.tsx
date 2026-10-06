@@ -2,6 +2,7 @@ import React, { memo, useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 import { parseChapter, type ChapterSegment, type EventSegment, type YearSegment } from '../../ai/layout/parse-chapter';
+import { reflowLongParagraphs } from '../../ai/layout/reflow';
 import { AI_VERIFICATION_MARK_LABELS, type AIVerificationMark, type AIVerificationMarkEntry } from '../../core/ai-verification-marks';
 import type { AIMarkdownStyles, AIPageStyles } from './ai-page-styles';
 import type { Chapter, ChapterItem, ChapterMessage, ChapterStatus } from './derive-chapters';
@@ -39,7 +40,8 @@ function Seal({ status, styles, Colors }: { status: ChapterStatus; styles: AIPag
 }
 
 function Md({ children, markdownStyles }: { children: string; markdownStyles: AIMarkdownStyles }) {
-    return children.trim() ? <Markdown style={markdownStyles}>{children}</Markdown> : null;
+    const text = useMemo(() => reflowLongParagraphs(children), [children]);
+    return text.trim() ? <Markdown style={markdownStyles}>{text}</Markdown> : null;
 }
 
 const MARK_ORDER: AIVerificationMark[] = ['yes', 'no', 'unsure'];
