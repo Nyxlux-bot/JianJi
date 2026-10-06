@@ -2,28 +2,19 @@ import type { AIChatMessage } from '../../../services/ai';
 import type { BaziCompatibilityResult } from './types';
 import { formatBaziMatchForAI } from './formatter';
 import { composeSkillInstructions, renderSkillRequest } from '../../../ai/skill-composer';
+import { renderCompatFormat } from '../../../ai/output-contracts';
 
 export function buildBaziMatchAIMessages(result: BaziCompatibilityResult): AIChatMessage[] {
     return [
         { role: 'system', content: composeSkillInstructions('baziCompatibility', 'initial') },
         {
             role: 'user',
-            content: renderSkillRequest('baziCompatibility', 'initial', { evidence: formatBaziMatchForAI(result) }),
+            content: renderSkillRequest('baziCompatibility', 'initial', { outputFormat: renderCompatFormat(), evidence: formatBaziMatchForAI(result) }),
         },
     ];
 }
 
+/** Completeness only: the layout reads sections when present and shows the rest as text. */
 export function validateBaziMatchAIContent(content: string): string[] {
-    const requiredSections = [
-        '合婚总断',
-        '最合之处',
-        '最大冲突',
-        '能不能成',
-        '婚后相处',
-        '婚期应期',
-        '一句话取法',
-    ];
-    return requiredSections
-        .filter((section) => !content.includes(section))
-        .map((section) => `缺少${section}`);
+    return content.trim().length >= 200 ? [] : ['合盘详批正文过短，可能没有写完'];
 }

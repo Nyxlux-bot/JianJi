@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import * as Clipboard from 'expo-clipboard';
 import {
     Modal,
     ScrollView,
@@ -8,7 +7,6 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import Markdown from 'react-native-markdown-display';
 import Svg, { Circle, Line, Polygon, Text as SvgText } from 'react-native-svg';
 import { router, useLocalSearchParams } from 'expo-router';
 import StatusBarDecor from '../../../../src/components/StatusBarDecor';
@@ -17,22 +15,12 @@ import ConfirmModal from '../../../../src/components/ConfirmModal';
 import OverflowMenu, { OverflowMenuItem } from '../../../../src/components/OverflowMenu';
 import { CustomAlert } from '../../../../src/components/CustomAlertProvider';
 import { BaziCompatibilityResult, BaziMatchDimensionScore } from '../../../../src/features/bazi/match/types';
-import { buildBaziMatchAIMessages } from '../../../../src/features/bazi/match/ai';
 import { getDisplayMarriageYears } from '../../../../src/features/bazi/match/formatter';
 import { getBaziMatchClassicRefs, getBaziMatchDimensionReferenceFallbackIds } from '../../../../src/features/bazi/match/classic-references';
 import type { BaziMatchClassicReferenceId } from '../../../../src/features/bazi/match/classic-references';
 import { deleteRecord, getRecord, toggleFavorite } from '../../../../src/db/database';
-import {
-    AIAnalysisJobState,
-    cancelAIAnalysisJob,
-    clearAIAnalysisJob,
-    getAIAnalysisJob,
-    isActiveAIAnalysisJob,
-    isCancellableAIAnalysisJob,
-    recoverInterruptedAIAnalysisJob,
-    startAIAnalysisJob,
-    subscribeAIAnalysisJob,
-} from '../../../../src/services/ai-analysis-jobs';
+import { clearAIAnalysisJob } from '../../../../src/services/ai-analysis-jobs';
+import AIChatModal from '../../../../src/components/AIChatModal';
 import { isAIConfigured } from '../../../../src/services/settings';
 import { BorderRadius, FontSize, Spacing } from '../../../../src/theme/colors';
 import { useTheme } from '../../../../src/theme/ThemeContext';
@@ -91,30 +79,21 @@ function pointsToString(points: Array<{ x: number; y: number }>): string {
     return points.map((point) => `${point.x},${point.y}`).join(' ');
 }
 
-function stripEmoji(content: string): string {
-    return content.replace(/[\p{Extended_Pictographic}\uFE0F]/gu, '');
-}
 
 export default function BaziMatchResultPage() {
     const { id } = useLocalSearchParams<{ id: string }>();
     const { Colors } = useTheme();
     const styles = useMemo(() => makeStyles(Colors), [Colors]);
-    const markdownStyles = useMemo(() => makeMarkdownStyles(Colors), [Colors]);
     const mountedRef = useRef(true);
-    const syncedJobIdRef = useRef<string | null>(null);
-    const reportedFailureJobIdRef = useRef<string | null>(null);
     const [result, setResult] = useState<BaziCompatibilityResult | null>(null);
     const [screenState, setScreenState] = useState<'loading' | 'ready' | 'missing'>('loading');
     const [aiConfigured, setAiConfigured] = useState(false);
-    const [aiLoading, setAiLoading] = useState(false);
-    const [aiDraft, setAiDraft] = useState('');
-    const [aiSheetVisible, setAiSheetVisible] = useState(false);
+    const [aiVisible, setAiVisible] = useState(false);
     const [dimensionSheetVisible, setDimensionSheetVisible] = useState(false);
     const [referenceIds, setReferenceIds] = useState<BaziMatchClassicReferenceId[]>([]);
     const [menuVisible, setMenuVisible] = useState(false);
     const [deleteVisible, setDeleteVisible] = useState(false);
     const [isFavorite, setIsFavorite] = useState(false);
-    const [analysisJob, setAnalysisJob] = useState<AIAnalysisJobState | null>(null);
 
     const displayDimensions = useMemo(() => normalizeDimensions(result?.dimensions || []), [result]);
     const displayMarriageYears = useMemo(() => (result ? getDisplayMarriageYears(result) : []), [result]);
@@ -145,7 +124,6 @@ export default function BaziMatchResultPage() {
             return;
         }
         setResult(detail.result);
-        setAiDraft(stripEmoji(detail.result.aiAnalysis || ''));
         setIsFavorite(detail.isFavorite);
         setScreenState('ready');
     }, [id]);
@@ -158,48 +136,9 @@ export default function BaziMatchResultPage() {
         };
     }, [load]);
 
-    useEffect(() => {
-        if (!id) {
-            return undefined;
-        }
-        void recoverInterruptedAIAnalysisJob('baziCompatibility', id);
-        return subscribeAIAnalysisJob('baziCompatibility', id, setAnalysisJob);
-    }, [id]);
-
-    useEffect(() => {
-        if (!analysisJob) {
-            return;
-        }
-        setAiLoading(isActiveAIAnalysisJob(analysisJob));
-        if (analysisJob.status === 'streaming' || analysisJob.status === 'postprocessing') {
-            setAiDraft(analysisJob.draftContent || '正在起盘详批...');
-            return;
-        }
-        if (analysisJob.status === 'completed' && analysisJob.result && syncedJobIdRef.current !== analysisJob.jobId) {
-            const nextResult = analysisJob.result as BaziCompatibilityResult;
-            syncedJobIdRef.current = analysisJob.jobId;
-            setResult(nextResult);
-            setAiDraft(nextResult.aiAnalysis || '');
-            return;
-        }
-        if (analysisJob.status === 'failed' || analysisJob.status === 'cancelled' || analysisJob.status === 'interrupted') {
-            setAiDraft(result?.aiAnalysis || '');
-            if (analysisJob.status !== 'cancelled'
-                && aiSheetVisible
-                && analysisJob.failure
-                && reportedFailureJobIdRef.current !== analysisJob.jobId) {
-                reportedFailureJobIdRef.current = analysisJob.jobId;
-                CustomAlert.alert('详批生成失败', analysisJob.failure.message);
-            }
-        }
-    }, [aiSheetVisible, analysisJob, result?.aiAnalysis]);
-
-    const handleAI = async (forceRegenerate = false) => {
+    // The AI page owns generation, streaming and failure display for 合盘 too.
+    const handleAI = () => {
         if (!result) {
-            return;
-        }
-        if (isActiveAIAnalysisJob(getAIAnalysisJob('baziCompatibility', result.id))) {
-            setAiSheetVisible(true);
             return;
         }
         if (!aiConfigured) {
@@ -209,26 +148,7 @@ export default function BaziMatchResultPage() {
             ]);
             return;
         }
-        const shouldGenerate = forceRegenerate || !result.aiAnalysis;
-        if (!shouldGenerate) {
-            setAiDraft(stripEmoji(result.aiAnalysis || ''));
-            setAiSheetVisible(true);
-            return;
-        }
-        setAiSheetVisible(true);
-        setAiLoading(true);
-        setAiDraft('正在起盘详批...');
-        const messages = buildBaziMatchAIMessages(result);
-        const job = startAIAnalysisJob({
-            engineType: 'baziCompatibility',
-            result,
-            baseMessages: result.aiChatHistory ?? [],
-            requestMessages: [
-                { role: 'user', content: '请进行八字合盘详批', hidden: true, requestContent: messages[1]?.content },
-            ],
-            phase: 'initial',
-        });
-        setAnalysisJob(job);
+        setAiVisible(true);
     };
 
     const handleToggleFavorite = async () => {
@@ -237,27 +157,12 @@ export default function BaziMatchResultPage() {
         setIsFavorite((prev) => !prev);
     };
 
-    const handleCopyAnalysis = async () => {
-        const content = stripEmoji(aiDraft || result?.aiAnalysis || '').trim();
-        if (!content) {
-            CustomAlert.alert('暂无可复制内容', '当前还没有合盘详批内容。');
-            return;
-        }
-        await Clipboard.setStringAsync(content);
-        CustomAlert.alert('复制成功', '合盘详批已复制。');
-    };
-
     const handleDelete = async () => {
         if (!id) return;
         setDeleteVisible(false);
         await clearAIAnalysisJob('baziCompatibility', id);
         await deleteRecord(id);
         router.back();
-    };
-
-    const handleCancelAI = () => {
-        if (!id) return;
-        cancelAIAnalysisJob('baziCompatibility', id);
     };
 
     const menuItems: OverflowMenuItem[] = [
@@ -294,7 +199,7 @@ export default function BaziMatchResultPage() {
                 <View style={styles.headerSpacer} />
 
                 <TouchableOpacity
-                    onPress={() => void handleAI()}
+                    onPress={handleAI}
                     style={[styles.aiCompactBtn, !aiConfigured && styles.aiCompactBtnDisabled]}
                     activeOpacity={0.82}
                     disabled={!aiConfigured}
@@ -391,17 +296,11 @@ export default function BaziMatchResultPage() {
                 styles={styles}
             />
 
-            <AnalysisSheet
-                visible={aiSheetVisible}
-                content={stripEmoji(aiDraft || result.aiAnalysis || '')}
-                loading={aiLoading}
-                cancellable={isCancellableAIAnalysisJob(analysisJob)}
-                onRegenerate={() => void handleAI(true)}
-                onCancel={handleCancelAI}
-                onCopy={() => void handleCopyAnalysis()}
-                onClose={() => setAiSheetVisible(false)}
-                styles={styles}
-                markdownStyles={markdownStyles}
+            <AIChatModal
+                visible={aiVisible}
+                onClose={() => setAiVisible(false)}
+                result={result}
+                onUpdateResult={(next) => setResult(next as BaziCompatibilityResult)}
             />
 
             <ConfirmModal
@@ -559,112 +458,6 @@ const ClassicReferenceSheet: React.FC<{
         </Modal>
     );
 };
-
-const AnalysisSheet: React.FC<{
-    visible: boolean;
-    content: string;
-    loading: boolean;
-    cancellable: boolean;
-    onRegenerate: () => void;
-    onCancel: () => void;
-    onCopy: () => void;
-    onClose: () => void;
-    styles: ReturnType<typeof makeStyles>;
-    markdownStyles: ReturnType<typeof makeMarkdownStyles>;
-}> = ({ visible, content, loading, cancellable, onRegenerate, onCancel, onCopy, onClose, styles, markdownStyles }) => (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-        <View style={styles.sheetRoot}>
-            <TouchableOpacity style={styles.sheetScrim} activeOpacity={1} onPress={onClose} />
-            <View style={styles.sheetPanel}>
-                <View style={styles.sheetHandle} />
-                <View style={styles.sheetHeader}>
-                    <View>
-                        <Text style={styles.sheetTitle}>合盘详批</Text>
-                        <Text style={styles.sheetSubtitle}>{loading ? '正在起盘详批' : '命理依据仅作参考'}</Text>
-                    </View>
-                    <View style={styles.sheetActions}>
-                        <TouchableOpacity onPress={onCopy} disabled={!content.trim()} style={[styles.sheetCloseBtn, !content.trim() && styles.aiHeaderBtnDisabled]}>
-                            <Text style={styles.sheetCloseText}>复制</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            onPress={loading ? onCancel : onRegenerate}
-                            disabled={loading && !cancellable}
-                            style={[styles.sheetCloseBtn, loading && !cancellable && styles.aiHeaderBtnDisabled]}
-                        >
-                            <Text style={styles.sheetCloseText}>{loading ? (cancellable ? '取消' : '保存中') : '重批'}</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={onClose} style={styles.sheetCloseBtn}>
-                            <Text style={styles.sheetCloseText}>关闭</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-                <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetScrollBody} showsVerticalScrollIndicator={false}>
-                    <View style={styles.aiMarkdownCard}>
-                        {content ? (
-                            <Markdown style={markdownStyles}>{content}</Markdown>
-                        ) : (
-                            <Text style={styles.noticeText}>点击合盘详批后生成内容。</Text>
-                        )}
-                    </View>
-                </ScrollView>
-            </View>
-        </View>
-    </Modal>
-);
-
-const makeMarkdownStyles = (Colors: any) => ({
-    body: {
-        color: Colors.text.primary,
-        fontSize: FontSize.md,
-        lineHeight: 25,
-    },
-    heading1: {
-        color: Colors.accent.gold,
-        fontSize: FontSize.xl,
-        lineHeight: 30,
-        fontWeight: '700' as any,
-        marginTop: Spacing.md,
-        marginBottom: Spacing.sm,
-    },
-    heading2: {
-        color: Colors.accent.gold,
-        fontSize: FontSize.lg,
-        lineHeight: 26,
-        fontWeight: '700' as any,
-        marginTop: Spacing.md,
-        marginBottom: Spacing.sm,
-    },
-    heading3: {
-        color: Colors.text.heading,
-        fontSize: FontSize.lg,
-        lineHeight: 26,
-        fontWeight: '700' as any,
-        marginTop: Spacing.lg,
-        marginBottom: Spacing.sm,
-    },
-    paragraph: {
-        marginTop: 0,
-        marginBottom: Spacing.md,
-    },
-    strong: {
-        color: Colors.accent.goldLight,
-        fontWeight: '700' as any,
-    },
-    bullet_list: {
-        marginBottom: Spacing.md,
-    },
-    ordered_list: {
-        marginBottom: Spacing.md,
-    },
-    list_item: {
-        marginBottom: Spacing.xs,
-    },
-    hr: {
-        backgroundColor: Colors.border.subtle,
-        height: 1,
-        marginVertical: Spacing.md,
-    },
-});
 
 const makeStyles = (Colors: any) => StyleSheet.create({
     container: { flex: 1, backgroundColor: Colors.bg.primary },

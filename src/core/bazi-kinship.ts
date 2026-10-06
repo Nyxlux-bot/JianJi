@@ -177,6 +177,32 @@ function readReview(value: unknown, ids: Set<string>, actual?: KinshipActualFact
     return { kind: 'kinship_review', items, limitations: string(payload.limitations, '复核边界说明') };
 }
 
+/**
+ * 六亲核验状态的身份键：只取会影响业务判断的字段，不受对象键顺序和规范化方式影响。
+ * 用于判断保存期间记录是否被别处改动，不要用 JSON.stringify 直接比较整个对象。
+ */
+export function getKinshipStateKey(state?: BaziKinshipVerification): string {
+    if (!state) return 'none';
+    return [
+        state.birthSignature,
+        state.attempts.map((attempt) => `${attempt.id}:${attempt.feedback[KINSHIP_FEEDBACK_ID] ?? ''}`).join(','),
+        state.actualFeedback ? (Object.keys(KINSHIP_ACTUAL_FIELDS) as KinshipActualField[]).map((key) => state.actualFeedback?.[key] ?? '').join('\u0001') : '',
+        state.review?.id ?? '',
+        state.confirmation ? `${state.confirmation.mode}:${state.confirmation.responseId}` : '',
+    ].join('|');
+}
+
+/** 去掉模型常见的代码围栏或前后说明，只取第一个完整 JSON 对象。 */
+function extractJsonObject(content: string): string {
+    const trimmed = content.trim();
+    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    const body = fenced ? fenced[1].trim() : trimmed;
+    if (body.startsWith('{')) return body;
+    const start = body.indexOf('{');
+    const end = body.lastIndexOf('}');
+    return start >= 0 && end > start ? body.slice(start, end + 1) : body;
+}
+
 export function isKinshipResponseKind(kind: unknown): kind is KinshipResponseKind {
     return kind === 'kinship' || kind === 'kinship_review';
 }
@@ -184,7 +210,7 @@ export function isKinshipResponseKind(kind: unknown): kind is KinshipResponseKin
 export function parseKinshipResponse(content: string, kind: KinshipResponseKind, pack: BaziAIEvidencePack, actual?: KinshipActualFacts): KinshipResponse {
     // 只在 JSON 系统边界捕获解析错误，不从残缺正文中猜测成功结果。
     let value: unknown;
-    try { value = JSON.parse(content.trim()); } catch { throw new Error('六亲回复不是完整 JSON，请手动重试；本次不计入推断次数'); }
+    try { value = JSON.parse(extractJsonObject(content)); } catch { throw new Error('六亲回复不是完整 JSON，请手动重试；本次不计入推断次数'); }
     const ids = new Set(pack.facts.filter((fact) => kind === 'kinship' ? fact.scope === 'natal' : fact.scope !== 'reference').map((fact) => fact.id));
     return kind === 'kinship' ? readPrediction(value, ids) : readReview(value, ids, actual);
 }

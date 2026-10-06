@@ -7,7 +7,7 @@ import type { BaziAIEvidencePack } from '../core/bazi-ai-evidence';
 import { getBaziBirthSignature } from '../core/bazi-ai-identity';
 import { getBaziWorkflowVersion, isBaziWorkflowStale } from '../core/bazi-ai-workflow';
 import {
-    appendKinshipResponse, formatKinshipResponse,
+    appendKinshipResponse, formatKinshipResponse, getKinshipStateKey,
     getCurrentKinshipVerification, isKinshipResponseKind,
     MAX_KINSHIP_ATTEMPTS, parseKinshipResponse, type KinshipResponse,
 } from '../core/bazi-kinship';
@@ -17,6 +17,7 @@ import { PanResult, YaoDetail } from '../core/liuyao-calc';
 import { getRecord, updateExistingRecordResult } from '../db/database';
 import { DivinationEngine, DivinationResult } from '../db/record-types';
 import { buildBaziMatchAIMessages, validateBaziMatchAIContent } from '../features/bazi/match/ai';
+import { getChapterLayoutStats, parseChapter, type ChapterLayoutKind } from '../ai/layout/parse-chapter';
 import { BaziCompatibilityResult } from '../features/bazi/match/types';
 import { ZiweiFormatterContext } from '../features/ziwei/ai-context';
 import {
@@ -64,7 +65,10 @@ export type AIAnalysisJobStatus =
 
 export interface AIAnalysisValidationResult {
     success: boolean;
+    /** Why the reply counts as unfinished. Only completeness fails a job. */
     issues: string[];
+    /** Content observations for diagnostics; never fail a job. */
+    notes?: string[];
 }
 
 export interface AIAnalysisJobRequest {
@@ -76,6 +80,8 @@ export interface AIAnalysisJobRequest {
     expectedCompletion?: AIWorkflowResponseKind;
     nextWorkflowStage?: BaziAIConversationStage;
     formatterContext?: BaziFormatterContext | ZiweiFormatterContext;
+    /** Text already written before a cut-off; the model is asked to continue from its end. */
+    continuation?: { partial: string };
 }
 
 export interface AIAnalysisJobState {
@@ -305,27 +311,47 @@ function arePersistedMessageListsEqual(left: PersistedAIChatMessage[], right: Pe
         && left.every((message, index) => arePersistedMessagesEqual(message, right[index]));
 }
 
+const CONTINUATION_PROMPT = '上一条回复因为长度或网络原因中断了。请从中断处直接接着写：不要重复已经写过的内容，不要重新开头，也不要重写已经出现过的标题；全部写完后，如果原要求有完成标记，照常在最后单独一行输出。';
+
+/** Join a cut-off reply with its continuation, dropping text the model repeated at the seam. */
+export function mergeContinuation(partial: string, continuation: string): string {
+    const head = partial.replace(/\s+$/u, '');
+    const tail = continuation.replace(/^\s+/u, '');
+    if (!tail) return partial;
+    const maxOverlap = Math.min(head.length, tail.length, 800);
+    for (let size = maxOverlap; size >= 6; size -= 1) {
+        if (head.endsWith(tail.slice(0, size))) return head + tail.slice(size);
+    }
+    // The model often restarts the line it was cut in: keep its complete version.
+    const lineStart = head.lastIndexOf('\n') + 1;
+    const lastLine = head.slice(lineStart);
+    if (lastLine.trim().length >= 4 && tail.startsWith(lastLine.slice(0, Math.min(lastLine.length, 12)))) {
+        return head.slice(0, lineStart) + tail;
+    }
+    const seam = partial.slice(head.length) || continuation.slice(0, continuation.length - tail.length);
+    return head + seam + tail;
+}
+
 function validateContent(
     request: AIAnalysisJobRequest,
     rawContent: string,
     cleanContent: string,
-    asOf: Date,
 ): AIAnalysisValidationResult {
     if (!cleanContent.trim()) return { success: false, issues: ['未识别到完整分析正文，请重试本次分析'] };
     if (isKinshipResponseKind(request.expectedCompletion)) {
         return { success: false, issues: ['六亲阶段须使用结构化盘据校验'] };
     }
     if (request.engineType === 'bazi' && request.expectedCompletion) {
-        const validation = validateBaziWorkflowResponse(request.expectedCompletion, rawContent, asOf);
+        const validation = validateBaziWorkflowResponse(request.expectedCompletion, rawContent);
         return { success: validation.success, issues: validation.issues };
     }
     if (request.engineType === 'ziwei' && request.expectedCompletion) {
-        const validation = validateZiweiWorkflowResponse(request.expectedCompletion, rawContent, asOf);
+        const validation = validateZiweiWorkflowResponse(request.expectedCompletion, rawContent);
         return { success: validation.success, issues: validation.issues };
     }
     if (request.engineType === 'liuyao') {
         const validation = validateLiuyaoAIContent(request.result as PanResult, rawContent, request.phase);
-        return { success: validation.success, issues: validation.issues };
+        return { success: validation.success, issues: validation.issues, notes: validation.notes };
     }
     if (request.engineType === 'baziCompatibility') {
         const issues = validateBaziMatchAIContent(cleanContent);
@@ -408,15 +434,13 @@ export function validateLiuyaoAIContent(
         : [];
 
     if (phase === 'followup') {
-        const issues = [
-            ...(normalized.length < 80 ? ['正文过短'] : []),
-            ...(hitCount < 2 ? [`盘面锚点不足（${hitCount}/2）`] : []),
-        ];
+        const notes = hitCount < 2 ? [`盘面锚点不足（${hitCount}/2）`] : [];
         return {
-            success: issues.length === 0,
-            issues,
+            success: true,
+            issues: [],
+            notes,
             missingSections: [],
-            missingEvidenceAnchors: issues.filter((item) => item.includes('盘面锚点')),
+            missingEvidenceAnchors: notes,
         };
     }
 
@@ -439,16 +463,49 @@ export function validateLiuyaoAIContent(
     if (hitCount < minAnchorHitCount) {
         missingEvidenceAnchors.push(`盘面锚点不足（${hitCount}/${minAnchorHitCount}）`);
     }
-    const issues = [
+    const notes = [
         ...missingSections.map((item) => `缺少${item}`),
         ...missingEvidenceAnchors.map((item) => `缺少${item}引用`),
     ];
     return {
-        success: issues.length === 0,
-        issues,
+        success: true,
+        issues: [],
+        notes,
         missingSections,
         missingEvidenceAnchors: Array.from(new Set(missingEvidenceAnchors)),
     };
+}
+
+function getLayoutKind(request: AIAnalysisJobRequest): ChapterLayoutKind | null {
+    if (request.engineType === 'baziCompatibility') return 'compat';
+    if (request.engineType !== 'bazi' && request.engineType !== 'ziwei') return null;
+    return request.expectedCompletion === 'verification' || request.expectedCompletion === 'five_year'
+        ? request.expectedCompletion : null;
+}
+
+/** Per model × stage hit rate of the layout parser, so prompt drift shows up in logs. */
+function logLayoutDiagnostics(
+    request: AIAnalysisJobRequest,
+    content: string,
+    executionMeta: AIExecutionMeta,
+    validation: AIAnalysisValidationResult,
+): void {
+    const kind = getLayoutKind(request);
+    if (!kind && !validation.notes?.length) return;
+    const stats = kind ? getChapterLayoutStats(parseChapter(kind, content)) : undefined;
+    void recordDiagnosticLog({
+        level: 'info',
+        source: 'AI:layout',
+        message: kind ?? request.engineType,
+        context: {
+            engineType: request.engineType,
+            stage: request.expectedCompletion ?? request.phase,
+            model: executionMeta.model,
+            contentChars: content.length,
+            ...stats,
+            ...(validation.notes?.length ? { notes: validation.notes } : {}),
+        },
+    });
 }
 
 function assertBaziRequestStage(request: AIAnalysisJobRequest, result: BaziResult): void {
@@ -636,7 +693,7 @@ function buildUpdatedResult(
             || JSON.stringify(current.schoolOptionsResolved) !== JSON.stringify(requestBazi.schoolOptionsResolved)) {
             return null;
         }
-        if (JSON.stringify(current.aiKinshipVerification) !== JSON.stringify(requestBazi.aiKinshipVerification)) return null;
+        if (getKinshipStateKey(current.aiKinshipVerification) !== getKinshipStateKey(requestBazi.aiKinshipVerification)) return null;
         const requestSnapshot = requestResult as BaziResult;
         return {
             ...current,
@@ -824,7 +881,7 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
         baseMessages: request.baseMessages,
         requestMessages: request.requestMessages,
         messages: request.requestMessages,
-        draftContent: '',
+        draftContent: request.continuation?.partial ?? '',
         validatedContent: '',
         startedAt: now,
         updatedAt: now,
@@ -848,6 +905,12 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
             const executionMeta: AIExecutionMeta = { ...runtime.meta, skills: built.debugMeta?.skills ?? [] };
             setJobState(key, { debugMeta: built.debugMeta, executionMeta });
 
+            const partial = request.continuation?.partial ?? '';
+            const requestMessages = partial
+                ? [...built.messages, { role: 'assistant' as const, content: partial }, { role: 'user' as const, content: CONTINUATION_PROMPT }]
+                : built.messages;
+            // Everything below sees the whole reply: what was written before plus this continuation.
+            const withPartial = (text: string) => (partial ? mergeContinuation(partial, text) : text);
             let rawContent = '';
             const requestOptions = {
                 runtime,
@@ -863,7 +926,7 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
             };
 
             const response = await analyzeWithAIChatStream(
-                built.messages,
+                requestMessages,
                 (chunk) => {
                     if (!isCurrentJob(key, job.jobId) || controller.signal.aborted) {
                         return;
@@ -871,7 +934,7 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                     rawContent += chunk;
                     setJobState(key, {
                         status: 'streaming',
-                        draftContent: cleanStreamContent(request.engineType, rawContent, request.expectedCompletion),
+                        draftContent: withPartial(cleanStreamContent(request.engineType, rawContent, request.expectedCompletion)),
                     }, { emit: 'deferred', persist: false });
                 },
                 controller.signal,
@@ -888,9 +951,11 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                     response.code ?? 'network_error',
                     response.error || 'AI 请求失败，请稍后重试。',
                     undefined,
+                    partial || undefined,
                 );
                 return;
             }
+            const fullContent = withPartial(partial ? stripThinkingBlocks(response.content) : response.content);
 
             if (!response.success) {
                 failJob(
@@ -899,12 +964,12 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                     response.code ?? 'network_error',
                     response.error || 'AI 请求失败，请稍后重试。',
                     undefined,
-                    cleanStreamContent(request.engineType, response.content, request.expectedCompletion),
+                    cleanStreamContent(request.engineType, fullContent, request.expectedCompletion),
                 );
                 return;
             }
 
-            let cleanContent = cleanFinalContent(request.engineType, response.content, request.expectedCompletion);
+            let cleanContent = cleanFinalContent(request.engineType, fullContent, request.expectedCompletion);
             setJobState(key, { status: 'validating' });
             let kinship: { response: KinshipResponse; pack: BaziAIEvidencePack; id: string } | undefined;
             let validation: AIAnalysisValidationResult;
@@ -921,7 +986,7 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                     validation = { success: false, issues: [error instanceof Error ? error.message : String(error)] };
                 }
             } else {
-                validation = validateContent(request, response.content, cleanContent, new Date(now));
+                validation = validateContent(request, fullContent, cleanContent);
             }
             if (!validation.success) {
                 void recordDiagnosticLog({
@@ -939,12 +1004,14 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                     key,
                     job.jobId,
                     'invalid_response',
-                    `生成完成但未通过结构校验：${validation.issues.join('；')}`,
+                    `回复可能没有写完：${validation.issues.join('；')}`,
                     validation,
                     cleanContent,
                 );
                 return;
             }
+
+            logLayoutDiagnostics(request, cleanContent, executionMeta, validation);
 
             const finalMessages: PersistedAIChatMessage[] = [
                 ...request.requestMessages,
@@ -991,7 +1058,7 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                 ),
             );
             if (!updatedResult) {
-                failJob(key, job.jobId, 'aborted', '记录已删除或排盘内容已变化，本次分析未写入。');
+                failJob(key, job.jobId, 'record_changed', '生成期间这份记录被修改或删除，本次结果没有写入。正文仍在上方，可以重新生成。', undefined, cleanContent);
                 return;
             }
             if (!isCurrentJob(key, job.jobId) || controller.signal.aborted) {

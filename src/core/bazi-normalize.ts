@@ -1,3 +1,4 @@
+import { normalizeVerificationMarks } from './ai-verification-marks';
 import {
     BaziBaseInfo,
     BaziChildLimit,
@@ -478,6 +479,7 @@ export function normalizeBaziResultV2(result: BaziResult): BaziResult {
         aiWorkflowBirthSignature: typeof normalized.aiWorkflowBirthSignature === 'string' ? normalized.aiWorkflowBirthSignature : undefined,
         aiKinshipVerification: kinship,
         aiVerificationSummary: normalized.aiVerificationSummary,
+        aiVerificationMarks: normalizeVerificationMarks(normalized.aiVerificationMarks),
         aiContextSnapshot: normalizeBaziFormatterContext(normalized.aiContextSnapshot),
         subject,
         analysisProfile,

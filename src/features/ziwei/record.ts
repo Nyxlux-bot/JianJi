@@ -4,6 +4,7 @@ import type {
     ZiweiAIConversationDigest,
 } from '../../core/ai-meta';
 import { formatLocalDateTime } from '../../core/bazi-local-time';
+import type { AIVerificationMarks } from '../../core/ai-verification-marks';
 import {
     buildZiweiPromptSeed,
     ZIWEI_AI_CONTEXT_VERSION,
@@ -72,6 +73,7 @@ export interface ZiweiRecordResult {
     aiConversationDigest?: ZiweiAIConversationDigest;
     aiConversationStage?: AIConversationStage;
     aiVerificationSummary?: string;
+    aiVerificationMarks?: AIVerificationMarks;
     aiConfigSignature?: string;
     aiInvalidatedAt?: string;
     aiContextSnapshot?: ZiweiAIContextSnapshot;
