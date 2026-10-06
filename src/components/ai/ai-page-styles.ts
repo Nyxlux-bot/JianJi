@@ -2,22 +2,27 @@ import { Platform, StyleSheet } from 'react-native';
 import { FontSize, Spacing } from '../../theme/colors';
 
 /* Colors comes from useTheme(); typed loosely like the rest of the app's style factories. */
+/* The markdown library defaults code to Courier/monospace and em to italic; in
+   Chinese prose both read as a stray font, so they fall back to the body font. */
+const BODY_FONT = Platform.select({ ios: 'System', android: 'sans-serif', default: undefined });
+
 export const makeAIMarkdownStyles = (Colors: any) => ({
-    body: { fontSize: FontSize.md, color: Colors.text.primary, lineHeight: 25 },
-    heading1: { fontSize: FontSize.md, color: Colors.text.heading, marginTop: Spacing.md, marginBottom: Spacing.xs, fontWeight: '700' as const },
-    heading2: { fontSize: FontSize.md, color: Colors.text.heading, marginTop: Spacing.md, marginBottom: Spacing.xs, fontWeight: '700' as const },
-    heading3: { fontSize: FontSize.md, color: Colors.text.heading, marginTop: Spacing.sm, marginBottom: 2, fontWeight: '600' as const },
-    heading4: { fontSize: FontSize.md, color: Colors.text.heading, marginTop: Spacing.sm, marginBottom: 2, fontWeight: '600' as const },
+    body: { fontSize: FontSize.md, color: Colors.text.primary, lineHeight: 26 },
+    heading1: { fontSize: 17, lineHeight: 24, color: Colors.text.heading, marginTop: Spacing.lg, marginBottom: Spacing.sm, fontWeight: '700' as const },
+    heading2: { fontSize: 17, lineHeight: 24, color: Colors.text.heading, marginTop: Spacing.lg, marginBottom: Spacing.sm, fontWeight: '700' as const },
+    heading3: { fontSize: 16, lineHeight: 23, color: Colors.text.heading, marginTop: Spacing.md, marginBottom: Spacing.xs, fontWeight: '600' as const },
+    heading4: { fontSize: FontSize.md, lineHeight: 22, color: Colors.text.heading, marginTop: Spacing.sm, marginBottom: 2, fontWeight: '600' as const },
     strong: { fontWeight: '600' as const, color: Colors.text.heading },
-    em: { fontStyle: 'italic' as const, color: Colors.text.secondary },
-    blockquote: { backgroundColor: 'transparent', borderLeftColor: Colors.border.normal, borderLeftWidth: 3, paddingLeft: Spacing.md, marginVertical: Spacing.xs },
-    paragraph: { marginTop: 0, marginBottom: Spacing.sm },
-    bullet_list: { marginBottom: Spacing.sm },
-    ordered_list: { marginBottom: Spacing.sm },
-    hr: { backgroundColor: Colors.border.subtle, marginVertical: Spacing.sm },
-    code_inline: { color: Colors.text.primary, backgroundColor: 'transparent', borderWidth: 0, padding: 0 },
-    code_block: { color: Colors.text.primary, backgroundColor: Colors.bg.elevated, borderColor: Colors.border.normal },
-    fence: { color: Colors.text.primary, backgroundColor: Colors.bg.elevated, borderColor: Colors.border.normal },
+    em: { fontStyle: 'normal' as const, color: Colors.text.heading },
+    blockquote: { backgroundColor: 'transparent', borderLeftColor: Colors.border.normal, borderLeftWidth: 3, marginLeft: 0, paddingLeft: Spacing.md, marginVertical: Spacing.xs },
+    paragraph: { marginTop: 0, marginBottom: Spacing.md },
+    bullet_list: { marginBottom: Spacing.md },
+    ordered_list: { marginBottom: Spacing.md },
+    list_item: { marginBottom: Spacing.xs },
+    hr: { backgroundColor: Colors.border.subtle, marginVertical: Spacing.md },
+    code_inline: { fontFamily: BODY_FONT, color: Colors.text.heading, backgroundColor: 'transparent', borderWidth: 0, padding: 0 },
+    code_block: { fontFamily: BODY_FONT, fontSize: FontSize.sm, color: Colors.text.primary, backgroundColor: Colors.bg.elevated, borderColor: Colors.border.normal },
+    fence: { fontFamily: BODY_FONT, fontSize: FontSize.sm, color: Colors.text.primary, backgroundColor: Colors.bg.elevated, borderColor: Colors.border.normal },
 });
 
 export const makeAIPageStyles = (Colors: any) => StyleSheet.create({
@@ -116,9 +121,33 @@ export const makeAIPageStyles = (Colors: any) => StyleSheet.create({
     yearPanelHead: { flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.sm },
     yearPanelTitle: { fontSize: FontSize.xs, color: Colors.text.secondary },
     yearPanelMeta: { fontSize: FontSize.xs, color: Colors.text.tertiary, flexShrink: 1, textAlign: 'right' },
-    energyBar: { flexDirection: 'row', height: 22, borderRadius: 7, overflow: 'hidden', gap: 2 },
-    energySeg: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-    energyText: { fontSize: FontSize.xs, fontWeight: '600' },
+    // 五行条形图与同党 / 异党：尺寸对齐排盘页的五行态势
+    wxList: { gap: 10 },
+    wxRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, minHeight: 32 },
+    wxElement: { width: 22, fontSize: 16, fontWeight: '700' },
+    wxTrack: { flex: 1, height: 10, borderRadius: 999, overflow: 'hidden', backgroundColor: Colors.bazi.surfaceMuted },
+    wxFill: { height: '100%', borderRadius: 999 },
+    wxValueWrap: { width: 76, alignItems: 'flex-end' },
+    wxValue: { fontSize: 14, fontWeight: '700', color: Colors.text.heading },
+    wxMeta: { fontSize: 10.5, color: Colors.text.tertiary, marginTop: 1 },
+    party: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
+    partyLabel: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.text.secondary },
+    partyTrack: { flex: 1, height: 20, flexDirection: 'row', overflow: 'hidden', borderRadius: 999, backgroundColor: Colors.bazi.surfaceMuted },
+    partySegment: { height: '100%', alignItems: 'center', justifyContent: 'center', minWidth: 0 },
+    partyText: { fontSize: 11.5, fontWeight: '700', color: Colors.text.inverse },
+    wxHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.sm, marginBottom: 10 },
+    wxTitle: { flexShrink: 1, fontSize: FontSize.xs, color: Colors.text.secondary },
+    wxSeg: { flexDirection: 'row', borderWidth: 1, borderColor: Colors.border.normal, borderRadius: 999, padding: 2 },
+    wxSegBtn: { minHeight: 28, paddingHorizontal: 10, borderRadius: 999, justifyContent: 'center' },
+    wxSegBtnOn: { backgroundColor: Colors.bazi.selectedBg },
+    wxSegText: { fontSize: FontSize.xs, color: Colors.text.tertiary },
+    wxSegTextOn: { color: Colors.bazi.selectedText, fontWeight: '700' },
+    wxSection: { marginTop: Spacing.md, paddingTop: Spacing.md, borderTopWidth: 1, borderTopColor: Colors.border.subtle },
+    chartFold: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 36 },
+    chartFoldLabel: { fontSize: FontSize.xs, color: Colors.text.tertiary, letterSpacing: 2 },
+    chartFoldPillars: { fontSize: 16, fontWeight: '600', letterSpacing: 1 },
+    miniBar: { flex: 1, maxWidth: 120, height: 6, flexDirection: 'row', borderRadius: 3, overflow: 'hidden', gap: 1, marginLeft: 'auto' },
+    chartFoldChevron: { fontSize: 14, color: Colors.text.tertiary, marginLeft: 'auto' },
     yearTitle: { fontSize: 15, fontWeight: '600', color: Colors.text.heading, marginBottom: 4 },
     strategy: { marginTop: Spacing.sm, paddingTop: Spacing.md, borderTopWidth: 1, borderTopColor: Colors.border.subtle },
 
