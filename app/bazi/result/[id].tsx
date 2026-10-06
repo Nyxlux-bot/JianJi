@@ -645,15 +645,20 @@ export default function BaziResultPage() {
                                     <LayerStarBlock key={section.title} title={section.title} rows={section.rows} styles={styles} />
                                 ))}
 
-                                <View style={styles.sectionTitleBar}>
-                                    <Text style={styles.subTitle}>干支分层</Text>
+                                <View style={[styles.sectionTitleBar, styles.sectionTitleBarRow]}>
+                                    <Text style={[styles.subTitle, styles.subTitleInRow]}>干支分层</Text>
+                                    <Pressable
+                                        style={({ pressed }) => [styles.ganZhiVisualEntry, pressed && styles.ganZhiVisualEntryPressed]}
+                                        onPress={handleOpenGanZhiVisual}
+                                        hitSlop={8}
+                                        accessibilityRole="button"
+                                        accessibilityLabel="打开干支详情"
+                                    >
+                                        <Text style={styles.ganZhiVisualEntryText}>干支详情</Text>
+                                        <ChevronRightIcon size={14} color={Colors.bazi.chromeTextActive} />
+                                    </Pressable>
                                 </View>
-                                <GanZhiLayerBlock
-                                    layer={proChartView.ganZhiLayer}
-                                    onOpenDetails={handleOpenGanZhiVisual}
-                                    detailsColor={Colors.bazi.chromeTextActive}
-                                    styles={styles}
-                                />
+                                <GanZhiLayerBlock layer={proChartView.ganZhiLayer} styles={styles} />
                             </View>
                         </>
                         ) : null}
@@ -1394,10 +1399,8 @@ const LayerStarBlock: React.FC<{ title: string; rows: string[]; styles: ReturnTy
 
 const GanZhiLayerBlock: React.FC<{
     layer: ReturnType<typeof buildBaziProChartViewModel>['ganZhiLayer'];
-    onOpenDetails: () => void;
-    detailsColor: string;
     styles: ReturnType<typeof makeStyles>;
-}> = ({ layer, onOpenDetails, detailsColor, styles }) => {
+}> = ({ layer, styles }) => {
     const rows: Array<{ label: string; value: string }> = [
         { label: '岁运天干：', value: layer.suiYunTianGan },
         { label: '岁运地支：', value: layer.suiYunDiZhi },
@@ -1418,18 +1421,6 @@ const GanZhiLayerBlock: React.FC<{
                     </View>
                 </React.Fragment>
             ))}
-            <View style={styles.ganZhiVisualEntryWrap}>
-                <Pressable
-                    style={({ pressed }) => [styles.ganZhiVisualEntry, pressed && styles.ganZhiVisualEntryPressed]}
-                    onPress={onOpenDetails}
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityLabel="打开干支详情"
-                >
-                    <Text style={styles.ganZhiVisualEntryText}>干支详情</Text>
-                    <ChevronRightIcon size={14} color={detailsColor} />
-                </Pressable>
-            </View>
         </View>
     );
 };
@@ -2028,13 +2019,18 @@ const makeStyles = (Colors: any, viewportWidth: number = 862) => {
         paddingHorizontal: Spacing.md,
         paddingVertical: 6,
     },
-    ganZhiVisualEntryWrap: {
-        alignItems: 'flex-end',
-        paddingTop: Spacing.sm,
+    sectionTitleBarRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingVertical: 5,
+    },
+    subTitleInRow: {
+        marginTop: 0,
     },
     ganZhiVisualEntry: {
-        minHeight: 32,
-        paddingHorizontal: 10,
+        minHeight: 26,
+        paddingHorizontal: 8,
         borderRadius: BorderRadius.sm,
         borderCurve: 'continuous',
         borderWidth: 1,
