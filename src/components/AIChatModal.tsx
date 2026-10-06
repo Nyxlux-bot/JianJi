@@ -80,7 +80,7 @@ import {
 import { BackIcon, GuaArrowIcon, MoreVerticalIcon } from './Icons';
 import type { BaziCompatibilityResult } from '../features/bazi/match/types';
 import { getZiweiNatalOverview, getZiweiYearOverviews } from '../features/ziwei/ai-overview';
-import { getBaziYearEnergy, getBaziYearInfo } from '../core/bazi-year-overview';
+import { getBaziNatalEnergy, getBaziYearEnergy, getBaziYearInfo } from '../core/bazi-year-overview';
 import { setVerificationMark } from '../services/ai-verification-marks';
 import type { AIVerificationMark } from '../core/ai-verification-marks';
 import { deriveChapters, getJobChapter, type AIPageEngine, type ChapterId } from './ai/derive-chapters';
@@ -1275,6 +1275,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         return panel;
     }, [result, yearCache, pageStyles, Colors]);
     const ziweiOverview = useMemo(() => (isZiweiResult(result) ? getZiweiNatalOverview(result) : null), [result]);
+    const natalEnergy = useMemo(() => (isBaziResult(result) ? getBaziNatalEnergy(result) : null), [result]);
 
     /* ---------- 卷二 marks ---------- */
     const verificationMarks = useMemo(() => (isBaziResult(result) || isZiweiResult(result) ? getActiveVerificationMarks(result) : undefined), [result]);
@@ -1517,7 +1518,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     };
     const footer = renderNextStep();
 
-    const chartSummary = isBaziResult(result) ? <BaziChartSummary result={result} styles={pageStyles} Colors={Colors} />
+    const chartSummary = isBaziResult(result) ? <BaziChartSummary result={result} natalEnergy={natalEnergy} fortuneEnergy={baziContext?.wuXingEnergy} styles={pageStyles} Colors={Colors} />
         : ziweiOverview ? <ZiweiChartSummary overview={ziweiOverview} subtitle={headerMeta.subtitle} styles={pageStyles} Colors={Colors} />
             : isCompatResult(result) ? <CompatChartSummary result={result} styles={pageStyles} />
                 : null;
@@ -1576,9 +1577,6 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                                 showsVerticalScrollIndicator={false}
                             >
                                 {chartSummary}
-                                {detailsVisible && isBaziResult(result) && baziContext?.wuXingEnergy ? (
-                                    <EnergyPanel energy={baziContext.wuXingEnergy} title="排盘页所选岁运的五行占比" styles={pageStyles} Colors={Colors} />
-                                ) : null}
                                 {shownChapters.map((chapter) => (
                                     <AIChapterCard<UIChatMessage>
                                         key={chapter.id}

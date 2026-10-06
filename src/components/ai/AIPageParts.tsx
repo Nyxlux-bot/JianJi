@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import type { BaziResult } from '../../core/bazi-types';
 import { DIZHI_WUXING, TIANGAN_WUXING } from '../../core/liuyao-data';
 import type { BaziWuXingEnergySnapshot } from '../../core/bazi-wuxing-energy';
 import type { BaziCompatibilityResult } from '../../features/bazi/match/types';
 import type { ZiweiMutagenPlacement, ZiweiNatalOverview } from '../../features/ziwei/ai-overview';
-import { getLuminance } from '../../theme/bazi-theme';
 import { getActiveModel, getActiveProvider, getSettings, subscribeSettings } from '../../services/settings';
 import { SendIcon } from '../Icons';
 import AIModelSelector from '../AIModelSelector';
@@ -50,28 +50,142 @@ function elementColor(Colors: any, char: string): string {
 
 const PILLAR_LABELS = ['年', '月', '日', '时'];
 
-export function BaziChartSummary({ result, styles, Colors }: { result: BaziResult; styles: AIPageStyles; Colors: any }) {
+const WX_ORDER = ['木', '火', '土', '金', '水'] as const;
+const CHART_EXPANDED_KEY = 'ai_chart_summary_expanded';
+
+/** 五行条形图：与排盘页“五行态势”同一种行式样；文字都在比例条外。 */
+export function WuXingBars({ energy, styles, Colors }: { energy: BaziWuXingEnergySnapshot; styles: AIPageStyles; Colors: any }) {
+    const items = WX_ORDER.map((element) => energy.elements.find((item) => item.element === element)).filter(Boolean) as BaziWuXingEnergySnapshot['elements'];
     return (
-        <View style={styles.chart} accessibilityLabel={`原局 ${result.fourPillars.join(' ')}`}>
-            <View style={styles.chartTop}>
-                <Text style={styles.chartTopText}>原局 · 由排盘数据生成</Text>
-                <Text style={styles.chartTopText}>{result.subject?.mingZaoLabel ?? ''}</Text>
-            </View>
-            <View style={styles.pillars}>
-                {result.fourPillars.map((ganZhi, index) => {
-                    const god = index === 2 ? '日主' : result.shiShen.find((item) => item.pillarIndex === index)?.shiShen ?? '';
-                    const hidden = result.cangGan[index]?.items?.map((item) => item.gan).join(' ') ?? '';
-                    return (
-                        <View key={index} style={styles.pillar}>
-                            <Text style={[styles.pillarGod, index === 2 && styles.pillarGodMe]}>{PILLAR_LABELS[index]} · {god}</Text>
-                            <Text style={styles.pillarGanZhi}>
-                                {[...ganZhi].map((char, charIndex) => <Text key={charIndex} style={{ color: elementColor(Colors, char) }}>{char}</Text>)}
-                            </Text>
-                            {hidden ? <Text style={styles.pillarHidden}>{hidden}</Text> : null}
+        <View style={styles.wxList} accessible accessibilityRole="image"
+            accessibilityLabel={`五行占比：${items.map((item) => `${item.element} ${item.percentage}%`).join('，')}`}>
+            {items.map((item) => {
+                const color = Colors.bazi[ELEMENT_COLOR_KEYS[item.element]];
+                return (
+                    <View key={item.element} style={styles.wxRow}>
+                        <Text style={[styles.wxElement, { color }]}>{item.element}</Text>
+                        <View style={styles.wxTrack}>
+                            <View style={[styles.wxFill, { width: `${Math.max(item.percentage, item.percentage > 0 ? 5 : 0)}%`, backgroundColor: color }]} />
                         </View>
-                    );
-                })}
+                        <View style={styles.wxValueWrap}>
+                            <Text style={styles.wxValue}>{item.percentage}%</Text>
+                            <Text style={styles.wxMeta} numberOfLines={1}>{item.seasonStatus} · {item.tenGodGroup}</Text>
+                        </View>
+                    </View>
+                );
+            })}
+        </View>
+    );
+}
+
+/** 同党 / 异党：双色比例条，配色与排盘页一致。 */
+export function WuXingParty({ energy, styles, Colors }: { energy: BaziWuXingEnergySnapshot; styles: AIPageStyles; Colors: any }) {
+    const same = energy.samePartyPercentage;
+    const different = energy.differentPartyPercentage;
+    return (
+        <View style={styles.party} accessible accessibilityLabel={`同党 ${same}%，异党 ${different}%`}>
+            <Text style={styles.partyLabel}>同党</Text>
+            <View style={styles.partyTrack}>
+                <View style={[styles.partySegment, { width: `${same}%`, backgroundColor: Colors.bazi.elementFire }]}>
+                    {same >= 12 ? <Text style={styles.partyText}>{same}%</Text> : null}
+                </View>
+                <View style={[styles.partySegment, { width: `${different}%`, backgroundColor: Colors.bazi.elementWater }]}>
+                    {different >= 12 ? <Text style={styles.partyText}>{different}%</Text> : null}
+                </View>
             </View>
+            <Text style={styles.partyLabel}>异党</Text>
+        </View>
+    );
+}
+
+function MiniBar({ energy, styles, Colors }: { energy: BaziWuXingEnergySnapshot; styles: AIPageStyles; Colors: any }) {
+    return (
+        <View style={styles.miniBar}>
+            {WX_ORDER.map((element) => {
+                const item = energy.elements.find((entry) => entry.element === element);
+                return item && item.percentage > 0
+                    ? <View key={element} style={{ flexGrow: item.percentage, flexBasis: 0, backgroundColor: Colors.bazi[ELEMENT_COLOR_KEYS[element]] }} />
+                    : null;
+            })}
+        </View>
+    );
+}
+
+/** 原局卡：默认折叠成一行；展开后是四柱、五行条形图与同党 / 异党，可在原局与排盘页所选岁运之间切换。 */
+export function BaziChartSummary({ result, natalEnergy, fortuneEnergy, styles, Colors }: {
+    result: BaziResult; natalEnergy: BaziWuXingEnergySnapshot | null; fortuneEnergy?: BaziWuXingEnergySnapshot;
+    styles: AIPageStyles; Colors: any;
+}) {
+    const [expanded, setExpanded] = useState(false);
+    const [mode, setMode] = useState<'natal' | 'fortune'>('natal');
+    useEffect(() => {
+        let mounted = true;
+        AsyncStorage.getItem(CHART_EXPANDED_KEY)
+            .then((value) => { if (mounted && value === '1') setExpanded(true); })
+            .catch(() => undefined);
+        return () => { mounted = false; };
+    }, []);
+    const toggle = () => {
+        const next = !expanded;
+        setExpanded(next);
+        AsyncStorage.setItem(CHART_EXPANDED_KEY, next ? '1' : '0').catch(() => undefined);
+    };
+    const energy = mode === 'fortune' && fortuneEnergy ? fortuneEnergy : natalEnergy;
+    const pillarText = (ganZhi: string, key: number) => (
+        <Text key={key}>{key > 0 ? ' ' : ''}{[...ganZhi].map((char, index) => <Text key={index} style={{ color: elementColor(Colors, char) }}>{char}</Text>)}</Text>
+    );
+    return (
+        <View style={styles.chart}>
+            <TouchableOpacity style={styles.chartFold} onPress={toggle} accessibilityRole="button"
+                accessibilityState={{ expanded }} accessibilityLabel={`原局 ${result.fourPillars.join(' ')}，${expanded ? '点按收起' : '点按展开五行能量'}`}>
+                <Text style={styles.chartFoldLabel}>原局</Text>
+                <Text style={styles.chartFoldPillars} numberOfLines={1}>{result.fourPillars.map(pillarText)}</Text>
+                {!expanded && natalEnergy ? <MiniBar energy={natalEnergy} styles={styles} Colors={Colors} /> : null}
+                <Text style={styles.chartFoldChevron}>{expanded ? '⌃' : '⌄'}</Text>
+            </TouchableOpacity>
+            {expanded ? (
+                <>
+                    <View style={styles.pillars}>
+                        {result.fourPillars.map((ganZhi, index) => {
+                            const god = index === 2 ? '日主' : result.shiShen.find((item) => item.pillarIndex === index)?.shiShen ?? '';
+                            const hidden = result.cangGan[index]?.items?.map((item) => item.gan).join(' ') ?? '';
+                            return (
+                                <View key={index} style={styles.pillar}>
+                                    <Text style={[styles.pillarGod, index === 2 && styles.pillarGodMe]}>{PILLAR_LABELS[index]} · {god}</Text>
+                                    <Text style={styles.pillarGanZhi}>
+                                        {[...ganZhi].map((char, charIndex) => <Text key={charIndex} style={{ color: elementColor(Colors, char) }}>{char}</Text>)}
+                                    </Text>
+                                    {hidden ? <Text style={styles.pillarHidden}>{hidden}</Text> : null}
+                                </View>
+                            );
+                        })}
+                    </View>
+                    {energy ? (
+                        <View style={styles.wxSection}>
+                            <View style={styles.wxHead}>
+                                <Text style={styles.wxTitle} numberOfLines={1}>
+                                    五行能量{mode === 'fortune' && fortuneEnergy ? ` · 大运 ${fortuneEnergy.focus.yunGanZhi || '—'} · 流年 ${fortuneEnergy.focus.liuNianGanZhi || '—'}` : ''}
+                                </Text>
+                                {fortuneEnergy ? (
+                                    <View style={styles.wxSeg} accessibilityRole="radiogroup" accessibilityLabel="五行口径">
+                                        {([['natal', '原局'], ['fortune', '岁运']] as const).map(([key, label]) => {
+                                            const on = mode === key;
+                                            return (
+                                                <TouchableOpacity key={key} style={[styles.wxSegBtn, on && styles.wxSegBtnOn]} onPress={() => setMode(key)}
+                                                    accessibilityRole="radio" accessibilityState={{ checked: on }}>
+                                                    <Text style={[styles.wxSegText, on && styles.wxSegTextOn]}>{label}</Text>
+                                                </TouchableOpacity>
+                                            );
+                                        })}
+                                    </View>
+                                ) : null}
+                            </View>
+                            <WuXingBars energy={energy} styles={styles} Colors={Colors} />
+                            <WuXingParty energy={energy} styles={styles} Colors={Colors} />
+                        </View>
+                    ) : null}
+                </>
+            ) : null}
         </View>
     );
 }
@@ -132,27 +246,14 @@ export function CompatChartSummary({ result, styles }: { result: BaziCompatibili
 /* ---------- 卷三 year panel ---------- */
 
 export function EnergyPanel({ energy, title, styles, Colors }: { energy: BaziWuXingEnergySnapshot; title: string; styles: AIPageStyles; Colors: any }) {
-    const items = energy.elements.filter((item) => item.percentage > 0);
-    // One text colour per theme: picking black/white per segment flips between neighbours in the light theme.
-    const color = getLuminance(Colors.bg.primary) > 0.42 ? '#FFFFFF' : '#121212';
     return (
         <View style={styles.yearPanel}>
             <View style={styles.yearPanelHead}>
                 <Text style={styles.yearPanelTitle}>{title}</Text>
                 <Text style={styles.yearPanelMeta}>原局 + 大运 {energy.focus.yunGanZhi || '—'} + 流年 {energy.focus.liuNianGanZhi || '—'}</Text>
             </View>
-            <View style={styles.energyBar} accessible accessibilityRole="image"
-                accessibilityLabel={`五行占比：${items.map((item) => `${item.element} ${item.percentage}%`).join('，')}`}>
-                {items.map((item) => {
-                    const backgroundColor = Colors.bazi[ELEMENT_COLOR_KEYS[item.element]];
-                    const label = item.percentage >= 12 ? `${item.element}${item.percentage}%` : item.percentage >= 6 ? `${item.percentage}%` : '';
-                    return (
-                        <View key={item.element} style={[styles.energySeg, { flexGrow: item.percentage, flexBasis: 0, backgroundColor }]}>
-                            <Text style={[styles.energyText, { color }]} numberOfLines={1}>{label}</Text>
-                        </View>
-                    );
-                })}
-            </View>
+            <WuXingBars energy={energy} styles={styles} Colors={Colors} />
+            <WuXingParty energy={energy} styles={styles} Colors={Colors} />
         </View>
     );
 }
