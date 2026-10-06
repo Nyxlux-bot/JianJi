@@ -117,6 +117,9 @@ const jobStates = new Map<string, AIAnalysisJobState>();
 const listeners = new Map<string, Set<AIAnalysisJobListener>>();
 const emitTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const persistenceQueues = new Map<string, Promise<void>>();
+/** Last time a streaming draft was written to storage, per job key. */
+const draftPersistedAt = new Map<string, number>();
+const DRAFT_PERSIST_INTERVAL_MS = 3000;
 const STORAGE_PREFIX = 'ai_analysis_job_v1_';
 const LEGACY_LIUYAO_STORAGE_PREFIX = 'liuyao_ai_job_';
 const STREAMING_EMIT_INTERVAL_MS = 250;
@@ -183,9 +186,10 @@ async function persistJob(job: AIAnalysisJobState): Promise<void> {
     const key = storageKey(job.engineType, job.recordId);
     const previous = persistenceQueues.get(key) ?? Promise.resolve();
     const next = previous.catch(() => undefined).then(async () => {
+        // The draft is kept so a reply cut off by the app being killed can be
+        // continued after restart instead of being written again from scratch.
         await AsyncStorage.setItem(key, JSON.stringify({
             ...job,
-            draftContent: '',
             validatedContent: '',
             result: undefined,
         }));
@@ -932,10 +936,13 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                         return;
                     }
                     rawContent += chunk;
+                    const nowMs = Date.now();
+                    const persist = nowMs - (draftPersistedAt.get(key) ?? 0) >= DRAFT_PERSIST_INTERVAL_MS;
+                    if (persist) draftPersistedAt.set(key, nowMs);
                     setJobState(key, {
                         status: 'streaming',
                         draftContent: withPartial(cleanStreamContent(request.engineType, rawContent, request.expectedCompletion)),
-                    }, { emit: 'deferred', persist: false });
+                    }, { emit: 'deferred', persist });
                 },
                 controller.signal,
                 requestOptions,
@@ -1246,7 +1253,7 @@ export async function recoverInterruptedAIAnalysisJob(
             baseMessages,
             requestMessages,
             messages: recoveredStatus === 'cancelled' ? baseMessages : requestMessages,
-            draftContent: '',
+            draftContent: recoveredStatus === 'cancelled' || typeof parsed.draftContent !== 'string' ? '' : parsed.draftContent,
             validatedContent: '',
             failure: recoveredStatus === 'interrupted'
                 ? { code: 'aborted', message: '上次分析因应用中断未完成，请手动重试。' }
