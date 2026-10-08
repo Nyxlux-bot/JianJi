@@ -36,11 +36,13 @@ export const makeAIPageStyles = (Colors: any) => StyleSheet.create({
     headerTitle: { fontSize: FontSize.md, fontWeight: '600', color: Colors.text.heading },
     headerSubtitle: { fontSize: FontSize.xs, color: Colors.text.secondary, marginTop: 1, letterSpacing: 1 },
     modelChip: {
-        maxWidth: 150, flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 32, paddingHorizontal: 10,
+        maxWidth: 150, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 32, paddingHorizontal: 10,
         borderRadius: 999, borderWidth: 1, borderColor: Colors.border.normal, backgroundColor: Colors.bg.secondary,
     },
+    modelChipDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.accent.gold },
+    modelChipDotIdle: { backgroundColor: Colors.text.tertiary },
     modelChipText: { fontSize: FontSize.xs, color: Colors.text.secondary, flexShrink: 1 },
-    modelChipDot: { color: Colors.accent.gold, fontSize: FontSize.xs },
+    modelChipLevel: { fontSize: FontSize.xs, color: Colors.accent.gold, fontWeight: '600' },
 
     stepper: { flexDirection: 'row', gap: 4, paddingHorizontal: 6, paddingTop: Spacing.sm, paddingBottom: Spacing.sm },
     step: { flex: 1, minWidth: 0, gap: 5, minHeight: 32, justifyContent: 'center' },
@@ -215,13 +217,22 @@ export const makeAIPageStyles = (Colors: any) => StyleSheet.create({
     send: { width: 42, height: 42, borderRadius: 12, backgroundColor: Colors.accent.gold, alignItems: 'center', justifyContent: 'center' },
     sendDisabled: { backgroundColor: Colors.bg.elevated },
 
+    // Model and thinking sheet: list on top, slider pinned to the bottom.
     sheetRoot: { flex: 1, justifyContent: 'flex-end' },
     sheetScrim: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: Colors.bg.overlay },
-    sheet: { backgroundColor: Colors.bg.card, borderTopLeftRadius: 18, borderTopRightRadius: 18, paddingTop: Spacing.md, paddingBottom: Spacing.xl, borderTopWidth: 1, borderTopColor: Colors.border.normal, maxHeight: '80%' },
-    sheetHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.lg },
+    sheet: {
+        width: '100%', maxWidth: 640, alignSelf: 'center', maxHeight: '88%', backgroundColor: Colors.bg.card,
+        borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, borderColor: Colors.border.subtle, paddingTop: Spacing.sm,
+    },
+    sheetHandle: { alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: Colors.border.normal, marginBottom: Spacing.sm },
+    sheetHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, marginBottom: Spacing.sm },
     sheetTitle: { fontSize: FontSize.md, fontWeight: '600', color: Colors.text.heading },
-    sheetClose: { minHeight: 40, minWidth: 44, alignItems: 'flex-end', justifyContent: 'center' },
-    sheetCloseText: { fontSize: FontSize.sm, color: Colors.text.secondary },
+    sheetDone: { minHeight: 40, minWidth: 44, alignItems: 'flex-end', justifyContent: 'center' },
+    sheetDoneText: { fontSize: FontSize.sm, color: Colors.text.secondary },
+    sheetBody: { paddingHorizontal: 10 },
+    sheetFooter: { paddingHorizontal: 10, paddingTop: Spacing.sm },
+    sheetFooterBody: { paddingHorizontal: 14, paddingTop: Spacing.md },
+    sheetFootnote: { marginTop: Spacing.sm },
 });
 
 export type AIPageStyles = ReturnType<typeof makeAIPageStyles>;

@@ -1,14 +1,23 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { BaziResult } from '../../core/bazi-types';
 import { DIZHI_WUXING, TIANGAN_WUXING } from '../../core/liuyao-data';
 import type { BaziWuXingEnergySnapshot } from '../../core/bazi-wuxing-energy';
 import type { BaziCompatibilityResult } from '../../features/bazi/match/types';
 import type { ZiweiMutagenPlacement, ZiweiNatalOverview } from '../../features/ziwei/ai-overview';
-import { getActiveModel, getActiveProvider, getSettings, subscribeSettings } from '../../services/settings';
+import type { AIExecutionMeta } from '../../core/ai-execution-meta';
+import { useActiveAIModel } from '../../hooks/useActiveAIModel';
+import { getReasoningLabel, resolveShownLevel } from '../../services/ai-model-capabilities';
+import type { AIReasoningSetting } from '../../services/ai-provider-types';
+import { setActiveModelReasoning } from '../../services/settings';
+import { useTheme } from '../../theme/ThemeContext';
+import { CustomAlert } from '../CustomAlertProvider';
 import { SendIcon } from '../Icons';
-import AIModelSelector from '../AIModelSelector';
+import AIModelPicker, { EngravedDivider } from '../AIModelSelector';
+import ThinkingSlider from './ThinkingSlider';
 import { ELEMENT_COLOR_KEYS, type AIPageStyles } from './ai-page-styles';
 import type { Chapter, ChapterStatus } from './derive-chapters';
 
@@ -377,44 +386,91 @@ export function AIComposer({ value, onChange, onSend, disabledReason, busy, quic
     );
 }
 
-/* ---------- model chip + sheet ---------- */
+/* ---------- model chip + sheet: model and thinking strength ---------- */
 
-export function AIModelChip({ running, styles, Colors, visible }: { running?: string; styles: AIPageStyles; Colors: any; visible: boolean }) {
-    const [label, setLabel] = useState('');
+/** "gpt-5.1 · 思考 高" for progress lines; reads what the request actually sent. */
+export function formatRunLabel(meta?: AIExecutionMeta): string | undefined {
+    if (!meta) return undefined;
+    return `${meta.model} · 思考 ${formatThinking(meta)}`;
+}
+
+function formatThinking(meta: AIExecutionMeta): string {
+    return meta.thinkingMode === 'always' && meta.reasoning === 'default' ? '始终' : getReasoningLabel(meta.reasoning, meta.thinkingBudgetTokens);
+}
+
+/**
+ * Header chip for the model the next generation uses, with its thinking level.
+ * Opens a sheet with the thinking slider on top and the model list below;
+ * changes persist to the active model and apply from the next request.
+ */
+export function AIModelChip({ visible, running, styles, Colors }: {
+    visible: boolean; running?: AIExecutionMeta; styles: AIPageStyles; Colors: any;
+}) {
+    const active = useActiveAIModel(visible);
+    const insets = useSafeAreaInsets();
+    const { height } = useWindowDimensions();
+    const { theme } = useTheme();
     const [open, setOpen] = useState(false);
-    const mounted = useRef(true);
-    useEffect(() => {
-        mounted.current = true;
-        if (!visible) return undefined;
-        const apply = (settings: Awaited<ReturnType<typeof getSettings>>) => {
-            if (mounted.current) setLabel(getActiveModel(getActiveProvider(settings))?.model ?? '');
-        };
-        getSettings().then(apply).catch(() => undefined);
-        const unsubscribe = subscribeSettings(apply);
-        return () => { mounted.current = false; unsubscribe(); };
-    }, [visible]);
-    const shown = running ?? label;
+    const [pending, setPending] = useState<AIReasoningSetting | null>(null);
+    const saved = active.model?.reasoning;
+    useEffect(() => { if (pending !== null && saved === pending) setPending(null); }, [saved, pending]);
+    const changeLevel = (level: AIReasoningSetting) => {
+        setPending(level);
+        setActiveModelReasoning(level).catch((error: unknown) => {
+            setPending(null);
+            CustomAlert.alert('思考强度未保存', error instanceof Error ? error.message : '请稍后重试。');
+        });
+    };
+    const level = pending ?? active.model?.reasoning;
+    const shownLevel = level ? resolveShownLevel(level, active.stops, active.model?.thinkingBudgetTokens) : 'default';
+    // "自动" adds width without telling much, so the chip only shows an explicit level.
+    const levelLabel = running ? formatThinking(running)
+        : active.lock === 'always' ? '始终'
+            : shownLevel !== 'default' ? getReasoningLabel(shownLevel) : '';
+    const modelName = running?.model ?? active.model?.model;
     return (
         <>
             <TouchableOpacity style={styles.modelChip} onPress={() => setOpen(true)} accessibilityRole="button"
-                accessibilityLabel={`模型：${shown || '未选择'}，点按切换模型与思考等级`}>
-                <Text style={styles.modelChipDot}>●</Text>
-                <Text style={styles.modelChipText} numberOfLines={1}>{shown || '选择模型'}</Text>
+                accessibilityLabel={`模型：${modelName || '未选择'}${levelLabel ? `，思考 ${levelLabel}` : ''}，点按切换模型与思考强度`}>
+                <View style={[styles.modelChipDot, !active.model && styles.modelChipDotIdle]} />
+                <Text style={styles.modelChipText} numberOfLines={1}>{modelName || '选择模型'}</Text>
+                {modelName && levelLabel ? <Text style={styles.modelChipLevel}>{levelLabel}</Text> : null}
             </TouchableOpacity>
-            <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
-                <View style={styles.sheetRoot}>
-                    <Pressable style={styles.sheetScrim} onPress={() => setOpen(false)} accessibilityLabel="关闭" />
-                    <View style={styles.sheet}>
-                        <View style={styles.sheetHead}>
-                            <Text style={styles.sheetTitle}>模型与思考等级</Text>
-                            <TouchableOpacity style={styles.sheetClose} onPress={() => setOpen(false)} accessibilityRole="button">
-                                <Text style={styles.sheetCloseText}>完成</Text>
-                            </TouchableOpacity>
+            {/* One page: searchable model list on top, thinking slider pinned to the bottom. */}
+            <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+                <GestureHandlerRootView style={styles.flex}>
+                    <KeyboardAvoidingView style={styles.sheetRoot} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+                        <Pressable style={styles.sheetScrim} onPress={() => setOpen(false)} accessibilityLabel="关闭" />
+                        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 8) + 12 }]}>
+                            <View style={styles.sheetHandle} />
+                            <View style={styles.sheetHead}>
+                                <Text style={styles.sheetTitle}>模型与思考</Text>
+                                <TouchableOpacity style={styles.sheetDone} onPress={() => setOpen(false)} accessibilityRole="button">
+                                    <Text style={styles.sheetDoneText}>完成</Text>
+                                </TouchableOpacity>
+                            </View>
+                            <View style={styles.sheetBody}>
+                                <AIModelPicker visible={open} maxHeight={Math.round(height * 0.42)} />
+                            </View>
+                            {active.model ? (
+                                <View style={styles.sheetFooter}>
+                                    <EngravedDivider dark={theme !== 'yang'} />
+                                    <View style={styles.sheetFooterBody}>
+                                        <ThinkingSlider
+                                            stops={active.stops}
+                                            value={pending ?? active.model.reasoning}
+                                            budget={active.model.thinkingBudgetTokens}
+                                            lock={active.lock}
+                                            onChange={changeLevel}
+                                            Colors={Colors}
+                                        />
+                                        {running ? <Text style={[styles.hint, styles.sheetFootnote]}>本次仍按 {running.model} · 思考 {formatThinking(running)} 生成；这里的调整从下一次开始生效。</Text> : null}
+                                    </View>
+                                </View>
+                            ) : null}
                         </View>
-                        <AIModelSelector visible={open} alwaysExpanded running={undefined} />
-                        {running ? <Text style={[styles.hint, { paddingHorizontal: 20 }]}>本次分析仍用 {running}；切换后从下一次生成开始生效。</Text> : null}
-                    </View>
-                </View>
+                    </KeyboardAvoidingView>
+                </GestureHandlerRootView>
             </Modal>
         </>
     );
