@@ -1,6 +1,7 @@
 import EventSource from 'react-native-sse';
-import { resolveAIRequestRuntime } from './ai-request-runtime';
-import { getProtocolLabel, inferProviderProtocol } from './ai-endpoints';
+import { buildRequestRuntime, refreshRuntimeQuirks, resolveAIRequestRuntime } from './ai-request-runtime';
+import { getProtocolCandidates, getProtocolLabel, resolveProviderEndpoint } from './ai-endpoints';
+import { mergeQuirks, rememberCompatQuirks } from './ai-compat-memory';
 import type { AIExecutionMeta, AISkillVersion } from '../core/ai-execution-meta';
 import { recordDiagnosticLog } from './diagnostics';
 import {
@@ -9,6 +10,7 @@ import {
     resolveAIWebTransport,
 } from './ai-web-proxy';
 import type {
+    AICompatQuirks,
     AIProviderCapabilities,
     AIProviderConfig,
     AIProviderProtocol,
@@ -70,11 +72,21 @@ export interface AIProviderRequestMeta {
     pageOrigin?: string;
 }
 
+/** The provider's own words, parsed out of its error body. */
+export interface AIProviderErrorDetail {
+    message: string;
+    param?: string;
+    type?: string;
+}
+
 export interface AIProviderResult {
     success: boolean;
     content?: string;
     error?: string;
     code?: AIProviderFailureCode;
+    providerError?: AIProviderErrorDetail;
+    /** Set when this result came from a retry after the gateway rejected a parameter. */
+    learnedQuirks?: AICompatQuirks;
     meta: AIProviderRequestMeta;
 }
 
@@ -89,6 +101,8 @@ export interface AIProviderConnectionTestResult {
 
 export interface AIProviderConnectionAttempt {
     protocol: AIProviderProtocol;
+    /** The URL actually requested, so the user can tell a wrong address from a closed protocol. */
+    endpoint: string;
     success: boolean;
     code?: AIProviderFailureCode | 'invalid_configuration';
     error?: string;
@@ -98,6 +112,8 @@ export interface AIProviderConnectionAttempt {
 export interface ProviderConnectionTestOptions {
     signal?: AbortSignal;
     onAttempt?: (protocol: AIProviderProtocol, index: number, total: number) => void;
+    /** Protocols the model catalog reported for this model, if any. */
+    catalogEndpoints?: AIProviderProtocol[];
 }
 
 export interface ProviderRequestOptions {
@@ -123,6 +139,7 @@ interface StreamState {
     invalidEventCount: number;
     firstEventAt?: number;
     reasoningStarted: boolean;
+    providerError?: AIProviderErrorDetail;
 }
 
 interface ProviderStreamEvent {
@@ -253,6 +270,41 @@ function extractResponsesText(payload: Record<string, unknown>): string {
         }
         return extractTextContent(item.content);
     }).join('');
+}
+
+function parseProviderErrorDetail(data: unknown): AIProviderErrorDetail | undefined {
+    if (!isRecord(data)) {
+        return undefined;
+    }
+    if (isRecord(data.response)) {
+        const nested = parseProviderErrorDetail(data.response);
+        if (nested) {
+            return nested;
+        }
+    }
+    const error = isRecord(data.error) ? data.error : undefined;
+    const message = parseProviderError(data);
+    if (!message) {
+        return undefined;
+    }
+    return {
+        message,
+        ...(typeof error?.param === 'string' && error.param ? { param: error.param } : {}),
+        ...(typeof error?.type === 'string' ? { type: error.type } : typeof error?.code === 'string' ? { type: error.code } : {}),
+    };
+}
+
+/** Error bodies may be JSON from the provider, a gateway's JSON, or plain text / HTML. */
+export function readProviderErrorBody(text: string): AIProviderErrorDetail | undefined {
+    const trimmed = text.trim();
+    if (!trimmed) {
+        return undefined;
+    }
+    try {
+        return parseProviderErrorDetail(JSON.parse(trimmed)) ?? { message: trimmed.slice(0, 500) };
+    } catch {
+        return { message: trimmed.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 500) };
+    }
 }
 
 function parseProviderError(data: unknown): string {
@@ -519,8 +571,9 @@ function handleStreamPayload(
     } catch {
         state.invalidEventCount += 1;
         if (eventType === 'error') {
+            state.providerError = readProviderErrorBody(rawData);
             return {
-                error: rawData.slice(0, 500) || '流式接口返回无法解析的错误事件',
+                error: state.providerError?.message || '流式接口返回无法解析的错误事件',
                 code: 'http_error',
             };
         }
@@ -572,6 +625,7 @@ function handleStreamPayload(
             };
         }
         if (payloadType === 'response.failed' || payloadType === 'error') {
+            state.providerError = parseProviderErrorDetail(payload);
             return {
                 error: parseProviderError(payload) || 'Responses API 返回失败事件',
                 code: 'http_error',
@@ -623,6 +677,7 @@ function handleStreamPayload(
         };
     }
     if (payloadType === 'error') {
+        state.providerError = parseProviderErrorDetail(payload);
         return {
             error: parseProviderError(payload) || 'Anthropic Messages 返回失败事件',
             code: 'http_error',
@@ -677,6 +732,7 @@ function runStreamRequest(
             return {
                 success,
                 content: state.content || undefined,
+                ...(success || !state.providerError ? {} : { providerError: state.providerError }),
                 ...extra,
                 ...(success || !extra.error ? {} : { error: formatFailure(extra.error, meta) }),
                 meta,
@@ -880,6 +936,13 @@ function runStreamRequest(
             const transportErrorText = [providerEvent.message, providerEvent.data]
                 .filter((value): value is string => typeof value === 'string' && value.length > 0)
                 .join(' ');
+            // On HTTP errors react-native-sse puts the response body in `message`.
+            const bodyError = httpStatus > 0 && httpStatus !== 200 && typeof providerEvent.message === 'string'
+                ? readProviderErrorBody(providerEvent.message)
+                : undefined;
+            if (bodyError) {
+                state.providerError = bodyError;
+            }
             const isHttp200Cancel = isAnthropicHttp200Cancel(transportErrorText, httpStatus);
             if (providerEvent.data && !isHttp200Cancel) {
                 handleEvent('error', providerEvent);
@@ -892,6 +955,8 @@ function runStreamRequest(
                 && transport.webCrossOrigin
                 && httpStatus === 0
                 ? (transport.webProxyUsed ? getWebProxyUnavailableMessage() : getWebCrossOriginMessage())
+                : bodyError
+                ? bodyError.message
                 : typeof providerEvent.message === 'string' && providerEvent.message
                 ? providerEvent.message.slice(0, 500)
                 : (httpStatus > 0 && httpStatus !== 200
@@ -910,7 +975,75 @@ function runStreamRequest(
     });
 }
 
-export async function streamProviderText(
+/* ---------- compat fallback ---------- */
+
+const REASONING_PARAM = /\b(?:thinking|output_config|effort|budget_tokens|reasoning(?:[._]effort)?)\b/i;
+const SUMMARY_PARAM = /\bsummary\b|reasoning summar/i;
+const TEMPERATURE_PARAM = /\btemperature\b/i;
+const MAX_TOKENS_PARAM = /\bmax_(?:output_|completion_)?tokens\b|output tokens|maximum (?:allowed )?(?:number of )?tokens/i;
+const REJECTION_HINT = /unrecogni[sz]ed|unknown|unsupported|not supported|not allowed|not permitted|extra inputs|invalid|does not support|no longer supported|must be|exceed|greater than|less than|too large|expected/i;
+
+function readSentEffort(parameters: Record<string, unknown>): string | undefined {
+    const reasoning = isRecord(parameters.reasoning) ? parameters.reasoning : undefined;
+    if (typeof reasoning?.effort === 'string') return reasoning.effort;
+    const output = isRecord(parameters.output_config) ? parameters.output_config : undefined;
+    return typeof output?.effort === 'string' ? output.effort : undefined;
+}
+
+function mentionsValue(text: string, value: string): boolean {
+    return new RegExp(`['"\`]${value}['"\`]|\\b${value}\\b`, 'i').test(text);
+}
+
+/**
+ * Reads a rejected request and names the parameter to stop sending. Returns
+ * null unless the change would actually alter the next request.
+ */
+export function deriveCompatQuirk(result: AIProviderResult, runtime: AIRequestRuntime): AICompatQuirks | null {
+    if (result.success || result.content?.trim() || result.code !== 'http_error') return null;
+    const status = result.meta.httpStatus ?? 0;
+    if ([401, 403, 404, 408, 429].includes(status)) return null;
+    const detail = result.providerError;
+    const text = [detail?.param, detail?.type, detail?.message ?? result.error].filter(Boolean).join(' ');
+    const isClientError = status >= 400 && status < 500;
+    if (!isClientError && !REJECTION_HINT.test(text)) return null;
+
+    const parameters = runtime.parameters;
+    const reasoning = isRecord(parameters.reasoning) ? parameters.reasoning : undefined;
+    const thinking = isRecord(parameters.thinking) ? parameters.thinking : undefined;
+    const sentEffort = readSentEffort(parameters);
+    let learned: AICompatQuirks | null = null;
+
+    if (reasoning?.summary && SUMMARY_PARAM.test(text)) {
+        learned = { dropReasoningSummary: true };
+    } else if ((reasoning || thinking) && REASONING_PARAM.test(text)) {
+        if (sentEffort && mentionsValue(text, sentEffort)) {
+            learned = { unsupportedEfforts: [sentEffort as NonNullable<AICompatQuirks['unsupportedEfforts']>[number]] };
+        } else if (thinking?.type === 'disabled') {
+            learned = { unsupportedEfforts: ['none'] };
+        } else if (thinking?.type === 'adaptive') {
+            learned = { reasoningFormat: 'budget' };
+        } else {
+            learned = { reasoningFormat: 'none' };
+        }
+    } else if (runtime.meta.temperature !== undefined && TEMPERATURE_PARAM.test(text)) {
+        learned = { dropTemperature: true };
+    } else if (MAX_TOKENS_PARAM.test(text)) {
+        const requested = runtime.config.maxOutputTokens;
+        const limits = (text.match(/\d[\d,]{2,}/g) ?? [])
+            .map((value) => Number(value.replace(/,/g, '')))
+            .filter((value) => Number.isSafeInteger(value) && value >= 1_024 && value < requested);
+        const cap = limits.length ? Math.max(...limits) : Math.floor(requested / 2);
+        if (cap >= 4_096) learned = { maxOutputTokensCap: cap };
+    }
+    if (!learned) return null;
+
+    const next = buildRequestRuntime(runtime.source, runtime.capabilities, mergeQuirks(runtime.quirks, learned));
+    const changed = JSON.stringify([next.parameters, next.config.maxOutputTokens, next.meta.temperature])
+        !== JSON.stringify([runtime.parameters, runtime.config.maxOutputTokens, runtime.meta.temperature]);
+    return changed ? learned : null;
+}
+
+function runProviderRequest(
     runtime: AIRequestRuntime,
     messages: AIProviderMessage[],
     options: ProviderRequestOptions,
@@ -926,6 +1059,51 @@ export async function streamProviderText(
     return runStreamRequest(runtime, messages, effectiveOptions, operationId);
 }
 
+/**
+ * Sends one request. If the gateway rejects a parameter before writing any
+ * text, drops that parameter, retries once, and remembers it for this
+ * provider config so later requests skip the failed attempt.
+ */
+export async function streamProviderText(
+    runtime: AIRequestRuntime,
+    messages: AIProviderMessage[],
+    options: ProviderRequestOptions,
+): Promise<AIProviderResult> {
+    const current = refreshRuntimeQuirks(runtime);
+    const first = await runProviderRequest(current, messages, options);
+    if (first.success || options.signal?.aborted) return first;
+    const learned = deriveCompatQuirk(first, current);
+    if (!learned) return first;
+
+    const retryRuntime = buildRequestRuntime(current.source, current.capabilities, mergeQuirks(current.quirks, learned));
+    void recordDiagnosticLog({
+        level: 'info',
+        source: 'AI:compat',
+        message: 'compat_quirk_retry',
+        context: {
+            operationId: first.meta.operationId,
+            protocol: current.capabilities.protocol,
+            model: current.capabilities.model,
+            httpStatus: first.meta.httpStatus,
+            learned,
+            errorMessage: first.providerError?.message,
+        },
+    });
+    const second = await runProviderRequest(retryRuntime, messages, {
+        ...options,
+        parentOperationId: options.parentOperationId ?? first.meta.operationId,
+    });
+    if (!second.success) return second;
+    await rememberCompatQuirks(current.source, current.source.protocol, learned);
+    void recordDiagnosticLog({
+        level: 'info',
+        source: 'AI:compat',
+        message: 'compat_quirk_learned',
+        context: { operationId: second.meta.operationId, protocol: current.capabilities.protocol, model: current.capabilities.model, learned },
+    });
+    return { ...second, learnedQuirks: learned };
+}
+
 export async function testProviderConnection(
     config: AIProviderConfig,
     options: ProviderConnectionTestOptions = {},
@@ -934,21 +1112,24 @@ export async function testProviderConnection(
         throw new Error('请先填写接口地址、API Key，并选择模型。');
     }
     const operationId = 'connection-' + createOperationId();
-    const first = config.protocolVerified ? config.protocol : inferProviderProtocol(config.apiUrl, config.model);
-    const protocols: AIProviderProtocol[] = config.protocolPreference === 'auto'
-        ? [first, first === 'responses' ? 'anthropic_messages' : 'responses']
-        : [config.protocolPreference];
+    const candidates = getProtocolCandidates(config.apiUrl, config.model, options.catalogEndpoints);
+    const protocols: AIProviderProtocol[] = config.protocolPreference !== 'auto'
+        ? [config.protocolPreference]
+        : config.protocolVerified
+            ? [config.protocol, ...candidates.filter((protocol) => protocol !== config.protocol)]
+            : candidates;
     const attempts: AIProviderConnectionAttempt[] = [];
     for (const [index, protocol] of protocols.entries()) {
         if (options.signal?.aborted) break;
         options.onAttempt?.(protocol, index + 1, protocols.length);
+        const endpoint = resolveProviderEndpoint(config.apiUrl, protocol);
         let runtime: AIRequestRuntime;
         try {
             // Resolve capabilities for this candidate without changing the user's reasoning selection.
-            runtime = await resolveAIRequestRuntime({ ...config, protocol });
+            runtime = await resolveAIRequestRuntime({ ...config, protocol, protocolPreference: 'auto' });
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : '读取模型配置失败';
-            attempts.push({ protocol, success: false, code: 'invalid_configuration', error: message });
+            attempts.push({ protocol, endpoint, success: false, code: 'invalid_configuration', error: message });
             continue;
         }
         if (options.signal?.aborted) break;
@@ -956,7 +1137,7 @@ export async function testProviderConnection(
             stage: 'connection_test', requestType: 'connection_test', signal: options.signal,
             parentOperationId: operationId,
         });
-        attempts.push({ protocol, success: result.success, code: result.code, error: result.error, result });
+        attempts.push({ protocol, endpoint, success: result.success, code: result.code, error: result.error, result });
         if (result.success) return { operationId, success: true, attempts, selectedProtocol: protocol, selectedResult: result };
         if (result.code === 'aborted') break;
     }
@@ -965,4 +1146,35 @@ export async function testProviderConnection(
         error: options.signal?.aborted ? '连接测试已取消'
             : attempts.map((attempt) => `${getProtocolLabel(attempt.protocol)}：${attempt.error || '未返回完整正文'}`).join('\n\n'),
     };
+}
+
+/* ---------- plain-language failures ---------- */
+
+export interface ProviderFailureSummary {
+    title: string;
+    hint: string;
+    /** Long thinking plausibly caused it, so a lighter level is worth offering. */
+    thinkingRelated?: boolean;
+}
+
+/** One sentence a user can act on; the provider's own words stay in the details. */
+export function describeProviderFailure(status: number | undefined, message = ''): ProviderFailureSummary | null {
+    if (status === 401 || status === 403) return { title: 'API Key 无效或没有权限', hint: '核对 Key 是否填对、是否有这个模型的使用权限。' };
+    if (status === 404) return { title: '该地址下没有这个接口', hint: '核对 Base URL；如果是中转站，确认它开放了这个协议，或模型名是否正确。' };
+    if (status === 429) return { title: '额度不足或请求过快', hint: '稍后再试，或检查账户余额与限速。' };
+    if (status === 524 || status === 504 || status === 408) return { title: '网关等待超时', hint: '思考时间过长时容易发生，可以调低思考强度后重试。', thinkingRelated: true };
+    if ((status === 502 || status === 503) && /无法连接|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|connect(?:ion)? (?:refused|failed)|getaddrinfo/i.test(message)) {
+        return { title: '连不上这个地址', hint: '核对 Base URL 是否正确、服务是否在线。' };
+    }
+    if (status !== undefined && status >= 500) return { title: '服务端暂时出错', hint: '稍后重试；反复出现时可以调低思考强度。', thinkingRelated: true };
+    if (/model.*(?:not.*(?:found|exist)|does not exist)|unknown model|invalid model|no available channel/i.test(message)) {
+        return { title: '接口不认识这个模型名', hint: '核对模型名称，或在模型列表里重新选择。' };
+    }
+    return null;
+}
+
+/** Pulls the HTTP status back out of a formatted failure message ("…（HTTP 404）…"). */
+export function readFailureStatus(message: string | undefined): number | undefined {
+    const match = message?.match(/HTTP (\d{3})/);
+    return match ? Number(match[1]) : undefined;
 }

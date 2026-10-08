@@ -45,7 +45,7 @@ import {
     subscribeSettings,
 } from '../../src/services/settings';
 import { exportDiagnosticLogFile, recordDiagnosticLog } from '../../src/services/diagnostics';
-import AIProviderSettings, { type AIProviderSettingsHandle } from '../../src/components/AIProviderSettings';
+import AIProviderSettings, { type AIProviderSettingsHandle, type SettingsSaveState } from '../../src/components/AIProviderSettings';
 import { CloseIcon, ChevronRightIcon } from '../../src/components/Icons';
 import appConfig from '../../app.json';
 import { registerSettingsLeaveHandler } from '../../src/services/settings-leave-guard';
@@ -65,9 +65,19 @@ function getHostLabel(value: string): string {
     }
 }
 
+function getAIHubMeta(settings: AISettings): string {
+    const provider = getActiveProvider(settings);
+    if (!provider) return '未配置';
+    const host = getHostLabel(provider.apiUrl.trim().replace(/#$/, ''));
+    const model = getActiveModel(provider);
+    return model ? `${host} · ${model.protocolVerified ? '已连通' : '未检测'}` : host;
+}
+
 function areSettingsEqual(left: AISettings, right: AISettings): boolean {
     return JSON.stringify(left) === JSON.stringify(right);
 }
+
+const SETTINGS_AUTOSAVE_DELAY_MS = 600;
 
 function TaijiHub({
     theme,
@@ -145,7 +155,7 @@ export default function SettingsPage() {
     const themeProgress = useRef(new Animated.Value(theme === 'yang' ? 1 : 0)).current;
     const [settings, setSettings] = useState<AISettings>(DEFAULT_SETTINGS);
     const [savedSettings, setSavedSettings] = useState<AISettings>(DEFAULT_SETTINGS);
-    const [savedTheme, setSavedTheme] = useState<ThemeType>(theme);
+    const [saveState, setSaveState] = useState<SettingsSaveState>({ status: 'saved' });
     const [isInitializing, setIsInitializing] = useState(true);
     const [initializationError, setInitializationError] = useState('');
     const [isBackingUp, setIsBackingUp] = useState(false);
@@ -160,8 +170,8 @@ export default function SettingsPage() {
     const settingsRef = useRef(settings);
     const savedSettingsRef = useRef(savedSettings);
     const themeRef = useRef(theme);
-    const savedThemeRef = useRef(savedTheme);
-    const isPersistingSettingsRef = useRef(false);
+    const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const saveChainRef = useRef<Promise<boolean>>(Promise.resolve(true));
     const aiProviderSettingsRef = useRef<AIProviderSettingsHandle>(null);
     const bypassNavigationGuardRef = useRef(false);
     const {
@@ -179,8 +189,7 @@ export default function SettingsPage() {
             savedSettingsRef.current = nextSettings;
             setSettings(nextSettings);
             setSavedSettings(nextSettings);
-            savedThemeRef.current = theme;
-            setSavedTheme(theme);
+            setSaveState({ status: 'saved' });
         } catch (error: unknown) {
             setInitializationError(error instanceof Error ? error.message : '读取设置失败');
         } finally {
@@ -188,6 +197,7 @@ export default function SettingsPage() {
         }
     };
     useEffect(() => { void loadSettings(); }, []);
+    useEffect(() => () => clearTimeout(saveTimerRef.current), []);
 
     useEffect(() => subscribeSettings((nextSettings) => {
         const hasDraft = !areSettingsEqual(settingsRef.current, savedSettingsRef.current);
@@ -216,89 +226,83 @@ export default function SettingsPage() {
         }).start();
     }, [theme, themeProgress]);
 
+    // Settings save themselves: each change is written shortly after the last
+    // edit. A draft that does not validate yet (e.g. a half-typed number) stays
+    // on screen with its reason instead of interrupting with a dialog.
+    const persistSettings = useCallback((): Promise<boolean> => {
+        clearTimeout(saveTimerRef.current);
+        const run = async (): Promise<boolean> => {
+            const snapshot = settingsRef.current;
+            if (areSettingsEqual(snapshot, savedSettingsRef.current)) {
+                setSaveState({ status: 'saved' });
+                return true;
+            }
+            setSaveState({ status: 'saving' });
+            try {
+                await saveSettings(snapshot);
+                savedSettingsRef.current = snapshot;
+                setSavedSettings(snapshot);
+                setSaveState(areSettingsEqual(settingsRef.current, snapshot) ? { status: 'saved' } : { status: 'pending' });
+                return true;
+            } catch (error: unknown) {
+                setSaveState({ status: 'error', message: error instanceof Error ? error.message : '保存设置失败' });
+                return false;
+            }
+        };
+        saveChainRef.current = saveChainRef.current.then(run, run);
+        return saveChainRef.current;
+    }, []);
+
     const updateSettings = useCallback((nextState: React.SetStateAction<AISettings>) => {
         const next = typeof nextState === 'function' ? nextState(settingsRef.current) : nextState;
         settingsRef.current = next;
         setSettings(next);
-    }, []);
+        clearTimeout(saveTimerRef.current);
+        if (areSettingsEqual(next, savedSettingsRef.current)) return;
+        setSaveState({ status: 'pending' });
+        saveTimerRef.current = setTimeout(() => { void persistSettings(); }, SETTINGS_AUTOSAVE_DELAY_MS);
+    }, [persistSettings]);
 
     const getHasUnsavedChanges = useCallback(() => {
         return Boolean(aiProviderSettingsRef.current?.hasPendingModel())
-            || !areSettingsEqual(settingsRef.current, savedSettingsRef.current)
-            || themeRef.current !== savedThemeRef.current;
+            || !areSettingsEqual(settingsRef.current, savedSettingsRef.current);
     }, []);
 
     const handleToggleTheme = () => {
         const nextTheme = themeRef.current === 'yang' ? 'yin' : 'yang';
         themeRef.current = nextTheme;
         setTheme(nextTheme);
+        saveTheme(nextTheme).catch(() => undefined);
     };
 
-    const persistDraft = useCallback(async (): Promise<boolean> => {
-        if (isPersistingSettingsRef.current) {
-            return false;
-        }
-        isPersistingSettingsRef.current = true;
-        aiProviderSettingsRef.current?.commitPendingModel();
-        const settingsToPersist = settingsRef.current;
-        const themeToPersist = themeRef.current;
-        try {
-            await Promise.all([
-                saveSettings(settingsToPersist),
-                saveTheme(themeToPersist),
-            ]);
-            savedSettingsRef.current = settingsToPersist;
-            setSavedSettings(settingsToPersist);
-            savedThemeRef.current = themeToPersist;
-            setSavedTheme(themeToPersist);
-            return true;
-        } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : '保存设置失败';
-            CustomAlert.alert('保存失败', message);
-            return false;
-        } finally {
-            isPersistingSettingsRef.current = false;
-        }
-    }, [saveTheme]);
-
     const discardDraft = useCallback(() => {
-        const settingsToRestore = savedSettingsRef.current;
-        const themeToRestore = savedThemeRef.current;
-        settingsRef.current = settingsToRestore;
-        setSettings(settingsToRestore);
-        themeRef.current = themeToRestore;
-        setTheme(themeToRestore);
-    }, [setTheme]);
+        clearTimeout(saveTimerRef.current);
+        settingsRef.current = savedSettingsRef.current;
+        setSettings(savedSettingsRef.current);
+        setSaveState({ status: 'saved' });
+    }, []);
 
+    /** Leaving writes whatever is pending; only a draft that cannot be saved asks first. */
     const requestLeave = useCallback((proceed: () => void) => {
         aiProviderSettingsRef.current?.commitPendingModel();
-        const currentSettings = settingsRef.current;
-        const currentHasUnsavedChanges = !areSettingsEqual(currentSettings, savedSettingsRef.current)
-            || themeRef.current !== savedThemeRef.current;
-        if (!currentHasUnsavedChanges) {
-            proceed();
-            return;
-        }
-        CustomAlert.alert('保存设置？', '当前设置有未保存的修改。', [
-            { text: '继续编辑', style: 'cancel' },
-            {
-                text: '不保存',
-                style: 'destructive',
-                onPress: () => {
-                    discardDraft();
-                    proceed();
-                },
-            },
-            {
-                text: '保存并离开',
-                onPress: async () => {
-                    if (await persistDraft()) {
+        void persistSettings().then((saved) => {
+            if (saved) {
+                proceed();
+                return;
+            }
+            CustomAlert.alert('有修改无法保存', '当前填写的内容未通过校验，离开会放弃这些修改。', [
+                { text: '继续编辑', style: 'cancel' },
+                {
+                    text: '放弃修改',
+                    style: 'destructive',
+                    onPress: () => {
+                        discardDraft();
                         proceed();
-                    }
+                    },
                 },
-            },
-        ]);
-    }, [discardDraft, persistDraft]);
+            ]);
+        });
+    }, [discardDraft, persistSettings]);
 
     const requestCloseSheet = useCallback(() => {
         if (activeSheet === null) {
@@ -508,12 +512,11 @@ export default function SettingsPage() {
                 text: '恢复',
                 style: 'destructive',
                 onPress: () => {
-                    const resetSettings = { ...DEFAULT_SETTINGS };
-                    settingsRef.current = resetSettings;
-                    setSettings(resetSettings);
+                    updateSettings({ ...DEFAULT_SETTINGS });
                     themeRef.current = 'yin';
                     setTheme('yin');
-                    CustomAlert.alert('已恢复', '已恢复默认值，离开设置页时可选择保存。');
+                    saveTheme('yin').catch(() => undefined);
+                    CustomAlert.alert('已恢复', '已恢复默认设置。');
                 },
             },
         ]);
@@ -554,7 +557,7 @@ export default function SettingsPage() {
                     <SettingCard
                         title="AI 中枢"
                         value={getActiveModel(getActiveProvider(settings))?.model || '待选择模型'}
-                        meta={getHostLabel(getActiveProvider(settings)?.apiUrl || '')}
+                        meta={getAIHubMeta(settings)}
                         Colors={Colors}
                         onPress={() => setActiveSheet('ai')}
                     />
@@ -584,8 +587,7 @@ export default function SettingsPage() {
 
             <SettingsSheet visible={activeSheet !== null} title={getSheetTitle(activeSheet)} Colors={Colors} onClose={requestCloseSheet} independentContent={activeSheet === 'ai'}>
                 {activeSheet === 'ai' && (
-                    <AIProviderSettings ref={aiProviderSettingsRef} settings={settings} onChange={updateSettings} onSave={persistDraft}
-                        hasUnsavedChanges={!areSettingsEqual(settings, savedSettings) || theme !== savedTheme} />
+                    <AIProviderSettings ref={aiProviderSettingsRef} settings={settings} onChange={updateSettings} saveState={saveState} />
                 )}
                 {activeSheet === 'calendar' && (
                     <View style={styles.sheetBlock}>
