@@ -131,6 +131,21 @@ function parseReasoningMetadata(source: Record<string, unknown>): AIReasoningCap
     };
 }
 
+// Gateways such as new-api list the endpoint families a model is served on.
+// Only values that mean Responses or Anthropic Messages become hints.
+function parseEndpointHints(item: Record<string, unknown>): AIProviderProtocol[] | undefined {
+    const values = [item.supported_endpoint_types, item.supportedEndpointTypes, item.supported_endpoints, item.endpoint_types, item.endpoints]
+        .flatMap(normalizeStringList)
+        .map((value) => value.toLowerCase().replace(/[\s_]+/g, '-'));
+    const endpoints: AIProviderProtocol[] = [];
+    for (const value of values) {
+        const protocol = /^(?:openai-)?responses?$|^openai-response$|\/responses$/.test(value) ? 'responses'
+            : /^anthropic(?:-messages)?$|^claude$|\/messages$/.test(value) ? 'anthropic_messages' : undefined;
+        if (protocol && !endpoints.includes(protocol)) endpoints.push(protocol);
+    }
+    return endpoints.length ? endpoints : undefined;
+}
+
 function parseModelMetadata(item: unknown): AIModelMetadata | null {
     if (!isRecord(item)) {
         return null;
@@ -166,6 +181,7 @@ function parseModelMetadata(item: unknown): AIModelMetadata | null {
         supportsTemperature,
         temperatureWithReasoning: findExplicitBoolean(item, ['temperatureWithReasoning', 'temperature_with_reasoning']),
         reasoning: parseReasoningMetadata(item),
+        endpoints: parseEndpointHints(item),
     };
 }
 
@@ -175,6 +191,7 @@ function hasExplicitMetadata(metadata: AIModelMetadata | undefined): metadata is
         && (metadata.maxOutputTokens !== undefined
             || metadata.supportsTemperature !== undefined
             || metadata.supportedParameters?.length
+            || metadata.endpoints?.length
             || metadata.reasoning),
     );
 }

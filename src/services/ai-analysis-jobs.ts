@@ -906,7 +906,7 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
             if (!isCurrentJob(key, job.jobId) || controller.signal.aborted) {
                 return;
             }
-            const executionMeta: AIExecutionMeta = { ...runtime.meta, skills: built.debugMeta?.skills ?? [] };
+            let executionMeta: AIExecutionMeta = { ...runtime.meta, skills: built.debugMeta?.skills ?? [] };
             setJobState(key, { debugMeta: built.debugMeta, executionMeta });
 
             const partial = request.continuation?.partial ?? '';
@@ -950,6 +950,11 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
 
             if (!isCurrentJob(key, job.jobId)) {
                 return;
+            }
+            // A compat retry may have dropped a parameter; record what was actually sent.
+            if (response.executionMeta) {
+                executionMeta = { ...response.executionMeta, skills: executionMeta.skills };
+                setJobState(key, { executionMeta });
             }
             if (!response.content) {
                 failJob(
