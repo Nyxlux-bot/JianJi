@@ -1,7 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isAIReasoningEffort, isAIReasoningSetting, isAIThinkingMode } from '../core/ai-execution-meta';
-import { DEFAULT_OUTPUT_TOKENS, DEFAULT_REASONING_OUTPUT_TOKENS, DEFAULT_THINKING_BUDGET, getBuiltInModelMetadata } from './ai-model-capabilities';
-import type { AIModelCapabilityOverrides, AIModelProfile, AIProviderConfig, AIProviderProfile, AIProviderProtocol } from './ai-provider-types';
+import { budgetToLevel, DEFAULT_OUTPUT_TOKENS, DEFAULT_REASONING_OUTPUT_TOKENS, DEFAULT_THINKING_BUDGET, getBuiltInModelMetadata, getThinkingStops } from './ai-model-capabilities';
+import { RAW_URL_MARKER, wasLegacyRawEndpoint } from './ai-endpoints';
+import type { AIModelCapabilityOverrides, AIModelProfile, AIProviderConfig, AIProviderProfile, AIProviderProtocol, AIReasoningSetting } from './ai-provider-types';
 
 export interface AISettings {
     version: 2;
@@ -11,6 +12,8 @@ export interface AISettings {
 }
 
 const SETTINGS_KEY = 'settings_document_v2';
+/** One-time marker: saved URLs were adapted to the generic endpoint rules. */
+const ENDPOINT_RULES_MIGRATION_KEY = 'settings_endpoint_rules_v2';
 const LEGACY_KEYS = ['settings_api_url', 'settings_api_key', 'settings_model', 'settings_ai_protocol', 'settings_ai_protocol_verified', 'settings_temperature', 'settings_geocoder_api_key'];
 const LEGACY_PROMPT_KEYS = ['settings_prompt_liuyao_system', 'settings_prompt_liuyao_version', 'settings_prompt_liuyao_is_custom', 'settings_prompt_bazi_system', 'settings_prompt_bazi_version', 'settings_prompt_bazi_is_custom', 'settings_system_prompt', 'settings_ai_unlocked', 'settings_prompt_version', 'settings_prompt_is_custom'];
 export const DEFAULT_SETTINGS: AISettings = { version: 2, providers: [], activeProviderId: null, geocoderApiKey: '' };
@@ -23,18 +26,31 @@ function newId(prefix: string): string {
     return `${prefix}-${Date.now().toString(36)}-${(++idSequence).toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** Known models start at "high" (or their deepest level); unknown ones send nothing until the user picks a level. */
+export function getDefaultReasoning(model: string, protocol: AIProviderProtocol): AIReasoningSetting {
+    const known = getBuiltInModelMetadata(model, protocol)?.reasoning;
+    if (!known) return 'default';
+    const stops = getThinkingStops(protocol, known);
+    return stops.includes('high') ? 'high' : stops[stops.length - 1] ?? 'default';
+}
+
 export function createModelProfile(model = '', protocol: AIProviderProtocol = 'responses'): AIModelProfile {
     const known = getBuiltInModelMetadata(model, protocol);
-    const reasoning = known?.reasoning?.efforts.includes('high') ? 'high' : 'default';
     return {
         id: newId('model'), revision: 1, model: model.trim(), protocol, protocolPreference: 'auto', protocolVerified: false,
-        temperature: 0.7, reasoning, thinkingBudgetTokens: DEFAULT_THINKING_BUDGET,
-        maxOutputTokens: Math.min(reasoning === 'high' ? DEFAULT_REASONING_OUTPUT_TOKENS : DEFAULT_OUTPUT_TOKENS, known?.maxOutputTokens ?? Infinity),
+        temperature: 0.7, reasoning: getDefaultReasoning(model, protocol), thinkingBudgetTokens: DEFAULT_THINKING_BUDGET,
+        maxOutputTokens: Math.min(DEFAULT_REASONING_OUTPUT_TOKENS, known?.maxOutputTokens ?? Infinity), maxOutputTokensAuto: true,
     };
 }
 
 export function createProviderProfile(): AIProviderProfile {
-    return { id: newId('provider'), revision: 1, name: '新接口', apiUrl: 'https://api.openai.com/v1', apiKey: '', models: [], activeModelId: null };
+    return { id: newId('provider'), revision: 1, name: '', apiUrl: '', apiKey: '', models: [], activeModelId: null };
+}
+
+/** Display name for a provider: its own name, else the host it points at. */
+export function getProviderDisplayName(provider: Pick<AIProviderProfile, 'name' | 'apiUrl'>): string {
+    if (provider.name.trim()) return provider.name.trim();
+    try { return new URL(provider.apiUrl.trim().replace(/#$/, '')).host || '未命名接口'; } catch { return '未命名接口'; }
 }
 
 export function getActiveProvider(settings: AISettings): AIProviderProfile | undefined {
@@ -52,7 +68,7 @@ export function toProviderConfig(provider: AIProviderProfile, model: AIModelProf
         model: model.model, protocol: model.protocol, temperature: model.temperature, reasoning: model.reasoning,
         protocolPreference: model.protocolPreference, protocolVerified: model.protocolVerified,
         thinkingBudgetTokens: model.thinkingBudgetTokens, maxOutputTokens: model.maxOutputTokens,
-        capabilityOverrides: model.capabilityOverrides,
+        maxOutputTokensAuto: model.maxOutputTokensAuto, capabilityOverrides: model.capabilityOverrides,
     };
 }
 
@@ -71,6 +87,7 @@ export function sameProviderConfig(left: AIProviderConfig, right: AIProviderConf
         && left.apiUrl === right.apiUrl && left.apiKey === right.apiKey && left.model === right.model
         && left.temperature === right.temperature && left.reasoning === right.reasoning
         && left.thinkingBudgetTokens === right.thinkingBudgetTokens && left.maxOutputTokens === right.maxOutputTokens
+        && left.maxOutputTokensAuto === right.maxOutputTokensAuto
         && JSON.stringify(left.capabilityOverrides) === JSON.stringify(right.capabilityOverrides);
 }
 
@@ -83,9 +100,26 @@ export function updateProviderProfile(settings: AISettings, providerId: string, 
     }) };
 }
 
+/** Only a change to what is called (model or protocol) invalidates the verified protocol; thinking level, temperature and limits do not. */
 export function updateModelProfile(provider: AIProviderProfile, modelId: string, update: (model: AIModelProfile) => AIModelProfile): AIProviderProfile {
-    return { ...provider, models: provider.models.map((previous) => previous.id === modelId
-        ? { ...update(previous), revision: previous.revision + 1, protocolVerified: false } : previous) };
+    return { ...provider, models: provider.models.map((previous) => {
+        if (previous.id !== modelId) return previous;
+        const next = update(previous);
+        const endpointChanged = next.model !== previous.model || next.protocol !== previous.protocol || next.protocolPreference !== previous.protocolPreference;
+        return { ...next, revision: previous.revision + 1, protocolVerified: endpointChanged ? false : next.protocolVerified };
+    }) };
+}
+
+/** Sets the active model's thinking level from anywhere (the AI page slider), against the latest saved settings. */
+export async function setActiveModelReasoning(reasoning: AIReasoningSetting): Promise<AISettings> {
+    const current = await getSettings();
+    const provider = getActiveProvider(current);
+    const model = getActiveModel(provider);
+    if (!provider || !model) throw new Error('请先在 AI 中枢选择模型。');
+    if (model.reasoning === reasoning) return current;
+    const next = updateProviderProfile(current, provider.id, (entry) => updateModelProfile(entry, model.id, (item) => ({ ...item, reasoning })));
+    await saveSettings(next);
+    return next;
 }
 
 function object(value: unknown, label: string): Record<string, unknown> {
@@ -131,15 +165,22 @@ function parseModel(value: unknown): AIModelProfile {
     if (!isAIReasoningSetting(raw.reasoning)) throw new Error('思考设置无效');
     if (typeof raw.temperature !== 'number' || !Number.isFinite(raw.temperature) || raw.temperature < 0 || raw.temperature > 2) throw new Error('温度须在 0 到 2 之间');
     if (typeof raw.protocolVerified !== 'boolean') throw new Error('模型验证状态无效');
+    if (raw.maxOutputTokensAuto !== undefined && typeof raw.maxOutputTokensAuto !== 'boolean') throw new Error('输出上限模式无效');
+    const thinkingBudgetTokens = integer(raw.thinkingBudgetTokens, '思考预算', 1024);
+    const maxOutputTokens = integer(raw.maxOutputTokens, '总输出上限');
     const model: AIModelProfile = {
         id: string(raw.id, '模型标识'), revision: integer(raw.revision, '模型配置版本'), model: string(raw.model, '模型名称').trim(),
         protocol: raw.protocol, protocolVerified: raw.protocolVerified, temperature: raw.temperature,
         protocolPreference: raw.protocolPreference ?? 'auto',
-        reasoning: raw.reasoning, thinkingBudgetTokens: integer(raw.thinkingBudgetTokens, '思考预算', 1024),
-        maxOutputTokens: integer(raw.maxOutputTokens, '总输出上限'), capabilityOverrides: parseOverrides(raw.capabilityOverrides),
+        // The token-budget setting became levels; keep the level nearest the old budget.
+        reasoning: raw.reasoning === 'budget' ? budgetToLevel(thinkingBudgetTokens) : raw.reasoning,
+        thinkingBudgetTokens, maxOutputTokens,
+        // Older profiles left at a default limit follow the level; a hand-set limit stays manual.
+        maxOutputTokensAuto: typeof raw.maxOutputTokensAuto === 'boolean'
+            ? raw.maxOutputTokensAuto : maxOutputTokens === DEFAULT_OUTPUT_TOKENS || maxOutputTokens === DEFAULT_REASONING_OUTPUT_TOKENS,
+        capabilityOverrides: parseOverrides(raw.capabilityOverrides),
     };
     if (!model.id) throw new Error('模型标识不能为空');
-    if (model.reasoning === 'budget' && model.thinkingBudgetTokens >= model.maxOutputTokens) throw new Error('思考预算必须小于总输出上限');
     return model;
 }
 
@@ -179,9 +220,28 @@ function legacyProvider(raw: Record<string, unknown>): AIProviderProfile {
     };
 }
 
+/**
+ * Saved URLs whose path the old rules sent as-is get a raw marker, but only
+ * when a model on that provider had been verified — a URL that never worked
+ * is better served by the new rules.
+ */
+async function migrateEndpointRules(settings: AISettings): Promise<AISettings> {
+    if (await AsyncStorage.getItem(ENDPOINT_RULES_MIGRATION_KEY) !== null) return settings;
+    let changed = false;
+    const providers = settings.providers.map((provider) => {
+        if (!wasLegacyRawEndpoint(provider.apiUrl) || !provider.models.some((model) => model.protocolVerified)) return provider;
+        changed = true;
+        return { ...provider, apiUrl: provider.apiUrl.trim() + RAW_URL_MARKER };
+    });
+    const next = changed ? { ...settings, providers } : settings;
+    if (changed) await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+    await AsyncStorage.setItem(ENDPOINT_RULES_MIGRATION_KEY, '1');
+    return next;
+}
+
 async function loadSettings(): Promise<AISettings> {
     const saved = await AsyncStorage.getItem(SETTINGS_KEY);
-    if (saved !== null) return parseSettings(JSON.parse(saved));
+    if (saved !== null) return migrateEndpointRules(parseSettings(JSON.parse(saved)));
     const entries = await AsyncStorage.multiGet(LEGACY_KEYS);
     const values = new Map(entries);
     const hasAI = entries.slice(0, 6).some(([, value]) => value !== null);
@@ -193,7 +253,7 @@ async function loadSettings(): Promise<AISettings> {
     const settings: AISettings = { version: 2, providers: provider ? [provider] : [], activeProviderId: provider?.id ?? null, geocoderApiKey: values.get(LEGACY_KEYS[6]) ?? '' };
     await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     await AsyncStorage.multiRemove([...LEGACY_KEYS, ...LEGACY_PROMPT_KEYS]);
-    return settings;
+    return migrateEndpointRules(settings);
 }
 
 export async function getSettings(): Promise<AISettings> {

@@ -30,6 +30,8 @@ export interface AIModelProfile {
     reasoning: AIReasoningSetting;
     thinkingBudgetTokens: number;
     maxOutputTokens: number;
+    /** Output limit follows the thinking level; false keeps the user's own maxOutputTokens. */
+    maxOutputTokensAuto?: boolean;
     capabilityOverrides?: AIModelCapabilityOverrides;
 }
 
@@ -51,6 +53,24 @@ export interface AIModelMetadata {
     supportsTemperature?: boolean;
     temperatureWithReasoning?: boolean;
     reasoning?: AIReasoningCapability;
+    /** Protocols the catalog says this model is served on, when the gateway reports it. */
+    endpoints?: AIProviderProtocol[];
+}
+
+/**
+ * What one provider config taught us by rejecting parameters. Keyed per
+ * provider revision + model + protocol, never per host: the same model name
+ * behaves differently behind different gateways.
+ */
+export interface AICompatQuirks {
+    /** Anthropic side: adaptive → budget → none. */
+    reasoningFormat?: 'adaptive' | 'budget' | 'none';
+    /** Responses side: effort values the gateway refused (e.g. 'xhigh', 'none'). */
+    unsupportedEfforts?: Array<AIReasoningEffort | 'none'>;
+    dropReasoningSummary?: boolean;
+    dropTemperature?: boolean;
+    maxOutputTokensCap?: number;
+    learnedAt?: string;
 }
 
 export interface AIProviderCapabilities {
@@ -93,13 +113,18 @@ export interface AIProviderConfig {
     reasoning: AIReasoningSetting;
     thinkingBudgetTokens: number;
     maxOutputTokens: number;
+    maxOutputTokensAuto?: boolean;
     capabilityOverrides?: AIModelCapabilityOverrides;
 }
 
 /** A job owns this snapshot; do not attach it to persisted job state. */
 export interface AIRequestRuntime {
+    /** Effective request config: maxOutputTokens is already resolved. */
     config: Readonly<AIProviderConfig>;
+    /** The user's settings snapshot, kept so a runtime can be rebuilt with new quirks. */
+    source: Readonly<AIProviderConfig>;
     capabilities: AIProviderCapabilities;
+    quirks: Readonly<AICompatQuirks>;
     parameters: Record<string, unknown>;
     meta: AIExecutionMeta;
 }

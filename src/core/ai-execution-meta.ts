@@ -1,7 +1,8 @@
 export const AI_REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 export type AIReasoningEffort = typeof AI_REASONING_EFFORTS[number];
 export type AIReasoningSetting = 'default' | 'off' | 'budget' | AIReasoningEffort;
-export type AIThinkingMode = 'unknown' | 'unsupported' | 'responses' | 'adaptive' | 'budget';
+/** 'always': the model reasons on its own and takes no thinking parameter (e.g. *-reasoner, *-thinking aliases). */
+export type AIThinkingMode = 'unknown' | 'unsupported' | 'always' | 'responses' | 'adaptive' | 'budget';
 
 export interface AISkillVersion {
     id: string;
@@ -31,7 +32,7 @@ export function isAIReasoningSetting(value: unknown): value is AIReasoningSettin
 }
 
 export function isAIThinkingMode(value: unknown): value is AIThinkingMode {
-    return value === 'unknown' || value === 'unsupported' || value === 'responses' || value === 'adaptive' || value === 'budget';
+    return value === 'unknown' || value === 'unsupported' || value === 'always' || value === 'responses' || value === 'adaptive' || value === 'budget';
 }
 
 /** Import only known public fields, including when a backup contains extra properties. */
