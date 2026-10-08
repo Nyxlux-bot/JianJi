@@ -345,22 +345,27 @@ AI 层职责包括：
 
 ### 8.2 设置与配置
 
-`src/services/settings.ts` 当前保存：
-
-- `apiUrl`
-- `apiKey`
-- `model`
-- `geocoderApiKey`
+`src/services/settings.ts` 保存一份版本化的设置文档（`settings_document_v2`）：多个接口（Base URL、API Key），每个接口下多个模型配置（协议、思考档位、输出上限等），以及 `geocoderApiKey`。设置页改动后自动保存（约 600ms 防抖），不再需要手动点保存。
 
 同时会清理旧版 prompt / AI 解锁相关存储键，避免历史配置干扰当前逻辑。
 
-### 8.3 地点与地理编码
+### 8.3 AI 接口与协议
+
+- **只支持 OpenAI Responses 与 Anthropic Messages 两种协议。** Chat Completions 在 `2ed7537` 中有意移除：旧实现没有思考控制，思考与正文共用 `max_tokens` 容易截断，长时间静默思考还会被网关以 524 断开。不要再加回来。
+- **不按域名写死任何厂商地址。** Base URL 可能是官方接口，也可能是 new-api / sub2api 等中转或自建网关。端点、协议、参数只依据三件事：用户填写的地址、接口自身返回（模型目录元数据、报错内容）、实测结果。
+- **地址规则**（`ai-endpoints.ts`）：路径为空补 `/v1/<端点>`；以已知端点结尾则替换；末段是版本号（`v1`、`v4`、`v1beta`）直接接端点；其他路径当作 base 追加 `/v1/<端点>`；末尾 `#` 表示原样请求。AI 中枢会实时显示两种协议的实际请求地址。
+- **协议探测**：`getProtocolCandidates` 按 URL 路径提示 → 模型目录的端点类型 → 模型名族排序，连接测试逐个尝试，成功后记录到模型配置（`protocolVerified`）。AI 中枢在地址、Key、模型齐全后会自动检测一次。
+- **参数自愈**（`ai-compat-memory.ts`）：思考参数按协议标准格式发送，不再要求白名单。接口在未输出正文前以 4xx 拒收某个参数时，`streamProviderText` 去掉该参数重试一次，成功后按「接口配置 revision + 模型 + 协议」记住（Anthropic 侧 adaptive → budget → 不发；Responses 侧剔除不支持的 effort 或推理摘要；温度；输出上限）。改地址或 Key 后记忆自动失效，「重新检测」会清空。
+- **思考档位与输出余量**（`ai-model-capabilities.ts`）：AI 分析页右上角模型面板里的思考滑块按模型给出可选档位（`getThinkingStops`），始终思考 / 不支持的模型锁定。输出上限默认随档位自动计算（`resolveOutputBudget`），预算模式始终给正文保留余量；正文被截断或网关超时时，失败卡片提供「降一档重新生成」。
+- **Responses 推理摘要**：开启思考时附带 `reasoning.summary: 'auto'`，让思考期间持续有事件推送，避免中转空闲断线；接口拒收时自动去掉。
+
+### 8.4 地点与地理编码
 
 - `src/services/location.ts`：保存用户已选出生地
 - `src/services/region-geocode.ts`：调用腾讯位置服务补全区县经纬度，并缓存结果
 - `src/core/city-data.ts`：省市区候选、旧数据兼容与显示标签构建
 
-### 8.4 分享导出
+### 8.5 分享导出
 
 `src/services/share.ts` 当前支持：
 

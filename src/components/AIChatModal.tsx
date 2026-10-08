@@ -10,6 +10,7 @@ import {
     View,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { BaziFormatterContext, mergeBaziFormatterContext } from '../core/bazi-ai-context';
 import { normalizeGanZhiRelationSettings } from '../core/bazi-ganzhi-relation-engine';
@@ -65,6 +66,10 @@ import {
     subscribeAIAnalysisJob,
 } from '../services/ai-analysis-jobs';
 import { recordDiagnosticLog } from '../services/diagnostics';
+import { describeProviderFailure, readFailureStatus } from '../services/ai-provider-client';
+import { getAutoRestIndex, getReasoningLabel, resolveShownLevel } from '../services/ai-model-capabilities';
+import { setActiveModelReasoning } from '../services/settings';
+import { useActiveAIModel } from '../hooks/useActiveAIModel';
 import { shareChatMarkdown } from '../services/share';
 import { Spacing } from '../theme/colors';
 import { useTheme } from '../theme/ThemeContext';
@@ -87,7 +92,7 @@ import { deriveChapters, getJobChapter, type AIPageEngine, type ChapterId } from
 import { AIChapterCard, type ChapterYearMeta } from './ai/AIChapterCard';
 import {
     ActionButton, AIComposer, AIModelChip, AIStageStepper, BaziChartSummary, CompatChartSummary, EnergyPanel,
-    FailureBanner, MutagenChips, ProgressBlock, ZiweiChartSummary,
+    FailureBanner, formatRunLabel, MutagenChips, ProgressBlock, ZiweiChartSummary,
 } from './ai/AIPageParts';
 import { makeAIMarkdownStyles, makeAIPageStyles } from './ai/ai-page-styles';
 import OverflowMenu, { OverflowMenuItem } from './OverflowMenu';
@@ -371,6 +376,7 @@ function getAnalysisJobNotice(job?: AIAnalysisJobState | null): string | null {
 
 export default function AIChatModal({ visible, onClose, result, onUpdateResult, baziContext, ziweiContext }: AIChatModalProps) {
     const { Colors } = useTheme();
+    const activeModel = useActiveAIModel(visible);
     const latestResultRef = useRef<AIPageResult>(result);
     const latestBaziContextRef = useRef<BaziFormatterContext | undefined>(baziContext);
     const latestZiweiContextRef = useRef<ZiweiFormatterContext | undefined>(ziweiContext);
@@ -1386,17 +1392,39 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     };
 
     /* ---------- footer: progress, failure, or the next step ---------- */
-    const describeFailure = (job: AIAnalysisJobState): { title: string; message: string } => {
+    const describeFailure = (job: AIAnalysisJobState): { title: string; message: string; lighter: boolean } => {
         const kept = job.draftContent ? '已写出的部分留在上方，可以从断处继续生成，也可以整段重新生成。' : '可以重新生成。';
-        if (job.status === 'interrupted') return { title: '上次生成被中断', message: `App 在生成途中被系统关闭。${kept}` };
+        if (job.status === 'interrupted') return { title: '上次生成被中断', message: `App 在生成途中被系统关闭。${kept}`, lighter: false };
         const code = job.failure?.code;
-        if (code === 'token_limit') return { title: '回复写到一半被截断', message: `模型达到单次输出上限。${kept}常被截断的话，在模型设置里调高输出上限。` };
-        if (code === 'network_error' || code === 'timeout') return { title: '连接中断', message: `和接口的连接断开了。${kept}` };
-        if (code === 'invalid_response' || code === 'empty_response') return { title: '回复没有写完', message: `模型提前结束了回复。${kept}` };
-        if (code === 'record_changed') return { title: '记录已变化', message: job.failure?.message ?? '' };
-        if (code === 'missing_api_key' || code === 'missing_api_url' || code === 'invalid_configuration') return { title: '接口还没配置好', message: job.failure?.message ?? '请到设置里检查接口与 Key。' };
-        if (code === 'http_error') return { title: '接口返回错误', message: '接口拒绝了这次请求，常见原因是额度、模型名或 Key。详情里有接口原话。' };
-        return { title: '生成失败', message: job.failure?.message ?? '请稍后重试。' };
+        const status = readFailureStatus(job.failure?.message);
+        const friendly = describeProviderFailure(status, job.failure?.message);
+        // Long thinking is the usual cause of truncation and gateway timeouts, so these offer a lighter level.
+        if (code === 'token_limit') return { title: '正文没写完', message: `思考占用了大部分输出额度，模型在写完前停下了。${kept}`, lighter: true };
+        if (code === 'network_error' || code === 'timeout') return { title: friendly?.title ?? '连接中断', message: `${friendly?.hint ?? '和接口的连接断开了。'}${kept}`, lighter: friendly ? Boolean(friendly.thinkingRelated) : true };
+        if (code === 'invalid_response' || code === 'empty_response') return { title: '回复没有写完', message: `模型提前结束了回复。${kept}`, lighter: false };
+        if (code === 'record_changed') return { title: '记录已变化', message: job.failure?.message ?? '', lighter: false };
+        if (code === 'missing_api_key' || code === 'missing_api_url' || code === 'invalid_configuration') return { title: '接口还没配置好', message: job.failure?.message ?? '请到设置里检查接口与 Key。', lighter: false };
+        if (code === 'http_error') {
+            return friendly
+                ? { title: friendly.title, message: `${friendly.hint}详情里有接口原话。`, lighter: Boolean(friendly.thinkingRelated) }
+                : { title: '接口返回错误', message: '接口拒绝了这次请求，常见原因是额度、模型名或 Key。详情里有接口原话。', lighter: false };
+        }
+        return { title: '生成失败', message: job.failure?.message ?? '请稍后重试。', lighter: false };
+    };
+
+    /** One stop lighter than what the active model is set to, if there is one. */
+    const lighterLevel = (() => {
+        const model = activeModel.model;
+        if (!model || activeModel.lock || activeModel.stops.length < 2) return undefined;
+        const shown = resolveShownLevel(model.reasoning, activeModel.stops, model.thinkingBudgetTokens);
+        const current = shown === 'default' ? getAutoRestIndex(activeModel.stops) : activeModel.stops.indexOf(shown);
+        return current > 0 ? activeModel.stops[current - 1] : undefined;
+    })();
+    const retryLighter = () => {
+        if (!lighterLevel) return;
+        setActiveModelReasoning(lighterLevel)
+            .then(() => handleRetryAnalysisJob())
+            .catch((error: unknown) => CustomAlert.alert('思考强度未保存', error instanceof Error ? error.message : '请稍后重试。'));
     };
 
     const renderNextStep = (): React.ReactNode => {
@@ -1413,7 +1441,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         }
         if (analysisJob && jobActive) {
             return <ProgressBlock status={analysisJob.status} startedAt={analysisJob.startedAt} styles={pageStyles}
-                modelLabel={analysisJob.executionMeta?.model}
+                modelLabel={formatRunLabel(analysisJob.executionMeta)}
                 onStop={isCancellableAIAnalysisJob(analysisJob) ? handleCancelAnalysisJob : undefined} />;
         }
         if (analysisJob && jobFailed) {
@@ -1423,11 +1451,14 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                 && !isKinshipResponseKind(analysisJob.expectedCompletion)
                 && (analysisJob.status === 'interrupted'
                     || ['token_limit', 'network_error', 'timeout', 'invalid_response'].includes(analysisJob.failure?.code ?? ''));
+            const lighter = failure.lighter && lighterLevel
+                ? { label: `降到「${getReasoningLabel(lighterLevel)}」重新生成`, onPress: retryLighter } : undefined;
+            const actions = canContinue
+                ? [{ label: '继续生成', primary: true, onPress: () => handleRetryAnalysisJob(true) }, lighter ?? { label: '重新生成', onPress: () => handleRetryAnalysisJob() }]
+                : [{ label: '重新生成', primary: true, onPress: () => handleRetryAnalysisJob() }, ...(lighter ? [lighter] : [])];
             return <FailureBanner title={failure.title} message={failure.message} styles={pageStyles}
                 detail={analysisJob.failure ? `${analysisJob.failure.code}：${analysisJob.failure.message}` : undefined}
-                actions={canContinue
-                    ? [{ label: '继续生成', primary: true, onPress: () => handleRetryAnalysisJob(true) }, { label: '重新生成', onPress: () => handleRetryAnalysisJob() }]
-                    : [{ label: '重新生成', primary: true, onPress: () => handleRetryAnalysisJob() }]} />;
+                actions={actions} />;
         }
         if (analysisJob?.status === 'cancelled') {
             return (
@@ -1527,120 +1558,122 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
 
     return (
         <Modal visible={visible} animationType="slide" onRequestClose={handleClose} onShow={handleModalShow}>
-            <SafeAreaProvider style={pageStyles.container}>
-                <SafeAreaView style={pageStyles.container}>
-                    <View style={pageStyles.header} onLayout={({ nativeEvent: { layout } }) => setHeaderBottom(layout.y + layout.height)}>
-                        <View style={pageStyles.headerRow}>
-                            <TouchableOpacity onPress={handleClose} style={pageStyles.headerBtn} accessibilityRole="button" accessibilityLabel="关闭 AI 分析">
-                                <BackIcon size={24} color={Colors.text.primary} />
-                            </TouchableOpacity>
-                            <View style={pageStyles.headerTitleWrap}>
-                                {workflowMode === 'liuyao' ? (
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                        <Text style={pageStyles.headerTitle} numberOfLines={1}>{headerMeta.title}</Text>
-                                        <GuaArrowIcon size={14} color={Colors.accent.gold} />
-                                        <Text style={pageStyles.headerTitle} numberOfLines={1}>{headerMeta.subtitle}</Text>
-                                    </View>
-                                ) : (
-                                    <>
-                                        <Text style={pageStyles.headerTitle} numberOfLines={1}>{headerMeta.title}</Text>
-                                        <Text style={pageStyles.headerSubtitle} numberOfLines={1}>{headerMeta.subtitle}</Text>
-                                    </>
-                                )}
-                            </View>
-                            <AIModelChip visible={visible} running={jobActive ? analysisJob?.executionMeta?.model : undefined} styles={pageStyles} Colors={Colors} />
-                            <TouchableOpacity onPress={() => setMenuVisible((prev) => !prev)} style={pageStyles.headerBtn}
-                                accessibilityRole="button" accessibilityLabel="更多操作" accessibilityState={{ expanded: menuVisible }}>
-                                <MoreVerticalIcon size={20} color={Colors.text.primary} />
-                            </TouchableOpacity>
-                        </View>
-                        {stagedMode ? (
-                            <AIStageStepper chapters={chapters} currentId={currentChapterId ?? anchorChapter?.id} styles={pageStyles}
-                                onPress={(id) => { followRef.current = false; scrollToChapter(id); }} />
-                        ) : null}
-                    </View>
-                    <OverflowMenu visible={menuVisible} top={headerBottom} right={Spacing.lg} items={menuItems} onClose={() => setMenuVisible(false)} />
-
-                    <KeyboardAvoidingView style={pageStyles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-                        <View style={pageStyles.flex}>
-                            <ScrollView
-                                ref={scrollRef}
-                                style={pageStyles.flex}
-                                onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
-                                contentContainerStyle={pageStyles.scrollBody}
-                                onScroll={handleScroll}
-                                scrollEventThrottle={100}
-                                onScrollBeginDrag={() => { userScrollingRef.current = true; }}
-                                onScrollEndDrag={() => { userScrollingRef.current = false; }}
-                                onMomentumScrollBegin={() => { userScrollingRef.current = true; }}
-                                onMomentumScrollEnd={() => { userScrollingRef.current = false; }}
-                                onContentSizeChange={handleContentSizeChange}
-                                keyboardShouldPersistTaps="handled"
-                                showsVerticalScrollIndicator={false}
-                            >
-                                {chartSummary}
-                                {shownChapters.map((chapter) => (
-                                    <AIChapterCard<UIChatMessage>
-                                        key={chapter.id}
-                                        chapter={chapter}
-                                        styles={pageStyles}
-                                        markdownStyles={aiMarkdownStyles}
-                                        Colors={Colors}
-                                        getDisplayContent={getDisplayContent}
-                                        yearMeta={stagedMode ? yearMeta : undefined}
-                                        renderYearPanel={stagedMode ? renderYearPanel : undefined}
-                                        marks={chapter.id === 'verification' ? verificationMarks : undefined}
-                                        onMark={chapter.id === 'verification' && marksEnabled ? handleMark : undefined}
-                                        footer={chapter.id === anchorChapter?.id ? footer : undefined}
-                                        onLayout={chapterLayoutHandlers[chapter.id]}
-                                        minHeight={chapter.id === runningChapter && runningChapter !== 'followup' && viewportHeight > 0
-                                            ? viewportHeight - 28 : undefined}
-                                    />
-                                ))}
-                                {shownChapters.length === 0 ? (
-                                    <View style={pageStyles.chap}>
-                                        <View style={pageStyles.chapHead}>
-                                            <Text style={pageStyles.chapNo}>{chapters[0]?.no}</Text>
-                                            <Text style={pageStyles.chapName}>{chapters[0]?.title}</Text>
-                                        </View>
-                                        {footer ?? (
-                                            <ActionButton label="开始分析" primary styles={pageStyles} onPress={() => {
-                                                void handleSend(getInitialPrompt(workflowMode), {
-                                                    isAutoInitial: true, hiddenUser: workflowMode !== 'liuyao', baseMessagesOverride: [],
-                                                    expectedCompletion: stagedMode ? 'foundation' : undefined,
-                                                    nextWorkflowStage: stagedMode ? 'foundation_ready' : undefined,
-                                                });
-                                            }} />
-                                        )}
-                                    </View>
-                                ) : null}
-                            </ScrollView>
-                            {showNewPill ? (
-                                <TouchableOpacity style={pageStyles.pill} accessibilityRole="button" onPress={() => {
-                                    followRef.current = true;
-                                    setShowNewPill(false);
-                                    scrollRef.current?.scrollToEnd({ animated: true });
-                                }}>
-                                    <Text style={pageStyles.pillText}>↓ 新内容</Text>
+            <GestureHandlerRootView style={pageStyles.flex}>
+                <SafeAreaProvider style={pageStyles.container}>
+                    <SafeAreaView style={pageStyles.container}>
+                        <View style={pageStyles.header} onLayout={({ nativeEvent: { layout } }) => setHeaderBottom(layout.y + layout.height)}>
+                            <View style={pageStyles.headerRow}>
+                                <TouchableOpacity onPress={handleClose} style={pageStyles.headerBtn} accessibilityRole="button" accessibilityLabel="关闭 AI 分析">
+                                    <BackIcon size={24} color={Colors.text.primary} />
                                 </TouchableOpacity>
+                                <View style={pageStyles.headerTitleWrap}>
+                                    {workflowMode === 'liuyao' ? (
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                            <Text style={pageStyles.headerTitle} numberOfLines={1}>{headerMeta.title}</Text>
+                                            <GuaArrowIcon size={14} color={Colors.accent.gold} />
+                                            <Text style={pageStyles.headerTitle} numberOfLines={1}>{headerMeta.subtitle}</Text>
+                                        </View>
+                                    ) : (
+                                        <>
+                                            <Text style={pageStyles.headerTitle} numberOfLines={1}>{headerMeta.title}</Text>
+                                            <Text style={pageStyles.headerSubtitle} numberOfLines={1}>{headerMeta.subtitle}</Text>
+                                        </>
+                                    )}
+                                </View>
+                                <AIModelChip visible={visible} running={jobActive ? analysisJob?.executionMeta : undefined} styles={pageStyles} Colors={Colors} />
+                                <TouchableOpacity onPress={() => setMenuVisible((prev) => !prev)} style={pageStyles.headerBtn}
+                                    accessibilityRole="button" accessibilityLabel="更多操作" accessibilityState={{ expanded: menuVisible }}>
+                                    <MoreVerticalIcon size={20} color={Colors.text.primary} />
+                                </TouchableOpacity>
+                            </View>
+                            {stagedMode ? (
+                                <AIStageStepper chapters={chapters} currentId={currentChapterId ?? anchorChapter?.id} styles={pageStyles}
+                                    onPress={(id) => { followRef.current = false; scrollToChapter(id); }} />
                             ) : null}
                         </View>
-                        <AIComposer
-                            value={inputText}
-                            onChange={setInputText}
-                            onSend={() => { void handleSend(); }}
-                            disabledReason={composerLockReason}
-                            busy={isLoading}
-                            quickReplies={!isLoading && (!stagedMode || workflowStage === 'followup_ready') ? quickReplies : []}
-                            onQuickReply={(text) => { void handleSend(text, { isQuickReply: stagedMode }); }}
-                            styles={pageStyles}
-                            Colors={Colors}
-                        />
-                    </KeyboardAvoidingView>
-                    <BaziKinshipFeedbackModal visible={feedbackVisible} value={feedbackDraft} busy={kinshipSaving}
-                        onChange={setFeedbackDraft} onClose={() => setFeedbackVisible(false)} onSave={saveFeedbackAndContinue} />
-                </SafeAreaView>
-            </SafeAreaProvider>
+                        <OverflowMenu visible={menuVisible} top={headerBottom} right={Spacing.lg} items={menuItems} onClose={() => setMenuVisible(false)} />
+
+                        <KeyboardAvoidingView style={pageStyles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+                            <View style={pageStyles.flex}>
+                                <ScrollView
+                                    ref={scrollRef}
+                                    style={pageStyles.flex}
+                                    onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
+                                    contentContainerStyle={pageStyles.scrollBody}
+                                    onScroll={handleScroll}
+                                    scrollEventThrottle={100}
+                                    onScrollBeginDrag={() => { userScrollingRef.current = true; }}
+                                    onScrollEndDrag={() => { userScrollingRef.current = false; }}
+                                    onMomentumScrollBegin={() => { userScrollingRef.current = true; }}
+                                    onMomentumScrollEnd={() => { userScrollingRef.current = false; }}
+                                    onContentSizeChange={handleContentSizeChange}
+                                    keyboardShouldPersistTaps="handled"
+                                    showsVerticalScrollIndicator={false}
+                                >
+                                    {chartSummary}
+                                    {shownChapters.map((chapter) => (
+                                        <AIChapterCard<UIChatMessage>
+                                            key={chapter.id}
+                                            chapter={chapter}
+                                            styles={pageStyles}
+                                            markdownStyles={aiMarkdownStyles}
+                                            Colors={Colors}
+                                            getDisplayContent={getDisplayContent}
+                                            yearMeta={stagedMode ? yearMeta : undefined}
+                                            renderYearPanel={stagedMode ? renderYearPanel : undefined}
+                                            marks={chapter.id === 'verification' ? verificationMarks : undefined}
+                                            onMark={chapter.id === 'verification' && marksEnabled ? handleMark : undefined}
+                                            footer={chapter.id === anchorChapter?.id ? footer : undefined}
+                                            onLayout={chapterLayoutHandlers[chapter.id]}
+                                            minHeight={chapter.id === runningChapter && runningChapter !== 'followup' && viewportHeight > 0
+                                                ? viewportHeight - 28 : undefined}
+                                        />
+                                    ))}
+                                    {shownChapters.length === 0 ? (
+                                        <View style={pageStyles.chap}>
+                                            <View style={pageStyles.chapHead}>
+                                                <Text style={pageStyles.chapNo}>{chapters[0]?.no}</Text>
+                                                <Text style={pageStyles.chapName}>{chapters[0]?.title}</Text>
+                                            </View>
+                                            {footer ?? (
+                                                <ActionButton label="开始分析" primary styles={pageStyles} onPress={() => {
+                                                    void handleSend(getInitialPrompt(workflowMode), {
+                                                        isAutoInitial: true, hiddenUser: workflowMode !== 'liuyao', baseMessagesOverride: [],
+                                                        expectedCompletion: stagedMode ? 'foundation' : undefined,
+                                                        nextWorkflowStage: stagedMode ? 'foundation_ready' : undefined,
+                                                    });
+                                                }} />
+                                            )}
+                                        </View>
+                                    ) : null}
+                                </ScrollView>
+                                {showNewPill ? (
+                                    <TouchableOpacity style={pageStyles.pill} accessibilityRole="button" onPress={() => {
+                                        followRef.current = true;
+                                        setShowNewPill(false);
+                                        scrollRef.current?.scrollToEnd({ animated: true });
+                                    }}>
+                                        <Text style={pageStyles.pillText}>↓ 新内容</Text>
+                                    </TouchableOpacity>
+                                ) : null}
+                            </View>
+                            <AIComposer
+                                value={inputText}
+                                onChange={setInputText}
+                                onSend={() => { void handleSend(); }}
+                                disabledReason={composerLockReason}
+                                busy={isLoading}
+                                quickReplies={!isLoading && (!stagedMode || workflowStage === 'followup_ready') ? quickReplies : []}
+                                onQuickReply={(text) => { void handleSend(text, { isQuickReply: stagedMode }); }}
+                                    styles={pageStyles}
+                                Colors={Colors}
+                            />
+                        </KeyboardAvoidingView>
+                        <BaziKinshipFeedbackModal visible={feedbackVisible} value={feedbackDraft} busy={kinshipSaving}
+                            onChange={setFeedbackDraft} onClose={() => setFeedbackVisible(false)} onSave={saveFeedbackAndContinue} />
+                    </SafeAreaView>
+                </SafeAreaProvider>
+            </GestureHandlerRootView>
         </Modal>
     );
 }
