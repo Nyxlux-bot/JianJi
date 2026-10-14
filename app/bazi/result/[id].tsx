@@ -1032,7 +1032,7 @@ const GlyphWithIcon: React.FC<{
                 <WuXingIcon
                     element={value}
                     size={iconSize}
-                    style={[styles.glyphIcon, { marginTop: -iconSize / 2, marginRight: iconSize > 12 ? 2 : 1 }]}
+                    style={[styles.glyphIcon, { left: -(iconSize + (iconSize > 12 ? 2 : 1)) }]}
                 />
             ) : null}
             <Text style={[styles.glyphText, textStyle, { color: elementColor(value, palette, palette.muted) }]}>
@@ -2194,8 +2194,9 @@ const makeStyles = (Colors: any, palette: Palette, viewportWidth: number = 862) 
         tableRowLabel: { fontSize: 11, lineHeight: 16, color: palette.muted },
         tableHeadText: { fontSize: 12, color: palette.muted },
         tableHeadTextDay: { fontWeight: '600', color: palette.ink },
-        glyphWrap: { position: 'relative' },
-        glyphIcon: { position: 'absolute', right: '100%', top: '50%' },
+        // 不用百分比 inset：原生 Yoga 对收缩宽度父节点按可用宽度（整列）解析 right:'100%'，图标会左偏一列
+        glyphWrap: { position: 'relative', justifyContent: 'center' },
+        glyphIcon: { position: 'absolute' },
         glyphText: { fontWeight: '700', textAlign: 'center' },
         stemLine: { textAlign: 'center' },
         stemChar: { fontWeight: '700' },
