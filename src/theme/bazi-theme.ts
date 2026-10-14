@@ -99,7 +99,7 @@ function rgbToHex(input: { r: number; g: number; b: number }): string {
         .join('')}`;
 }
 
-function mixHex(base: string, accent: string, accentWeight: number): string {
+export function mixHex(base: string, accent: string, accentWeight: number): string {
     const safeWeight = Math.max(0, Math.min(1, accentWeight));
     const baseRgb = hexToRgb(base);
     const accentRgb = hexToRgb(accent);
@@ -111,7 +111,7 @@ function mixHex(base: string, accent: string, accentWeight: number): string {
     });
 }
 
-function toRgba(hex: string, alpha: number): string {
+export function toRgba(hex: string, alpha: number): string {
     const rgb = hexToRgb(hex);
     return `rgba(${rgb.r},${rgb.g},${rgb.b},${alpha})`;
 }
@@ -151,11 +151,13 @@ export function buildBaziThemeTokens(
     const trackActiveBg = mixHex(baseTheme.bg.elevated, brand, 0.24);
     const trackActiveText = mixHex(baseTheme.text.heading, brand, 0.52);
     const isLight = getLuminance(baseTheme.bg.primary) > 0.42;
-    const elementWood = isLight ? '#2F8A4C' : '#58B96C';
-    const elementFire = isLight ? '#C64531' : '#E9664F';
-    const elementEarth = isLight ? '#8B6B43' : '#B18A58';
-    const elementMetal = isLight ? '#B97908' : '#DCA32C';
-    const elementWater = isLight ? '#2D6FC4' : '#4C8DE8';
+    // 五行取传统五色：木青、火赤、土黄、金白、水黑。
+    // 阳（浅色）主题下“白”“黑”分别用银灰、青墨表达，阴（深色）主题下金回到象牙白、水提亮为青灰。
+    const elementWood = isLight ? '#2F7A4A' : '#5DB57A';
+    const elementFire = isLight ? '#C0402C' : '#E8664F';
+    const elementEarth = isLight ? '#A06F17' : '#D9A441';
+    const elementMetal = isLight ? '#6F7782' : '#ECE7DA';
+    const elementWater = isLight ? '#24384F' : '#8EA2B8';
     const elementBgWeight = 0.2;
 
     return {

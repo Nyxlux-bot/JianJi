@@ -19,6 +19,7 @@ import {
     FortuneSelectionView,
     ProChartColumnView,
     ProChartRowView,
+    ProShenShaRowView,
     QiYunBandItemView,
 } from './types';
 
@@ -594,6 +595,37 @@ export function buildBaziProChartViewModel(
         },
     ];
 
+    const shenShaRows: ProShenShaRowView[] = [
+        ...result.shenShaV2.siZhu.byPillar.map((item) => ({
+            key: item.position,
+            label: MATRIX_PILLAR_LABEL[item.position],
+            ganZhi: item.ganZhi,
+            stars: item.stars.map((star) => star.star),
+            group: 'yuanJu' as const,
+        })),
+        {
+            key: 'yunWei',
+            label: yunWeiLabel,
+            ganZhi: yunWeiGanZhi === '—' ? '' : yunWeiGanZhi,
+            stars: yunWeiStars,
+            group: 'suiYun',
+        },
+        {
+            key: 'liuNian',
+            label: '流年',
+            ganZhi: selectedLiuNian?.ganZhi ?? '',
+            stars: liuNianStars,
+            group: 'suiYun',
+        },
+        {
+            key: 'liuYue',
+            label: '流月',
+            ganZhi: selectedLiuYue?.ganZhi ?? '',
+            stars: liuYueStars,
+            group: 'suiYun',
+        },
+    ];
+
     const ganZhiLayer = buildBaziGanZhiLayer(result, {
         mode: selection.mode,
         selectedDaYunIndex: selection.selectedDaYunIndex,
@@ -613,5 +645,6 @@ export function buildBaziProChartViewModel(
         liuYueTrack,
         ganZhiLayer,
         shenShaSections,
+        shenShaRows,
     };
 }
