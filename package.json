@@ -15,27 +15,27 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@expo/metro-runtime": "~57.0.15",
-    "@formatjs/intl-pluralrules": "^6.3.13",
+    "@expo/metro-runtime": "~57.0.17",
+    "@formatjs/intl-pluralrules": "^6.3.15",
     "@province-city-china/area": "^8.5.8",
     "@province-city-china/city": "^8.5.8",
     "@province-city-china/province": "^8.5.8",
     "@react-native-async-storage/async-storage": "2.2.0",
     "date-fns": "^4.4.0",
-    "expo": "^57.0.20",
-    "expo-clipboard": "~57.0.1",
-    "expo-constants": "~57.0.17",
-    "expo-document-picker": "~57.0.1",
-    "expo-file-system": "~57.0.6",
-    "expo-linear-gradient": "~57.0.1",
-    "expo-linking": "~57.0.9",
-    "expo-router": "~57.0.19",
-    "expo-sharing": "~57.0.18",
-    "expo-splash-screen": "~57.0.8",
-    "expo-sqlite": "~57.0.2",
+    "expo": "~57.0.29",
+    "expo-clipboard": "~57.0.2",
+    "expo-constants": "~57.0.22",
+    "expo-document-picker": "~57.0.3",
+    "expo-file-system": "~57.0.7",
+    "expo-linear-gradient": "~57.0.2",
+    "expo-linking": "~57.0.13",
+    "expo-router": "~57.0.27",
+    "expo-sharing": "~57.0.23",
+    "expo-splash-screen": "~57.0.10",
+    "expo-sqlite": "~57.0.4",
     "expo-status-bar": "~57.0.1",
-    "expo-updates": "~57.0.21",
-    "iztro": "^2.6.1",
+    "expo-updates": "~57.0.26",
+    "iztro": "^2.6.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
@@ -46,19 +46,26 @@
     "react-native-screens": "4.26.0",
     "react-native-sse": "^1.2.1",
     "react-native-svg": "15.15.4",
-    "react-native-web": "^0.21.2",
+    "react-native-web": "^0.21.4",
     "react-native-worklets": "0.10.1",
-    "tyme4ts": "^1.5.2"
+    "tyme4ts": "^1.5.3"
   },
   "devDependencies": {
     "@types/react": "^19.2.18",
-    "babel-preset-expo": "~57.0.10",
+    "babel-preset-expo": "~57.0.15",
     "typescript": "~7.0.2"
   },
   "private": true,
+  "expo": {
+    "install": {
+      "exclude": [
+        "typescript"
+      ]
+    }
+  },
   "overrides": {
     "node-forge": "1.4.0",
-    "markdown-it": "15.0.1",
-    "postcss": "8.5.28"
+    "markdown-it": "15.0.2",
+    "postcss": "8.5.30"
   }
 }
