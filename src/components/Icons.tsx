@@ -18,6 +18,20 @@ export const SparklesIcon: React.FC<IconProps> = ({ size = 24, color }) => {
     );
 };
 
+/** 单颗四角星（实心），用于“AI 解盘”等轻量入口 */
+export const SparkleIcon: React.FC<IconProps> = ({ size = 24, color }) => {
+    const { Colors } = useTheme();
+    const c = color || Colors.accent.gold;
+    return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+            <Path
+                fill={c}
+                d="M12 2.5c.5 3.9 1.8 6.6 3.4 8.1 1.6 1.5 3.8 2.3 6.1 2.4-2.3.3-4.5 1.1-6.1 2.6-1.6 1.5-2.9 3.9-3.4 7.9-.5-4-1.8-6.4-3.4-7.9-1.6-1.5-3.8-2.3-6.1-2.6 2.3-.1 4.5-.9 6.1-2.4 1.6-1.5 2.9-4.2 3.4-8.1z"
+            />
+        </Svg>
+    );
+};
+
 export const CompassIcon: React.FC<IconProps> = ({ size = 24, color }) => {
     const { Colors } = useTheme();
     const c = color || Colors.accent.gold;

@@ -122,6 +122,15 @@ export interface ProShenShaSectionView {
     rows: string[];
 }
 
+export interface ProShenShaRowView {
+    key: 'year' | 'month' | 'day' | 'hour' | 'yunWei' | 'liuNian' | 'liuYue';
+    label: string;
+    ganZhi: string;
+    stars: string[];
+    /** 原局四柱与岁运之间的分组边界 */
+    group: 'yuanJu' | 'suiYun';
+}
+
 export interface BaziProChartViewModel {
     header: BaziChartHeaderView;
     fortuneColumns: ProChartColumnView[];
@@ -134,4 +143,5 @@ export interface BaziProChartViewModel {
     liuYueTrack: DenseTrackCellView[];
     ganZhiLayer: BaziGanZhiLayerSummary;
     shenShaSections: ProShenShaSectionView[];
+    shenShaRows: ProShenShaRowView[];
 }

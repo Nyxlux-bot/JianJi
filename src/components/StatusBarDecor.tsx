@@ -3,7 +3,7 @@ import { View, StyleSheet, Platform, StatusBar } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from "../theme/ThemeContext";
 
-const StatusBarDecor: React.FC = () => {
+const StatusBarDecor: React.FC<{ backgroundColor?: string }> = ({ backgroundColor }) => {
     const { Colors } = useTheme();
     const styles = makeStyles(Colors);
     const insets = useSafeAreaInsets();
@@ -15,7 +15,7 @@ const StatusBarDecor: React.FC = () => {
     );
 
     return (
-        <View style={[styles.container, { height: topHeight }]} />
+        <View style={[styles.container, { height: topHeight }, backgroundColor ? { backgroundColor } : null]} />
     );
 };
 export default StatusBarDecor;

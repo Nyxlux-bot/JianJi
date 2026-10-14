@@ -1,5 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+    LayoutChangeEvent,
+    NativeScrollEvent,
+    NativeSyntheticEvent,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -7,6 +10,7 @@ import {
     useWindowDimensions,
     View,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import {
     BackIcon,
@@ -14,15 +18,18 @@ import {
     EyeIcon,
     EyeOffIcon,
     MoreVerticalIcon,
-    SparklesIcon,
+    SparkleIcon,
 } from '../../../src/components/Icons';
 import AIChatModal from '../../../src/components/AIChatModal';
 import ConfirmModal from '../../../src/components/ConfirmModal';
 import { CustomAlert } from '../../../src/components/CustomAlertProvider';
 import OverflowMenu, { OverflowMenuItem } from '../../../src/components/OverflowMenu';
 import StatusBarDecor from '../../../src/components/StatusBarDecor';
+import WuXingIcon from '../../../src/components/WuXingIcon';
+import ZodiacPaperCut from '../../../src/components/ZodiacPaperCut';
 import { useTheme } from '../../../src/theme/ThemeContext';
 import { BorderRadius, FontSize, Spacing } from '../../../src/theme/colors';
+import { getLuminance, mixHex, toRgba } from '../../../src/theme/bazi-theme';
 import {
     BaziAnalysisProfile,
     BaziPillarMatrixRow,
@@ -41,7 +48,8 @@ import {
     DenseTrackCellView,
     FortuneSelectionView,
     ProChartColumnView,
-    ProChartRowView,
+    ProShenShaRowView,
+    QiYunBandItemView,
 } from '../../../src/features/bazi/types';
 import {
     buildBaziProChartViewModel,
@@ -54,59 +62,97 @@ import {
     subscribePendingBaziRecord,
 } from '../../../src/features/bazi/pending-result-cache';
 import { useGanZhiRelationSettings } from '../../../src/features/bazi/ganzhi-relation-settings';
+import {
+    getGanZhiElement,
+    resolveWuXingElement,
+    WUXING_ORDER,
+    WuXingElement,
+} from '../../../src/features/bazi/wuxing';
 import { shareBaziResultMarkdown } from '../../../src/services/share';
 import { isAIConfigured } from '../../../src/services/settings';
 import { clearAIAnalysisJob } from '../../../src/services/ai-analysis-jobs';
 
 type EnergyMetric = 'energy' | 'direct' | 'hidden';
+type Styles = ReturnType<typeof makeStyles>;
 
-const MATRIX_COLORS: Record<string, string> = {
-    木: '#2E9B47',
-    火: '#D74B37',
-    土: '#8E6A3B',
-    金: '#D19A26',
-    水: '#2B74D8',
-};
+/* ------------------------------------------------------------------ */
+/* 配色：页面专用的语义色，阴阳两套                                       */
+/* ------------------------------------------------------------------ */
 
-function pickWuXingColor(text: string, Colors?: any): string | null {
-    const palette: Record<string, string> = Colors ? {
+function buildPalette(Colors: any) {
+    const isLight = getLuminance(Colors.bg.primary) > 0.42;
+    const card: string = Colors.bg.card;
+    const gold: string = Colors.accent.gold;
+    const vermilion: string = isLight ? Colors.accent.red : Colors.accent.redLight;
+    const element: Record<WuXingElement, string> = {
         木: Colors.bazi.elementWood,
         火: Colors.bazi.elementFire,
         土: Colors.bazi.elementEarth,
         金: Colors.bazi.elementMetal,
         水: Colors.bazi.elementWater,
-    } : MATRIX_COLORS;
-    for (const [key, color] of Object.entries(palette)) {
-        if (text.includes(key)) {
-            return color;
-        }
-    }
-    const chars = text.split('');
-    const map: Record<string, string> = {
-        甲: palette.木, 乙: palette.木, 寅: palette.木, 卯: palette.木,
-        丙: palette.火, 丁: palette.火, 巳: palette.火, 午: palette.火,
-        戊: palette.土, 己: palette.土, 辰: palette.土, 戌: palette.土, 丑: palette.土, 未: palette.土,
-        庚: palette.金, 辛: palette.金, 申: palette.金, 酉: palette.金,
-        壬: palette.水, 癸: palette.水, 子: palette.水, 亥: palette.水,
     };
-    for (const char of chars) {
-        if (map[char]) {
-            return map[char];
-        }
-    }
-    return null;
+    const softWeight = isLight ? 0.1 : 0.16;
+    const elementSoft = WUXING_ORDER.reduce((acc, key) => {
+        acc[key] = mixHex(card, element[key], softWeight);
+        return acc;
+    }, {} as Record<WuXingElement, string>);
+
+    return {
+        isLight,
+        page: Colors.bazi.pageBg as string,
+        card,
+        cardBorder: isLight ? '#ece2cf' : '#2E2E2E',
+        heroBorder: isLight ? '#e9dfcb' : '#2E2E2E',
+        hairline: isLight ? '#efe6d4' : '#333333',
+        rule: isLight ? '#e6dac4' : '#3D3D3D',
+        ink: Colors.text.primary as string,
+        heading: Colors.text.heading as string,
+        body: isLight ? '#4a3f31' : '#CFCFCF',
+        muted: isLight ? '#7d6d55' : '#949494',
+        icon: isLight ? '#5f5445' : '#BDBDBD',
+        vermilion,
+        sealText: '#fffaf0',
+        gold,
+        goldSoft: isLight ? '#f7eedb' : toRgba(gold, 0.1),
+        goldBorder: isLight ? '#ead9b5' : toRgba(gold, 0.34),
+        dayTint: isLight ? '#f7eedb' : toRgba(gold, 0.08),
+        chipBg: isLight ? '#f3ead8' : '#333333',
+        chipInk: isLight ? '#6f5b39' : '#C8C8C8',
+        segTrack: isLight ? '#f1e8d6' : '#1A1A1A',
+        segOn: isLight ? '#fffaf0' : '#333333',
+        segBorder: isLight ? '#e3d6bc' : '#3D3D3D',
+        barTrack: isLight ? '#f1e8d6' : '#333333',
+        partySame: isLight ? '#4a3f31' : '#BDBDBD',
+        partyDiff: isLight ? '#ddd0b6' : '#3D3D3D',
+        relationBg: isLight ? '#f6efe2' : '#2E2E2E',
+        trackCellBg: isLight ? '#fffdf8' : (Colors.bg.elevated as string),
+        trackCellBorder: isLight ? '#efe6d4' : '#333333',
+        tagBorder: isLight ? '#d9c9a8' : '#4A4A4A',
+        chipBorder: isLight ? '#e6dbc5' : '#3D3D3D',
+        timelineThin: isLight ? '#d9cdb5' : '#3D3D3D',
+        timelineHollow: isLight ? '#b8a682' : '#6B6B6B',
+        birthHalo: isLight ? '#f7e2dc' : toRgba(vermilion, 0.25),
+        fadeFrom: toRgba(card, 0),
+        element,
+        elementSoft,
+    };
 }
 
-function pickWuXingBandBackground(element: string, Colors: any): string {
-    const palette: Record<string, string> = {
-        木: Colors.bazi.elementWoodBg,
-        火: Colors.bazi.elementFireBg,
-        土: Colors.bazi.elementEarthBg,
-        金: Colors.bazi.elementMetalBg,
-        水: Colors.bazi.elementWaterBg,
-    };
-    return palette[element] ?? Colors.bazi.surfaceMuted;
+type Palette = ReturnType<typeof buildPalette>;
+
+function elementColor(text: string, palette: Palette, fallback?: string): string {
+    const element = resolveWuXingElement(text);
+    return element ? palette.element[element] : (fallback ?? palette.ink);
 }
+
+function ganZhiCharColor(char: string, palette: Palette, fallback?: string): string {
+    const element = getGanZhiElement(char);
+    return element ? palette.element[element] : (fallback ?? palette.ink);
+}
+
+/* ------------------------------------------------------------------ */
+/* 文本工具                                                             */
+/* ------------------------------------------------------------------ */
 
 function ziHourModeLabel(mode: 'late_zi_next_day' | 'early_zi_same_day'): string {
     return mode === 'early_zi_same_day' ? '早子时当日' : '晚子时次日';
@@ -116,25 +162,11 @@ function timeModeLabel(mode: 'clock_time' | 'mean_solar_time' | 'true_solar_time
     return getBaziTimeModeLabel(mode);
 }
 
-function daylightSavingLabel(enabled: boolean): string {
-    return enabled ? '开启' : '关闭';
-}
-
 function maskVisibleText(text: string): string {
     if (!text) {
         return '***';
     }
     return '*'.repeat(Math.max(3, text.length));
-}
-
-function maskLabeledText(text: string): string {
-    const separatorIndex = text.indexOf('：');
-    if (separatorIndex < 0) {
-        return maskVisibleText(text);
-    }
-    const prefix = text.slice(0, separatorIndex + 1);
-    const content = text.slice(separatorIndex + 1).trim();
-    return `${prefix}${maskVisibleText(content)}`;
 }
 
 function getCurrentItemIndex<T extends { isCurrent: boolean }>(items: T[]): number {
@@ -145,10 +177,92 @@ function getCurrentItemIndex<T extends { isCurrent: boolean }>(items: T[]): numb
     return currentIndex >= 0 ? currentIndex : 0;
 }
 
+interface ParsedDateTime {
+    year: number;
+    month: number;
+    day: number;
+    time: string;
+}
+
+function parseDateTime(value: string): ParsedDateTime | null {
+    const match = value.trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?/);
+    if (!match) {
+        return null;
+    }
+    return {
+        year: Number(match[1]),
+        month: Number(match[2]),
+        day: Number(match[3]),
+        time: match[4] ? `${match[4].padStart(2, '0')}:${match[5]}` : '',
+    };
+}
+
+/** 1990-05-06 02:35:26 → 5月6日 02:35 */
+function formatMonthDayTime(value: string): string {
+    const parsed = parseDateTime(value);
+    if (!parsed) {
+        return value;
+    }
+    return `${parsed.month}月${parsed.day}日${parsed.time ? ` ${parsed.time}` : ''}`;
+}
+
+/** 1997-01-08 14:17 → { date: 1997年1月8日, time: 14:17 } */
+function splitFullDate(value: string): { date: string; time: string } {
+    const parsed = parseDateTime(value);
+    if (!parsed) {
+        return { date: value, time: '' };
+    }
+    return { date: `${parsed.year}年${parsed.month}月${parsed.day}日`, time: parsed.time };
+}
+
+/** 11天5小时43分钟 → 11天5时43分 */
+function compactDuration(value: string): string {
+    return value.replace(/小时/g, '时').replace(/分钟/g, '分');
+}
+
+/** 1990年四月廿三辰时 → 1990年 四月廿三 辰时 */
+function spaceLunarDisplay(value: string): string {
+    const match = value.match(/^(.*?年)(.*?)([子丑寅卯辰巳午未申酉戌亥]时)$/);
+    return match ? `${match[1]} ${match[2]} ${match[3]}` : value;
+}
+
+/** 壬申（剑锋金）→ [壬申, 剑锋金]；角宿东方青龙 → [角宿, 东方青龙] */
+function splitParamValue(value: string): { main: string; sub: string } {
+    const paren = value.match(/^(.+?)[（(](.+?)[）)]$/);
+    if (paren) {
+        return { main: paren[1], sub: paren[2] };
+    }
+    const xiu = value.match(/^(.宿)(.+)$/);
+    if (xiu) {
+        return { main: xiu[1], sub: xiu[2] };
+    }
+    return { main: value, sub: '' };
+}
+
+function splitStarText(value: string): string[] {
+    return value
+        .split(/、|，|,/)
+        .map((item) => item.trim())
+        .filter((item) => item && item !== '无' && item !== '—');
+}
+
+function splitMatrixLines(value: string): string[] {
+    const lines = value.split(/\n|\s+/).map((item) => item.trim()).filter(Boolean);
+    return lines.length > 0 ? lines : ['—'];
+}
+
+function spacedDots(value: string): string {
+    return value.split(/\s*·\s*/).filter(Boolean).join(' · ');
+}
+
+const SEASON_BAND_ORDER: Record<string, number> = { 木: 0, 火: 1, 土: 2, 金: 3, 水: 4 };
+
 export default function BaziResultPage() {
     const { Colors } = useTheme();
     const { width } = useWindowDimensions();
-    const styles = makeStyles(Colors, width);
+    const palette = useMemo(() => buildPalette(Colors), [Colors]);
+    const styles = useMemo(() => makeStyles(Colors, palette, width), [Colors, palette, width]);
+    const isNarrow = width < 375;
     const { id } = useLocalSearchParams<{ id: string }>();
     const { settings: ganZhiRelationSettings } = useGanZhiRelationSettings();
 
@@ -297,10 +411,7 @@ export default function BaziResultPage() {
             };
         }
     }, [fortuneSelection, result]);
-    const isCompactLayout = width < 420;
     const displayName = privacyEnabled ? maskVisibleText(result?.subject.name ?? '') : (result?.subject.name ?? '');
-    const displaySolarHeader = privacyEnabled && proChartView ? maskLabeledText(proChartView.header.solarHeaderText) : (proChartView?.header.solarHeaderText ?? '');
-    const displayLunarHeader = privacyEnabled && proChartView ? maskLabeledText(proChartView.header.lunarHeaderText) : (proChartView?.header.lunarHeaderText ?? '');
     const handleRetryPersist = () => {
         if (!id) {
             return;
@@ -441,6 +552,16 @@ export default function BaziResultPage() {
     ];
     const hasEnabledMenuItems = menuItems.some((item) => !item.disabled);
 
+    const [headerScrolled, setHeaderScrolled] = useState(false);
+    const headerScrolledRef = useRef(false);
+    const handleContentScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+        const next = event.nativeEvent.contentOffset.y > 2;
+        if (next !== headerScrolledRef.current) {
+            headerScrolledRef.current = next;
+            setHeaderScrolled(next);
+        }
+    }, []);
+
     if (screenState === 'loading') {
         return (
             <View style={styles.container}>
@@ -474,49 +595,60 @@ export default function BaziResultPage() {
         );
     }
 
+    const heroRows = buildHeroRows(result, privacyEnabled);
+    const aiDisabled = !aiConfigured || !result;
+
     return (
         <View style={styles.container}>
-            <StatusBarDecor />
+            <StatusBarDecor backgroundColor={palette.card} />
             <View style={styles.shell}>
-                <View style={styles.compactHeader}>
-                    <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.headerBtn, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="返回">
-                        <BackIcon size={24} />
+                <View style={[styles.topBar, headerScrolled && styles.topBarScrolled]}>
+                    <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.topBarIconBtn, styles.topBarBackBtn, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="返回">
+                        <BackIcon size={22} color={palette.ink} />
                     </Pressable>
 
-                    <View style={styles.compactTabsRow} accessibilityRole="tablist">
+                    <View style={styles.topTabs} accessibilityRole="tablist">
                         <SectionTab label="命盘概览" active={activeSection === 'overview'} onPress={() => setActiveSection('overview')} styles={styles} />
                         <SectionTab label="专业细盘" active={activeSection === 'proChart'} onPress={() => setActiveSection('proChart')} styles={styles} />
                     </View>
 
+                    <View style={styles.topBarSpacer} />
+
                     <Pressable
                         onPress={handleOpenAIChat}
-                        style={({ pressed }) => [styles.aiCompactBtn, (!aiConfigured || !result) && styles.aiCompactBtnDisabled, pressed && styles.pressed]}
-                        disabled={!aiConfigured || !result}
+                        style={({ pressed }) => [styles.aiChip, aiDisabled && styles.aiChipDisabled, pressed && styles.pressed]}
+                        disabled={aiDisabled}
                         accessibilityRole="button"
-                        accessibilityLabel="AI 分析"
+                        accessibilityLabel="AI 解盘"
+                        hitSlop={{ top: 8, bottom: 8 }}
                     >
-                        <SparklesIcon size={16} color={Colors.text.inverse} />
-                        <Text style={styles.aiCompactBtnText}>AI</Text>
+                        <SparkleIcon size={13} color={palette.gold} />
+                        <Text style={styles.aiChipText}>{isNarrow ? 'AI' : 'AI 解盘'}</Text>
                     </Pressable>
 
-                    {result ? (
-                        <Pressable
-                            onPress={() => setPrivacyEnabled((prev) => !prev)}
-                            style={({ pressed }) => [styles.headerBtn, pressed && styles.pressed]}
-                            accessibilityRole="button"
-                            accessibilityLabel={privacyEnabled ? '关闭隐私模式' : '开启隐私模式'}
-                        >
-                            {privacyEnabled ? <EyeOffIcon size={20} /> : <EyeIcon size={20} />}
-                        </Pressable>
-                    ) : null}
+                    <Pressable
+                        onPress={() => setPrivacyEnabled((prev) => !prev)}
+                        style={({ pressed }) => [styles.topBarIconBtn, pressed && styles.pressed]}
+                        accessibilityRole="switch"
+                        accessibilityState={{ checked: privacyEnabled }}
+                        accessibilityLabel={privacyEnabled ? '关闭隐私模式' : '开启隐私模式'}
+                    >
+                        {privacyEnabled ? (
+                            <View style={styles.privacyOnBadge}>
+                                <EyeOffIcon size={20} color={palette.gold} />
+                            </View>
+                        ) : (
+                            <EyeIcon size={20} color={palette.icon} />
+                        )}
+                    </Pressable>
                     <Pressable
                         onPress={() => setMenuVisible((prev) => !prev)}
-                        style={({ pressed }) => [styles.headerBtn, !hasEnabledMenuItems && styles.headerBtnDisabled, pressed && styles.pressed]}
+                        style={({ pressed }) => [styles.topBarIconBtn, !hasEnabledMenuItems && styles.topBarIconBtnDisabled, pressed && styles.pressed]}
                         disabled={!hasEnabledMenuItems}
                         accessibilityRole="button"
                         accessibilityLabel="更多操作"
                     >
-                        <MoreVerticalIcon size={20} />
+                        <MoreVerticalIcon size={20} color={palette.icon} />
                     </Pressable>
                 </View>
 
@@ -541,126 +673,76 @@ export default function BaziResultPage() {
                     contentContainerStyle={styles.contentContainer}
                     showsVerticalScrollIndicator={false}
                     nestedScrollEnabled
+                    onScroll={handleContentScroll}
+                    scrollEventThrottle={32}
                 >
                     <View style={styles.pageSurface}>
-                        {activeSection === 'overview' ? (
-                        <>
-                            <OverviewHero
-                                name={displayName}
-                                mingZao={result.subject.mingZaoLabel}
-                                yinYang={`${result.subject.yinYangLabel}${result.subject.genderLabel}`}
-                                solar={privacyEnabled ? maskVisibleText(result.baseInfo.solarDisplay) : result.baseInfo.solarDisplay}
-                                lunar={privacyEnabled ? maskVisibleText(result.baseInfo.lunarDisplay) : result.baseInfo.lunarDisplay}
-                                chartTime={privacyEnabled ? maskVisibleText(result.baseInfo.trueSolarDisplay) : result.baseInfo.trueSolarDisplay}
-                                chartTimeLabel={getBaziChartTimeLabel(result.schoolOptionsResolved.timeMode)}
-                                gender={result.subject.genderLabel}
-                                zodiac={result.baseInfo.zodiac}
-                                location={privacyEnabled ? maskVisibleText(result.baseInfo.birthPlaceDisplay) : result.baseInfo.birthPlaceDisplay}
-                                timeMode={timeModeLabel(result.schoolOptionsResolved.timeMode)}
-                                compact={isCompactLayout}
-                                styles={styles}
-                            />
-                            <OverviewOriginChart rows={overviewOriginRows} styles={styles} Colors={Colors} />
-                            {result.analysisProfile ? <BaziAnalysisReferenceStrip profile={result.analysisProfile} styles={styles} Colors={Colors} /> : null}
-                            <WuXingOverview
-                                energy={energyState.snapshot}
-                                error={energyState.error}
-                                metric={energyMetric}
-                                onMetricChange={setEnergyMetric}
-                                styles={styles}
-                                Colors={Colors}
-                            />
-                            <JieQiTimeline
-                                result={result}
-                                chartTimeDisplay={privacyEnabled ? maskVisibleText(result.baseInfo.trueSolarDisplay) : result.baseInfo.trueSolarDisplay}
-                                privacyEnabled={privacyEnabled}
-                                styles={styles}
-                            />
-                            <OverviewSection title="命理参数" showHeader={false} styles={styles}>
-                                <View style={styles.detailGrid}>
-                                    <DetailTile label="星座" value={result.baseInfo.constellation} styles={styles} />
-                                    <DetailTile label="星宿" value={result.baseInfo.xingXiu} styles={styles} />
-                                    <DetailTile label="胎元" value={result.baseInfo.taiYuan} styles={styles} />
-                                    <DetailTile label="胎息" value={result.baseInfo.taiXi} styles={styles} />
-                                    <DetailTile label="命宫" value={result.baseInfo.mingGong} styles={styles} />
-                                    <DetailTile label="身宫" value={result.baseInfo.shenGong} styles={styles} />
-                                    <DetailTile label="命卦" value={result.baseInfo.mingGua} styles={styles} />
-                                    <DetailTile label="空亡" value={result.baseInfo.kongWang} styles={styles} />
-                                </View>
-                            </OverviewSection>
-                            <OverviewJourney
-                                result={result}
-                                privacyEnabled={privacyEnabled}
-                                styles={styles}
-                            />
-                        </>
-                        ) : proChartView ? (
-                        <>
-                            <ChartHeaderStrip
-                                name={displayName}
-                                solarText={displaySolarHeader}
-                                lunarText={displayLunarHeader}
-                                mingZaoText={proChartView.header.mingZaoText}
-                                panelMode={panelMode}
-                                showPanelSwitch
-                                onTogglePanelMode={() => setPanelMode((prev) => (prev === 'fortune' ? 'taiming' : 'fortune'))}
-                                styles={styles}
-                            />
-                            <View style={styles.proFlow}>
-                                <DenseMatrix
-                                    headerLabels={(panelMode === 'fortune' ? proChartView.fortuneColumns : proChartView.taimingColumns).map((column) => column.label)}
-                                    rows={panelMode === 'fortune' ? proChartView.fortuneRows : proChartView.taimingRows}
+                        <ResultHero
+                            name={displayName || '未命名'}
+                            mingZao={result.subject.mingZaoLabel}
+                            yinYangGender={`${result.subject.yinYangLabel}${result.subject.genderLabel}`}
+                            zodiac={result.baseInfo.zodiac}
+                            rows={heroRows}
+                            accessory={activeSection === 'proChart' ? (
+                                <PanelModeSwitch
+                                    panelMode={panelMode}
+                                    onChange={setPanelMode}
                                     styles={styles}
                                 />
+                            ) : null}
+                            styles={styles}
+                        />
 
-                                <DualInfoStrip infoStrip={proChartView.infoStrip} styles={styles} />
-
-                                <DenseTrackMatrix rowLabel="大运" columns={proChartView.daYunTrack} onSelect={handleSelectDaYunCell} styles={styles} />
-                                <DenseTrackMatrix rowLabel="流年" columns={proChartView.liuNianTrack} onSelect={handleSelectLiuNianCell} styles={styles} />
-                                <DenseTrackMatrix rowLabel="流月" columns={proChartView.liuYueTrack} onSelect={handleSelectLiuYueCell} styles={styles} />
-
-                                <View style={styles.proQiYunBand}>
-                                    {proChartView.infoStrip.qiYunBand.map((item, index) => {
-                                        return (
-                                            <View
-                                                key={`${item.element}-${item.status}`}
-                                                style={[
-                                                    styles.proQiYunBandCell,
-                                                    index === proChartView.infoStrip.qiYunBand.length - 1 && styles.proQiYunBandCellLast,
-                                                    { backgroundColor: pickWuXingBandBackground(item.element, Colors) },
-                                                ]}
-                                            >
-                                                <Text style={styles.proQiYunBandText}>
-                                                    {item.element}{item.status}
-                                                </Text>
-                                            </View>
-                                        );
-                                    })}
-                                </View>
-
-                                <View style={styles.sectionTitleBar}>
-                                    <Text style={styles.subTitle}>神煞分层</Text>
-                                </View>
-                                {proChartView.shenShaSections.map((section) => (
-                                    <LayerStarBlock key={section.title} title={section.title} rows={section.rows} styles={styles} />
-                                ))}
-
-                                <View style={[styles.sectionTitleBar, styles.sectionTitleBarRow]}>
-                                    <Text style={[styles.subTitle, styles.subTitleInRow]}>干支分层</Text>
-                                    <Pressable
-                                        style={({ pressed }) => [styles.ganZhiVisualEntry, pressed && styles.ganZhiVisualEntryPressed]}
-                                        onPress={handleOpenGanZhiVisual}
-                                        hitSlop={8}
-                                        accessibilityRole="button"
-                                        accessibilityLabel="打开干支详情"
-                                    >
-                                        <Text style={styles.ganZhiVisualEntryText}>干支详情</Text>
-                                        <ChevronRightIcon size={14} color={Colors.bazi.chromeTextActive} />
-                                    </Pressable>
-                                </View>
-                                <GanZhiLayerBlock layer={proChartView.ganZhiLayer} styles={styles} />
-                            </View>
-                        </>
+                        {activeSection === 'overview' ? (
+                            <>
+                                <SiZhuCard rows={overviewOriginRows} palette={palette} styles={styles} />
+                                {result.analysisProfile ? (
+                                    <MingJuCard profile={result.analysisProfile} palette={palette} styles={styles} />
+                                ) : null}
+                                <WuXingCard
+                                    energy={energyState.snapshot}
+                                    error={energyState.error}
+                                    metric={energyMetric}
+                                    onMetricChange={setEnergyMetric}
+                                    palette={palette}
+                                    styles={styles}
+                                />
+                                <JieQiCard result={result} privacyEnabled={privacyEnabled} palette={palette} styles={styles} />
+                                <ParamsCard result={result} styles={styles} />
+                                <QiYunCard result={result} privacyEnabled={privacyEnabled} styles={styles} />
+                            </>
+                        ) : proChartView ? (
+                            <>
+                                <PaiPanCard
+                                    panelMode={panelMode}
+                                    summary={buildPaiPanSummary(proChartView)}
+                                    columns={panelMode === 'fortune' ? proChartView.fortuneColumns : proChartView.taimingColumns}
+                                    liuNianTrack={proChartView.liuNianTrack}
+                                    daYunTrack={proChartView.daYunTrack}
+                                    qiYunBand={proChartView.infoStrip.qiYunBand}
+                                    palette={palette}
+                                    styles={styles}
+                                />
+                                <YunChengCard
+                                    result={result}
+                                    privacyEnabled={privacyEnabled}
+                                    daYunTrack={proChartView.daYunTrack}
+                                    liuNianTrack={proChartView.liuNianTrack}
+                                    liuYueTrack={proChartView.liuYueTrack}
+                                    onSelectDaYun={handleSelectDaYunCell}
+                                    onSelectLiuNian={handleSelectLiuNianCell}
+                                    onSelectLiuYue={handleSelectLiuYueCell}
+                                    palette={palette}
+                                    styles={styles}
+                                />
+                                <ShenShaCard rows={proChartView.shenShaRows} palette={palette} styles={styles} />
+                                <GanZhiLayerCard
+                                    layer={proChartView.ganZhiLayer}
+                                    onOpenDetail={handleOpenGanZhiVisual}
+                                    palette={palette}
+                                    styles={styles}
+                                />
+                            </>
                         ) : null}
                     </View>
                 </ScrollView>
@@ -693,6 +775,10 @@ export default function BaziResultPage() {
         </View>
     );
 }
+
+/* ------------------------------------------------------------------ */
+/* 数据整理                                                             */
+/* ------------------------------------------------------------------ */
 
 function getPillarMatrixValues(rows: BaziPillarMatrixRow[], key: BaziPillarMatrixRow['key']): string[] {
     const values = rows.find((row) => row.key === key)?.values;
@@ -775,299 +861,421 @@ function buildOverviewOriginRows(
     });
 }
 
-function splitMatrixLines(value: string): string[] {
-    const lines = value.split(/\n|\s+/).map((item) => item.trim()).filter(Boolean);
-    return lines.length > 0 ? lines : ['—'];
+interface HeroRow {
+    label: string;
+    value: string;
 }
 
-const OverviewOriginChart: React.FC<{
-    rows: BaziPillarMatrixRow[];
-    styles: ReturnType<typeof makeStyles>;
-    Colors: any;
-}> = ({ rows, styles, Colors }) => {
-    const mainStars = getPillarMatrixValues(rows, 'mainStar');
-    const tianGan = getPillarMatrixValues(rows, 'tianGan');
-    const diZhi = getPillarMatrixValues(rows, 'diZhi');
-    const cangGan = getPillarMatrixValues(rows, 'cangGan');
-    const railRows: Array<{ key: BaziPillarMatrixRow['key']; label: string }> = [
-        { key: 'xingYun', label: '星运' },
-        { key: 'ziZuo', label: '自坐' },
-        { key: 'naYin', label: '纳音' },
+function buildHeroRows(result: BaziResult, privacyEnabled: boolean): HeroRow[] {
+    const meta = result.timeMeta;
+    const solar = meta?.solarDate && meta?.solarTime ? `${meta.solarDate} ${meta.solarTime}` : result.baseInfo.solarDisplay;
+    const lunar = spaceLunarDisplay(result.baseInfo.lunarDisplay);
+    const solarParsed = parseDateTime(result.baseInfo.solarDisplay);
+    const chartParsed = parseDateTime(result.baseInfo.trueSolarDisplay);
+    let chartTime = result.baseInfo.trueSolarDisplay;
+    if (chartParsed) {
+        const sameDay = Boolean(solarParsed)
+            && solarParsed?.year === chartParsed.year
+            && solarParsed?.month === chartParsed.month
+            && solarParsed?.day === chartParsed.day;
+        chartTime = sameDay ? chartParsed.time : `${chartParsed.month}月${chartParsed.day}日 ${chartParsed.time}`;
+    }
+    const place = result.baseInfo.birthPlaceDisplay;
+    const hasPlace = Boolean(place) && place !== '未设置出生地';
+    const chartValue = [chartTime, hasPlace ? place : ''].filter(Boolean).join(' · ');
+    const rows: HeroRow[] = [
+        { label: '阳历', value: solar },
+        { label: '农历', value: lunar },
+        { label: getBaziChartTimeLabel(result.schoolOptionsResolved.timeMode), value: chartValue },
     ];
-    const extraRows: Array<{ key: BaziPillarMatrixRow['key']; label: string }> = [
-        { key: 'subStar', label: '副星' },
-        { key: 'kongWang', label: '空亡' },
-        { key: 'shenSha', label: '神煞' },
-    ];
-    const knownKeys = new Set<string>([
-        'mainStar', 'tianGan', 'diZhi', 'cangGan',
-        ...railRows.map((row) => row.key),
-        ...extraRows.map((row) => row.key),
-    ]);
-    const additionalRows = rows.filter((row) => !knownKeys.has(row.key));
+    return privacyEnabled ? rows.map((row) => ({ ...row, value: maskVisibleText(row.value) })) : rows;
+}
 
-    return (
-        <OverviewSection title="四柱原局" showHeader={false} flushBottom styles={styles}>
-            <View style={styles.originPillarGrid}>
-                {['年柱', '月柱', '日柱', '时柱'].map((label, index) => (
-                    <View key={label} style={[styles.originPillar, index > 0 && styles.originPillarDivider, index === 2 && styles.originPillarDayMaster]}>
-                        {index === 2 ? <Text style={styles.originDayMarker}>日主</Text> : null}
-                        <Text style={styles.originPillarName}>{label}</Text>
-                        <Text style={styles.originPillarStar}>{mainStars[index] || '—'}</Text>
-                        <View style={styles.originGlyphStack}>
-                            <Text style={[styles.originGlyph, { color: pickWuXingColor(tianGan[index], Colors) ?? Colors.text.primary }]}>{tianGan[index] || '—'}</Text>
-                            <Text style={[styles.originGlyph, { color: pickWuXingColor(diZhi[index], Colors) ?? Colors.text.primary }]}>{diZhi[index] || '—'}</Text>
-                        </View>
-                        <View style={styles.originHiddenStems}>
-                            {splitMatrixLines(cangGan[index]).map((line, lineIndex) => (
-                                <Text key={`${label}-cang-${lineIndex}`} style={[styles.originHiddenStem, { color: pickWuXingColor(line, Colors) ?? Colors.text.secondary }]}>{line}</Text>
-                            ))}
-                        </View>
-                    </View>
-                ))}
-            </View>
+function buildPaiPanSummary(view: ReturnType<typeof buildBaziProChartViewModel>): string {
+    const liuNian = view.fortuneColumns.find((column) => column.key === 'liuNian');
+    const yun = view.fortuneColumns.find((column) => column.key === 'daYun');
+    const year = view.liuNianTrack.find((cell) => cell.active)?.topLabel ?? '';
+    const parts: string[] = [];
+    if (liuNian && liuNian.ganZhi !== '—') {
+        parts.push([year, liuNian.ganZhi].filter(Boolean).join(' '));
+    }
+    if (yun && yun.ganZhi !== '—') {
+        parts.push(`${yun.ganZhi}${yun.label === '小运' ? '小运' : '运'}`);
+    }
+    return parts.join(' · ');
+}
 
-            <View style={styles.originRailStack}>
-                {railRows.map((row) => {
-                    const values = getPillarMatrixValues(rows, row.key);
-                    return (
-                        <View key={row.key} style={styles.originRail}>
-                            <Text style={styles.originRailLabel}>{row.label}</Text>
-                            {values.map((value, index) => {
-                                const naYinColor = row.key === 'naYin' ? pickWuXingColor(value, Colors) : null;
-                                return (
-                                    <Text
-                                        key={`${row.key}-${index}`}
-                                        style={[styles.originRailValue, naYinColor ? { color: naYinColor } : null]}
-                                    >
-                                        {value || '—'}
-                                    </Text>
-                                );
-                            })}
-                        </View>
-                    );
-                })}
-            </View>
+/* ------------------------------------------------------------------ */
+/* 顶部与头部                                                           */
+/* ------------------------------------------------------------------ */
 
-            <View style={styles.originExtras}>
-                {[...extraRows, ...additionalRows.map((row) => ({ key: row.key, label: row.label }))].map((row) => {
-                    const values = getPillarMatrixValues(rows, row.key);
-                    return (
-                        <View key={row.key} style={styles.originExtraRow}>
-                            <Text style={styles.originExtraLabel}>{row.label}</Text>
-                            {values.map((value, index) => (
-                                <View key={`${row.key}-${index}`} style={styles.originExtraCell}>
-                                    {splitMatrixLines(value).map((line, lineIndex) => (
-                                        <Text key={`${row.key}-${index}-${lineIndex}`} style={styles.originExtraText}>{line}</Text>
-                                    ))}
-                                </View>
-                            ))}
-                        </View>
-                    );
-                })}
-            </View>
-        </OverviewSection>
-    );
-};
+const SectionTab: React.FC<{ label: string; active: boolean; onPress: () => void; styles: Styles }> = ({ label, active, onPress, styles }) => (
+    <Pressable
+        style={({ pressed }) => [styles.topTab, pressed && styles.pressed]}
+        onPress={onPress}
+        accessibilityRole="tab"
+        accessibilityState={{ selected: active }}
+    >
+        <Text style={[styles.topTabText, active && styles.topTabTextActive]}>{label}</Text>
+        {active ? <View style={styles.topTabIndicator} /> : null}
+    </Pressable>
+);
 
-const OverviewHero: React.FC<{
+const PANEL_MODES: Array<{ key: BaziPanelMode; label: string }> = [
+    { key: 'fortune', label: '流年大运' },
+    { key: 'taiming', label: '胎命身' },
+];
+
+const PanelModeSwitch: React.FC<{
+    panelMode: BaziPanelMode;
+    onChange: (mode: BaziPanelMode) => void;
+    styles: Styles;
+}> = ({ panelMode, onChange, styles }) => (
+    <View style={styles.heroSwitch} accessibilityRole="tablist">
+        {PANEL_MODES.map((mode) => {
+            const on = panelMode === mode.key;
+            return (
+                <Pressable
+                    key={mode.key}
+                    onPress={() => onChange(mode.key)}
+                    style={[styles.heroSwitchBtn, on && styles.heroSwitchBtnOn]}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: on }}
+                    hitSlop={{ top: 10, bottom: 10 }}
+                >
+                    <Text style={[styles.heroSwitchText, on && styles.heroSwitchTextOn]}>{mode.label}</Text>
+                </Pressable>
+            );
+        })}
+    </View>
+);
+
+const ResultHero: React.FC<{
     name: string;
     mingZao: string;
-    yinYang: string;
-    solar: string;
-    lunar: string;
-    chartTime: string;
-    chartTimeLabel: string;
-    gender: string;
+    yinYangGender: string;
     zodiac: string;
-    location: string;
-    timeMode: string;
-    compact?: boolean;
-    styles: ReturnType<typeof makeStyles>;
-}> = ({ name, mingZao, yinYang, solar, lunar, chartTime, chartTimeLabel, gender, zodiac, location, timeMode, compact = false, styles }) => (
-    <View style={[styles.overviewHero, compact && styles.overviewHeroCompact]}>
-        <View style={styles.overviewHeroMain}>
-            <View style={styles.overviewNameBlock}>
-                <Text style={[styles.overviewName, compact && styles.overviewNameCompact]}>{name || '未命名'}</Text>
-            </View>
-            <View style={styles.overviewDateGroup}>
-                <Text style={styles.overviewIdentityLine}>阳历：{solar}</Text>
-                <Text style={styles.overviewIdentityLine}>农历：{lunar}</Text>
-                <Text style={styles.overviewIdentityTime}>{chartTimeLabel}：{chartTime}</Text>
-            </View>
+    rows: HeroRow[];
+    accessory?: React.ReactNode;
+    styles: Styles;
+}> = ({ name, mingZao, yinYangGender, zodiac, rows, accessory, styles }) => (
+    <View style={styles.hero}>
+        <View style={styles.heroPaperCut}>
+            <ZodiacPaperCut zodiac={zodiac} size={180} />
         </View>
-        <View style={styles.overviewIdentitySide}>
-            <Text style={[styles.overviewMingZao, compact && styles.overviewMingZaoCompact]}>{mingZao || '—'}</Text>
-            <Text style={styles.overviewIdentityMeta}>{gender} · {zodiac} · {location || '未设置'}</Text>
-            <Text style={styles.overviewIdentityMeta}>{yinYang} · {mingZao} · {timeMode}</Text>
+        <View style={styles.heroNameRow}>
+            <Text style={styles.heroName} numberOfLines={1}>{name}</Text>
+            <View style={styles.heroSeal}>
+                <Text style={styles.heroSealText}>{mingZao || '—'}</Text>
+            </View>
+            <View style={styles.heroChip}>
+                <Text style={styles.heroChipText}>{yinYangGender}</Text>
+            </View>
+            {accessory}
+        </View>
+        <View style={styles.heroRows}>
+            {rows.map((row) => (
+                <View key={row.label} style={styles.heroRow}>
+                    <Text style={styles.heroRowLabel}>{row.label}</Text>
+                    <Text style={styles.heroRowValue} numberOfLines={1}>{row.value || '—'}</Text>
+                </View>
+            ))}
         </View>
     </View>
 );
 
-const BaziAnalysisReferenceStrip: React.FC<{
-    profile: BaziAnalysisProfile;
-    styles: ReturnType<typeof makeStyles>;
-    Colors: any;
-}> = ({ profile, styles, Colors }) => {
-    const items = [
-        { label: '日主属性', value: profile.summary.dayMasterProperty },
-        { label: '阴阳参考', value: profile.summary.yinYangReference },
-        { label: '旺衰参考', value: profile.summary.strengthReference },
-        { label: '格局参考', value: profile.summary.structureReference },
-    ];
-    const dayMasterColor = pickWuXingColor(profile.dayMasterElement, Colors);
+const PersistBanner: React.FC<{
+    message: string;
+    onPress: () => void;
+    styles: Styles;
+}> = ({ message, onPress, styles }) => (
+    <Pressable style={({ pressed }) => [styles.persistBanner, pressed && styles.pressed]} onPress={onPress}>
+        <Text style={styles.persistBannerText}>{message}</Text>
+    </Pressable>
+);
 
-    return (
-        <View style={styles.analysisReferenceStrip} accessibilityLabel="书房派与盲派命盘参考">
-            {items.map((item, index) => (
-                <View key={item.label} style={[styles.analysisReferenceItem, index === 0 && styles.analysisReferenceItemFirst]}>
-                    <Text style={styles.analysisReferenceLabel} numberOfLines={1}>{item.label}</Text>
-                    <Text
-                        style={[styles.analysisReferenceValue, item.label === '日主属性' && dayMasterColor ? { color: dayMasterColor } : null]}
-                        numberOfLines={2}
-                    >
-                        {item.value}
-                    </Text>
-                </View>
-            ))}
-        </View>
-    );
-};
+/* ------------------------------------------------------------------ */
+/* 通用片段                                                             */
+/* ------------------------------------------------------------------ */
 
-const OverviewSection: React.FC<{
+const Card: React.FC<{
     title: string;
+    right?: React.ReactNode;
+    first?: boolean;
+    dense?: boolean;
+    accessibilityLabel?: string;
     children: React.ReactNode;
-    showHeader?: boolean;
-    flushBottom?: boolean;
-    styles: ReturnType<typeof makeStyles>;
-}> = ({ title, children, showHeader = true, flushBottom = false, styles }) => (
-    <View style={[styles.overviewSection, !showHeader && styles.overviewSectionWithoutHeader, flushBottom && styles.overviewSectionFlush]}>
-        {showHeader ? (
-            <View style={styles.overviewSectionHeader}>
-                <View style={styles.overviewSectionTitleWrap}>
-                    <View style={styles.overviewSectionMarker} />
-                    <Text style={styles.overviewSectionTitle}>{title}</Text>
-                </View>
-            </View>
-        ) : null}
+    styles: Styles;
+}> = ({ title, right, first = false, dense = false, accessibilityLabel, children, styles }) => (
+    <View style={[styles.card, first && styles.cardFirst, dense && styles.cardDense]} accessibilityLabel={accessibilityLabel}>
+        <View style={styles.cardHeader}>
+            <View style={styles.cardDiamond} />
+            <Text style={styles.cardTitle} accessibilityRole="header">{title}</Text>
+            {right}
+        </View>
         {children}
     </View>
 );
 
-const DetailTile: React.FC<{
-    label: string;
-    value: string;
-    styles: ReturnType<typeof makeStyles>;
-}> = ({ label, value, styles }) => (
-    <View style={styles.detailTile}>
-        <Text style={styles.detailTileLabel} numberOfLines={1}>{label}</Text>
-        <Text style={styles.detailTileValue} numberOfLines={2}>{value || '—'}</Text>
-    </View>
-);
-
-function splitTimelineDateTime(value: string): { date: string; time: string } {
-    const match = value.trim().match(/^(.*?)(?:\s+)(\d{1,2}:\d{2}(?::\d{2})?)$/);
-    if (!match) {
-        return { date: value, time: '' };
-    }
-    return { date: match[1], time: match[2] };
-}
-
-const JieQiTimeline: React.FC<{
-    result: BaziResult;
-    chartTimeDisplay: string;
-    privacyEnabled: boolean;
-    styles: ReturnType<typeof makeStyles>;
-}> = ({ result, chartTimeDisplay, privacyEnabled, styles }) => {
-    const items: Array<{ label: string; dateTime: string; kind: 'term' | 'current' | 'birth' }> = [
-        { label: result.jieQiContext.prevTerm.name, dateTime: result.jieQiContext.prevTerm.dateTime, kind: 'term' },
-        { label: result.jieQiContext.currentTerm.name, dateTime: result.jieQiContext.currentTerm.dateTime, kind: 'current' },
-        { label: '出生', dateTime: chartTimeDisplay, kind: 'birth' },
-        { label: result.jieQiContext.nextTerm.name, dateTime: result.jieQiContext.nextTerm.dateTime, kind: 'term' },
-    ];
+const GlyphWithIcon: React.FC<{
+    char: string;
+    textStyle: any;
+    iconSize: number;
+    palette: Palette;
+    styles: Styles;
+}> = ({ char, textStyle, iconSize, palette, styles }) => {
+    const value = char || '—';
+    const hasElement = Boolean(resolveWuXingElement(value));
     return (
-        <OverviewSection title="节气坐标" showHeader={false} styles={styles}>
-            <View style={styles.jieQiTimeline}>
-                <View style={styles.jieQiLine} />
-                <View style={styles.jieQiProgress} />
-                {items.map((item, index) => (
-                    <View
-                        key={`${item.label}-${index}`}
-                        style={[
-                            styles.jieQiNode,
-                            index === 0 && styles.jieQiNodePrev,
-                            index === 1 && styles.jieQiNodeCurrent,
-                            index === 2 && styles.jieQiNodeBirth,
-                            index === 3 && styles.jieQiNodeNext,
-                        ]}
-                    >
-                        <Text style={[styles.jieQiName, item.kind === 'birth' && styles.jieQiNameBirth, item.kind === 'current' && styles.jieQiNameCurrent]}>{item.label}</Text>
-                        {(() => {
-                            const dateTime = privacyEnabled && item.kind !== 'birth' ? maskVisibleText(item.dateTime) : item.dateTime;
-                            const parts = splitTimelineDateTime(dateTime);
-                            return (
-                                <>
-                                    <Text style={styles.jieQiDate}>{parts.date}</Text>
-                                    {parts.time ? <Text style={styles.jieQiTime}>{parts.time}</Text> : null}
-                                </>
-                            );
-                        })()}
-                        <View style={[styles.jieQiDot, item.kind === 'birth' && styles.jieQiDotBirth, item.kind === 'current' && styles.jieQiDotCurrent]} />
-                    </View>
-                ))}
-                <View style={styles.birthContext}>
-                    <Text style={styles.birthContextText}>{result.jieQiContext.currentTerm.name}后 {result.jieQiContext.afterPrev} · {result.jieQiContext.nextTerm.name}前 {result.jieQiContext.beforeNext}</Text>
-                    <Text style={styles.birthContextDuty}>{privacyEnabled ? maskVisibleText(result.baseInfo.renYuanDutyDetail.display || result.baseInfo.renYuanDuty) : (result.baseInfo.renYuanDutyDetail.display || result.baseInfo.renYuanDuty)}</Text>
-                </View>
-            </View>
-        </OverviewSection>
+        <View style={styles.glyphWrap}>
+            {hasElement ? (
+                <WuXingIcon
+                    element={value}
+                    size={iconSize}
+                    style={[styles.glyphIcon, { marginTop: -iconSize / 2, marginRight: iconSize > 12 ? 2 : 1 }]}
+                />
+            ) : null}
+            <Text style={[styles.glyphText, textStyle, { color: elementColor(value, palette, palette.muted) }]}>
+                {value}
+            </Text>
+        </View>
     );
 };
 
-const WuXingOverview: React.FC<{
+/** “丁正财”→ 丁（五行色、加粗）+ 正财（弱色） */
+const StemLine: React.FC<{
+    line: string;
+    stemSize: number;
+    noteSize: number;
+    lineHeight: number;
+    palette: Palette;
+    styles: Styles;
+}> = ({ line, stemSize, noteSize, lineHeight, palette, styles }) => {
+    const first = line.charAt(0);
+    const element = getGanZhiElement(first);
+    if (!element) {
+        return <Text style={[styles.stemNote, { fontSize: noteSize, lineHeight }]}>{line}</Text>;
+    }
+    return (
+        <Text style={[styles.stemLine, { fontSize: stemSize, lineHeight }]}>
+            <Text style={[styles.stemChar, { color: palette.element[element] }]}>{first}</Text>
+            <Text style={[styles.stemNote, { fontSize: noteSize }]}>{` ${line.slice(1)}`}</Text>
+        </Text>
+    );
+};
+
+const ColoredGanZhi: React.FC<{ value: string; palette: Palette; style: any }> = ({ value, palette, style }) => (
+    <Text style={style}>
+        {value.split('').map((char, index) => (
+            <Text key={`${char}-${index}`} style={{ color: ganZhiCharColor(char, palette, palette.ink) }}>{char}</Text>
+        ))}
+    </Text>
+);
+
+/* ------------------------------------------------------------------ */
+/* 命盘概览                                                             */
+/* ------------------------------------------------------------------ */
+
+const PILLAR_LABELS = ['年柱', '月柱', '日柱', '时柱'];
+
+const SiZhuCard: React.FC<{ rows: BaziPillarMatrixRow[]; palette: Palette; styles: Styles }> = ({ rows, palette, styles }) => {
+    const mainStars = getPillarMatrixValues(rows, 'mainStar');
+    const tianGan = getPillarMatrixValues(rows, 'tianGan');
+    const diZhi = getPillarMatrixValues(rows, 'diZhi');
+    const cangGan = getPillarMatrixValues(rows, 'cangGan');
+    const shenSha = getPillarMatrixValues(rows, 'shenSha');
+    const detailRows: Array<{ key: BaziPillarMatrixRow['key']; label: string }> = [
+        { key: 'xingYun', label: '星运' },
+        { key: 'ziZuo', label: '自坐' },
+        { key: 'naYin', label: '纳音' },
+        { key: 'kongWang', label: '空亡' },
+    ];
+    const knownKeys = new Set<string>([
+        'mainStar', 'subStar', 'tianGan', 'diZhi', 'cangGan', 'shenSha',
+        ...detailRows.map((row) => row.key),
+    ]);
+    const additionalRows = rows.filter((row) => !knownKeys.has(row.key));
+
+    return (
+        <Card title="四柱" first styles={styles}>
+            <View style={styles.tableWrap}>
+                <View style={[styles.tableOverlay, styles.siZhuOverlay]}>
+                    {PILLAR_LABELS.map((label, index) => (
+                        <View key={label} style={[styles.tableOverlayCol, index === 2 && styles.tableDayTint]} />
+                    ))}
+                </View>
+
+                <View style={[styles.tableRow, styles.siZhuHeadRow]}>
+                    <View style={styles.siZhuLabelCell} />
+                    {PILLAR_LABELS.map((label, index) => (
+                        <Text key={label} style={[styles.tableCellText, styles.tableHeadText, index === 2 && styles.tableHeadTextDay]}>{label}</Text>
+                    ))}
+                </View>
+                <View style={[styles.tableRow, styles.siZhuStarRow]}>
+                    <Text style={[styles.siZhuLabelCell, styles.tableRowLabel]}>十神</Text>
+                    {mainStars.map((value, index) => (
+                        <Text key={`star-${index}`} style={[styles.tableCellText, styles.siZhuStarText]} numberOfLines={1}>{value || '—'}</Text>
+                    ))}
+                </View>
+                {[{ label: '天干', values: tianGan }, { label: '地支', values: diZhi }].map((row) => (
+                    <View key={row.label} style={[styles.tableRow, styles.siZhuGlyphRow]}>
+                        <Text style={[styles.siZhuLabelCell, styles.tableRowLabel]}>{row.label}</Text>
+                        {row.values.map((value, index) => (
+                            <View key={`${row.label}-${index}`} style={styles.tableCell}>
+                                <GlyphWithIcon char={value} textStyle={styles.siZhuGlyphText} iconSize={16} palette={palette} styles={styles} />
+                            </View>
+                        ))}
+                    </View>
+                ))}
+                <View style={[styles.tableRow, styles.siZhuCangRow]}>
+                    <Text style={[styles.siZhuLabelCell, styles.tableRowLabel]}>藏干</Text>
+                    {cangGan.map((value, index) => (
+                        <View key={`cang-${index}`} style={styles.tableCellStack}>
+                            {splitMatrixLines(value).map((line, lineIndex) => (
+                                <StemLine key={`${line}-${lineIndex}`} line={line} stemSize={13} noteSize={12} lineHeight={18} palette={palette} styles={styles} />
+                            ))}
+                        </View>
+                    ))}
+                </View>
+
+                {detailRows.map((row, rowIndex) => {
+                    const values = getPillarMatrixValues(rows, row.key);
+                    return (
+                        <View key={row.key} style={[styles.tableRow, styles.siZhuDetailRow, rowIndex === 0 && styles.siZhuDetailFirst]}>
+                            <Text style={[styles.siZhuLabelCell, styles.tableRowLabel]}>{row.label}</Text>
+                            {values.map((value, index) => (
+                                <Text key={`${row.key}-${index}`} style={[styles.tableCellText, styles.siZhuDetailText]} numberOfLines={1}>{value || '—'}</Text>
+                            ))}
+                        </View>
+                    );
+                })}
+                <View style={[styles.tableRow, styles.siZhuStackRow]}>
+                    <Text style={[styles.siZhuLabelCell, styles.tableRowLabel]}>神煞</Text>
+                    {shenSha.map((value, index) => (
+                        <View key={`sha-${index}`} style={styles.tableCellStack}>
+                            {splitMatrixLines(value).map((line, lineIndex) => (
+                                <Text key={`${line}-${lineIndex}`} style={styles.siZhuShenShaText}>{line}</Text>
+                            ))}
+                        </View>
+                    ))}
+                </View>
+                {additionalRows.map((row) => (
+                    <View key={row.key} style={[styles.tableRow, styles.siZhuStackRow]}>
+                        <Text style={[styles.siZhuLabelCell, styles.tableRowLabel]}>{row.label}</Text>
+                        {getPillarMatrixValues(rows, row.key).map((value, index) => (
+                            <View key={`${row.key}-${index}`} style={styles.tableCellStack}>
+                                {splitMatrixLines(value).map((line, lineIndex) => (
+                                    <Text key={`${line}-${lineIndex}`} style={styles.siZhuShenShaText}>{line}</Text>
+                                ))}
+                            </View>
+                        ))}
+                    </View>
+                ))}
+            </View>
+        </Card>
+    );
+};
+
+const SchoolLines: React.FC<{ shu: string; mang: string; styles: Styles }> = ({ shu, mang, styles }) => (
+    <View style={styles.schoolLines}>
+        {[{ tag: '书', value: shu }, { tag: '盲', value: mang }].map((line) => (
+            <View key={line.tag} style={styles.schoolLine}>
+                <View style={styles.schoolTag}>
+                    <Text style={styles.schoolTagText}>{line.tag}</Text>
+                </View>
+                <Text style={styles.schoolLineText}>{line.value ? spacedDots(line.value) : '—'}</Text>
+            </View>
+        ))}
+    </View>
+);
+
+const MingJuCard: React.FC<{ profile: BaziAnalysisProfile; palette: Palette; styles: Styles }> = ({ profile, palette, styles }) => {
+    const dayMasterColor = elementColor(profile.dayMasterElement || profile.dayMasterProperty, palette);
+    return (
+        <Card title="命局参考" accessibilityLabel="书房派与盲派命盘参考" styles={styles}>
+            <View style={styles.pairGrid}>
+                <View style={styles.pairRow}>
+                    <View style={styles.pairItem}>
+                        <Text style={styles.fieldLabel}>日主</Text>
+                        <View style={styles.inlineIconValue}>
+                            <WuXingIcon element={profile.dayMasterElement || profile.dayMasterProperty} size={16} />
+                            <Text style={[styles.fieldValueStrong, { color: dayMasterColor }]}>{profile.dayMasterProperty || '—'}</Text>
+                        </View>
+                    </View>
+                    <View style={styles.pairItem}>
+                        <Text style={styles.fieldLabel}>阴阳</Text>
+                        <Text style={styles.fieldValueStrong}>{profile.yinYangReference || '—'}</Text>
+                    </View>
+                </View>
+                <View style={styles.pairRow}>
+                    <View style={styles.pairItem}>
+                        <Text style={styles.fieldLabel}>旺衰</Text>
+                        <SchoolLines shu={profile.shufang?.strength ?? ''} mang={profile.mangpai?.strength ?? ''} styles={styles} />
+                    </View>
+                    <View style={styles.pairItem}>
+                        <Text style={styles.fieldLabel}>格局</Text>
+                        <SchoolLines shu={profile.shufang?.structure ?? ''} mang={profile.mangpai?.structure ?? ''} styles={styles} />
+                    </View>
+                </View>
+            </View>
+        </Card>
+    );
+};
+
+const ENERGY_TABS: Array<{ key: EnergyMetric; label: string }> = [
+    { key: 'energy', label: '能量' },
+    { key: 'direct', label: '个数' },
+    { key: 'hidden', label: '含藏干' },
+];
+
+const Segmented = <T extends string>({ items, value, onChange, styles }: {
+    items: Array<{ key: T; label: string }>;
+    value: T;
+    onChange: (next: T) => void;
+    styles: Styles;
+}) => (
+    <View style={styles.segmented} accessibilityRole="tablist">
+        {items.map((item) => {
+            const on = item.key === value;
+            return (
+                <Pressable
+                    key={item.key}
+                    onPress={() => onChange(item.key)}
+                    style={[styles.segmentedBtn, on && styles.segmentedBtnOn]}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: on }}
+                    hitSlop={{ top: 8, bottom: 8 }}
+                >
+                    <Text style={[styles.segmentedText, on && styles.segmentedTextOn]}>{item.label}</Text>
+                </Pressable>
+            );
+        })}
+    </View>
+);
+
+const WuXingCard: React.FC<{
     energy: BaziWuXingEnergySnapshot | null;
     error: string;
     metric: EnergyMetric;
     onMetricChange: (metric: EnergyMetric) => void;
-    styles: ReturnType<typeof makeStyles>;
-    Colors: any;
-}> = ({ energy, error, metric, onMetricChange, styles, Colors }) => {
-    const tabs: Array<{ key: EnergyMetric; label: string }> = [
-        { key: 'energy', label: '五行能量' },
-        { key: 'direct', label: '五行个数' },
-        { key: 'hidden', label: '含藏干数' },
-    ];
-    const getColor = (value: string) => pickWuXingColor(value, Colors) ?? Colors.text.primary;
+    palette: Palette;
+    styles: Styles;
+}> = ({ energy, error, metric, onMetricChange, palette, styles }) => {
+    const valueOf = (item: BaziWuXingEnergySnapshot['elements'][number]): number => (
+        metric === 'energy' ? item.percentage : metric === 'direct' ? item.directCount : item.withHiddenCount
+    );
+    const total = !energy
+        ? 1
+        : metric === 'energy'
+            ? 100
+            : Math.max(1, energy.elements.reduce((sum, item) => sum + valueOf(item), 0));
 
     return (
-        <OverviewSection title="五行态势" showHeader={false} styles={styles}>
-            {energy ? (
-                <View style={styles.partyBalance}>
-                    <Text style={styles.partyLabel}>同党</Text>
-                    <View style={styles.partyTrack}>
-                        <View style={[styles.partySegment, styles.partySame, { width: `${energy.samePartyPercentage}%` }]}>
-                            <Text style={styles.partySegmentText}>{energy.samePartyPercentage}%</Text>
-                        </View>
-                        <View style={[styles.partySegment, styles.partyDifferent, { width: `${energy.differentPartyPercentage}%` }]}>
-                            <Text style={styles.partySegmentText}>{energy.differentPartyPercentage}%</Text>
-                        </View>
-                    </View>
-                    <Text style={styles.partyLabel}>异党</Text>
-                </View>
-            ) : null}
-            <View style={styles.metricTabs}>
-                {tabs.map((tab) => (
-                    <Pressable
-                        key={tab.key}
-                        style={({ pressed }) => [styles.metricTab, metric === tab.key && styles.metricTabActive, pressed && styles.pressed]}
-                        onPress={() => onMetricChange(tab.key)}
-                        accessibilityRole="tab"
-                        accessibilityState={{ selected: metric === tab.key }}
-                    >
-                        <Text style={[styles.metricTabText, metric === tab.key && styles.metricTabTextActive]}>{tab.label}</Text>
-                    </Pressable>
-                ))}
-            </View>
+        <Card
+            title="五行"
+            right={<Segmented items={ENERGY_TABS} value={metric} onChange={onMetricChange} styles={styles} />}
+            styles={styles}
+        >
             {!energy ? (
                 <View style={styles.energyError}>
                     <Text style={styles.energyErrorTitle}>五行综合能量计算失败</Text>
@@ -1077,1014 +1285,1256 @@ const WuXingOverview: React.FC<{
                 <>
                     <View style={styles.energyList}>
                         {energy.elements.map((item) => {
-                            const value = metric === 'energy' ? item.percentage : metric === 'direct' ? item.directCount : item.withHiddenCount;
-                            const max = metric === 'energy' ? 100 : Math.max(...energy.elements.map((element) => metric === 'direct' ? element.directCount : element.withHiddenCount), 1);
+                            const value = valueOf(item);
+                            const color = elementColor(item.element, palette);
+                            const width = value > 0 ? Math.max((value / total) * 100, 3) : 0;
                             return (
                                 <View key={item.element} style={styles.energyRow}>
-                                    <Text style={[styles.energyElement, { color: getColor(item.element) }]}>{item.element}</Text>
+                                    <View style={styles.energyLabel}>
+                                        <WuXingIcon element={item.element} size={16} />
+                                        <Text style={[styles.energyElement, { color }]}>{item.element}</Text>
+                                    </View>
                                     <View style={styles.energyTrack}>
-                                        <View style={[styles.energyFill, { width: `${Math.max((value / max) * 100, value > 0 ? 5 : 0)}%`, backgroundColor: getColor(item.element) }]} />
+                                        <View style={[styles.energyFill, { width: `${width}%`, backgroundColor: color }]} />
                                     </View>
-                                    <View style={styles.energyValueWrap}>
-                                        <Text style={styles.energyValue}>{value}{metric === 'energy' ? '%' : '个'}</Text>
-                                        <Text style={styles.energyMeta}>{item.seasonStatus} · {item.tenGodGroup}</Text>
-                                    </View>
+                                    <Text style={styles.energyValue}>{value}{metric === 'energy' ? '%' : '个'}</Text>
+                                    <Text style={styles.energyMeta} numberOfLines={1}>{item.seasonStatus} · {item.tenGodGroup}</Text>
                                 </View>
                             );
                         })}
                     </View>
-                    <Text style={styles.energyScopeNote}>
-                        综合干支、藏干、宫位、岁运、刑冲合害与神煞活跃度
+                    <View style={styles.partyBlock}>
+                        <View style={styles.partyRow}>
+                            <Text style={styles.partyLabel}>
+                                同党 <Text style={styles.partyValue}>{energy.samePartyPercentage}%</Text>
+                            </Text>
+                            <View style={styles.partyBar}>
+                                <View style={[styles.partySame, { width: `${energy.samePartyPercentage}%` }]} />
+                                <View style={styles.partyDiff} />
+                            </View>
+                            <Text style={styles.partyLabel}>
+                                <Text style={styles.partyValue}>{energy.differentPartyPercentage}%</Text> 异党
+                            </Text>
+                        </View>
+                        <View style={styles.partyLegend}>
+                            <Text style={styles.noteText}>印绶 + 比劫</Text>
+                            <Text style={styles.noteText}>财才 + 官杀 + 食伤</Text>
+                        </View>
+                    </View>
+                    <Text style={[styles.noteText, styles.energyScopeNote]}>
+                        能量综合干支、藏干、宫位、岁运、刑冲合害与神煞活跃度
                         {energy.omittedSources.length > 0 ? `\n未计入缺失来源：${energy.omittedSources.join('、')}` : ''}
                     </Text>
-                    <View style={styles.qiYunBand} accessibilityLabel="月令旺衰">
-                        {energy.elements.map((item) => (
-                            <View key={`${item.element}-${item.seasonStatus}`} style={styles.qiYunBandCell}>
-                                <Text style={[styles.qiYunBandText, { color: getColor(item.element) }]}>{item.element}{item.seasonStatus}</Text>
-                                <View style={[styles.qiYunDot, { borderColor: getColor(item.element) }]} />
+                </>
+            )}
+        </Card>
+    );
+};
+
+const JieQiCard: React.FC<{ result: BaziResult; privacyEnabled: boolean; palette: Palette; styles: Styles }> = ({ result, privacyEnabled, palette, styles }) => {
+    const ctx = result.jieQiContext;
+    const show = (value: string) => (privacyEnabled ? maskVisibleText(value) : value);
+    const nodes = [
+        { key: 'term', name: ctx.currentTerm.name, date: show(formatMonthDayTime(ctx.currentTerm.dateTime)) },
+        { key: 'birth', name: '出生', date: show(formatMonthDayTime(result.baseInfo.trueSolarDisplay)) },
+        { key: 'next', name: ctx.nextTerm.name, date: show(formatMonthDayTime(ctx.nextTerm.dateTime)) },
+    ];
+    const duty = result.baseInfo.renYuanDutyDetail;
+    const dutyName = duty?.stem ? `${duty.stem}${duty.element}` : result.baseInfo.renYuanDuty;
+    return (
+        <Card title="节气" styles={styles}>
+            <View style={styles.timeline}>
+                <Text style={[styles.timelineSpan, styles.timelineSpanLeft]} numberOfLines={1}>{compactDuration(ctx.afterPrev)}</Text>
+                <Text style={[styles.timelineSpan, styles.timelineSpanRight]} numberOfLines={1}>{compactDuration(ctx.beforeNext)}</Text>
+                <View style={styles.timelineLinePast} />
+                <View style={styles.timelineLineFuture} />
+                {nodes.map((node, index) => (
+                    <View key={node.key} style={[styles.timelineNode, { left: `${(index * 100) / 3}%` }]}>
+                        {node.key === 'birth' ? (
+                            <View style={styles.timelineBirthDot} />
+                        ) : (
+                            <View style={[styles.timelineDiamond, node.key === 'next' && styles.timelineDiamondHollow]} />
+                        )}
+                        <Text
+                            style={[
+                                styles.timelineName,
+                                node.key === 'birth' && styles.timelineNameBirth,
+                                node.key === 'next' && styles.timelineNameNext,
+                            ]}
+                        >
+                            {node.name}
+                        </Text>
+                        <Text style={styles.timelineDate} numberOfLines={1}>{node.date}</Text>
+                    </View>
+                ))}
+            </View>
+            <View style={styles.cardFooterRow}>
+                <Text style={styles.footerLabel}>人元司令</Text>
+                {privacyEnabled ? (
+                    <Text style={styles.footerBody}>{maskVisibleText(duty?.display || result.baseInfo.renYuanDuty)}</Text>
+                ) : (
+                    <>
+                        <View style={styles.inlineIconValue}>
+                            <WuXingIcon element={duty?.element || dutyName} size={16} />
+                            <Text style={[styles.footerStrong, { color: elementColor(duty?.element || dutyName, palette) }]}>{dutyName || '—'}</Text>
+                        </View>
+                        {duty?.dayIndex ? <Text style={styles.footerBody}>第 {duty.dayIndex} 天用事</Text> : null}
+                    </>
+                )}
+            </View>
+        </Card>
+    );
+};
+
+const ParamsCard: React.FC<{ result: BaziResult; styles: Styles }> = ({ result, styles }) => {
+    const info = result.baseInfo;
+    const kongWangParts = info.kongWang.trim().split(/\s+/).filter(Boolean);
+    const items: Array<{ label: string; node: React.ReactNode }> = [
+        { label: '星座', value: info.constellation },
+        { label: '星宿', value: info.xingXiu },
+        { label: '胎元', value: info.taiYuan },
+        { label: '胎息', value: info.taiXi },
+        { label: '命宫', value: info.mingGong },
+        { label: '身宫', value: info.shenGong },
+        { label: '命卦', value: info.mingGua },
+    ].map((item) => {
+        const parts = splitParamValue(item.value || '—');
+        return {
+            label: item.label,
+            node: (
+                <>
+                    <Text style={styles.paramMain} numberOfLines={1}>{parts.main}</Text>
+                    {parts.sub ? <Text style={styles.paramSub} numberOfLines={1}>{parts.sub}</Text> : null}
+                </>
+            ),
+        };
+    });
+    items.push({
+        label: '空亡',
+        node: kongWangParts.length === 2 ? (
+            <>
+                <Text style={styles.paramSub}>年</Text>
+                <Text style={[styles.paramMain, styles.paramTight]}>{kongWangParts[0]}</Text>
+                <Text style={styles.paramSub}>日</Text>
+                <Text style={[styles.paramMain, styles.paramTight]}>{kongWangParts[1]}</Text>
+            </>
+        ) : (
+            <Text style={styles.paramMain} numberOfLines={1}>{info.kongWang || '—'}</Text>
+        ),
+    });
+    const pairs: Array<typeof items> = [];
+    for (let index = 0; index < items.length; index += 2) {
+        pairs.push(items.slice(index, index + 2));
+    }
+    return (
+        <Card title="命理参数" styles={styles}>
+            <View style={styles.paramGrid}>
+                {pairs.map((pair, pairIndex) => (
+                    <View key={pairIndex} style={styles.paramPair}>
+                        {pair.map((item) => (
+                            <View key={item.label} style={[styles.paramCell, pairIndex < pairs.length - 1 && styles.paramCellDivider]}>
+                                <Text style={styles.paramLabel}>{item.label}</Text>
+                                {item.node}
                             </View>
                         ))}
                     </View>
-                </>
-            )}
-        </OverviewSection>
+                ))}
+            </View>
+        </Card>
     );
 };
 
-const SectionTab: React.FC<{ label: string; active: boolean; onPress: () => void; styles: ReturnType<typeof makeStyles>; }> = ({ label, active, onPress, styles }) => (
-    <Pressable
-        style={({ pressed }) => [styles.compactTabBtn, active && styles.compactTabBtnActive, pressed && styles.pressed]}
-        onPress={onPress}
-        accessibilityRole="tab"
-        accessibilityState={{ selected: active }}
-    >
-        <Text style={[styles.compactTabText, active && styles.compactTabTextActive]}>{label}</Text>
-    </Pressable>
-);
-
-const OverviewJourney: React.FC<{
-    result: BaziResult;
-    privacyEnabled: boolean;
-    styles: ReturnType<typeof makeStyles>;
-}> = ({ result, privacyEnabled, styles }) => {
-    const qiYun = `${result.childLimit.years}年${result.childLimit.months}月${result.childLimit.days}天${result.childLimit.hours}时${result.childLimit.minutes}分`;
-    const jiaoYun = privacyEnabled ? maskVisibleText(result.childLimit.jiaoYunDateTime) : result.childLimit.jiaoYunDateTime;
-    const timeMode = timeModeLabel(result.schoolOptionsResolved.timeMode);
-    const ziHourMode = ziHourModeLabel(result.schoolOptionsResolved.ziHourMode);
-    const daylightSaving = daylightSavingLabel(result.schoolOptionsResolved.daylightSaving);
+const QiYunCard: React.FC<{ result: BaziResult; privacyEnabled: boolean; styles: Styles }> = ({ result, privacyEnabled, styles }) => {
+    const limit = result.childLimit;
+    const jiaoYun = splitFullDate(limit.jiaoYunDateTime);
+    const school = result.schoolOptionsResolved;
+    const chips = [
+        timeModeLabel(school.timeMode),
+        ziHourModeLabel(school.ziHourMode),
+        `夏令时 ${school.daylightSaving ? '开' : '关'}`,
+    ];
     return (
-        <View style={styles.journeyBlock}>
-            <View style={styles.journeyBand}>
-                <View style={styles.journeyItem}>
-                    <Text style={styles.journeyLabel}>起运</Text>
-                    <Text style={[styles.journeyValue, styles.journeyValueStart]} numberOfLines={1}>{qiYun}</Text>
+        <Card title="起运" styles={styles}>
+            <View style={[styles.pairRow, styles.qiYunGrid]}>
+                <View style={styles.pairItem}>
+                    <Text style={styles.fieldLabel}>出生后起运</Text>
+                    <Text style={styles.fieldValueStrong}>
+                        {`${limit.years}年${limit.months}月${limit.days}天`}
+                        <Text style={styles.fieldValueMinor}>{` ${limit.hours}时${limit.minutes}分`}</Text>
+                    </Text>
                 </View>
-                <View style={[styles.journeyItem, styles.journeyItemLast]}>
-                    <Text style={styles.journeyLabel}>交运</Text>
-                    <Text style={[styles.journeyValue, styles.journeyValueEnd]} numberOfLines={1}>{jiaoYun}</Text>
-                </View>
-            </View>
-            <View style={styles.schoolBand}>
-                <View style={styles.schoolItem}>
-                    <Text style={styles.schoolLabel}>排盘口径</Text>
-                    <Text style={styles.schoolValue}>{timeMode}</Text>
-                </View>
-                <View style={styles.schoolItem}>
-                    <Text style={styles.schoolLabel}>子时口径</Text>
-                    <Text style={styles.schoolValue}>{ziHourMode}</Text>
-                </View>
-                <View style={styles.schoolItem}>
-                    <Text style={styles.schoolLabel}>夏令时</Text>
-                    <Text style={styles.schoolValue}>{daylightSaving}</Text>
+                <View style={styles.pairItem}>
+                    <Text style={styles.fieldLabel}>交运时间</Text>
+                    {privacyEnabled ? (
+                        <Text style={styles.fieldValueStrong}>{maskVisibleText(limit.jiaoYunDateTime)}</Text>
+                    ) : (
+                        <Text style={styles.fieldValueStrong}>
+                            {jiaoYun.date}
+                            {jiaoYun.time ? <Text style={styles.fieldValueMinor}>{` ${jiaoYun.time}`}</Text> : null}
+                        </Text>
+                    )}
                 </View>
             </View>
-        </View>
+            {limit.jiaoYunRuleText ? <Text style={[styles.noteText, styles.qiYunRule]}>{limit.jiaoYunRuleText}</Text> : null}
+            <View style={[styles.cardFooterRow, styles.chipRow]}>
+                <Text style={styles.chipRowLabel}>口径</Text>
+                {chips.map((chip) => (
+                    <View key={chip} style={styles.outlineChip}>
+                        <Text style={styles.outlineChipText}>{chip}</Text>
+                    </View>
+                ))}
+            </View>
+        </Card>
     );
 };
 
-const ChartHeaderStrip: React.FC<{
-    name: string;
-    solarText: string;
-    lunarText: string;
-    mingZaoText: string;
+/* ------------------------------------------------------------------ */
+/* 专业细盘                                                             */
+/* ------------------------------------------------------------------ */
+
+const PaiPanCard: React.FC<{
     panelMode: BaziPanelMode;
-    showPanelSwitch: boolean;
-    onTogglePanelMode: () => void;
-    styles: ReturnType<typeof makeStyles>;
-}> = ({
-    name,
-    solarText,
-    lunarText,
-    mingZaoText,
-    panelMode,
-    showPanelSwitch,
-    onTogglePanelMode,
-    styles,
-}) => (
-        <View style={styles.chartHeaderStrip}>
-            <View style={styles.chartHeaderMain}>
-                <Text style={styles.chartHeaderName}>{name}</Text>
-                <Text style={styles.chartHeaderLine} numberOfLines={1}>{solarText}</Text>
-                <Text style={styles.chartHeaderLine} numberOfLines={1}>{lunarText}</Text>
-            </View>
-            <View style={styles.chartHeaderSide}>
-                {showPanelSwitch ? (
-                    <View style={styles.chartHeaderActions}>
-                        <PanelModeSwitch panelMode={panelMode} onToggle={onTogglePanelMode} styles={styles} />
+    summary: string;
+    columns: ProChartColumnView[];
+    liuNianTrack: DenseTrackCellView[];
+    daYunTrack: DenseTrackCellView[];
+    qiYunBand: QiYunBandItemView[];
+    palette: Palette;
+    styles: Styles;
+}> = ({ panelMode, summary, columns, liuNianTrack, daYunTrack, qiYunBand, palette, styles }) => {
+    const groupSplit = panelMode === 'fortune' ? 2 : 3;
+    const groups = panelMode === 'fortune'
+        ? [{ label: '岁运', span: 2 }, { label: '原局', span: columns.length - 2 }]
+        : [{ label: '胎命身', span: 3 }, { label: '原局', span: columns.length - 3 }];
+    const dayIndex = columns.findIndex((column) => column.key === 'day');
+    const dense = columns.length >= 7;
+    const activeLiuNian = liuNianTrack.find((cell) => cell.active);
+    const activeYun = daYunTrack.find((cell) => cell.active);
+    const subLabelFor = (column: ProChartColumnView): string => {
+        if (column.key === 'liuNian') return activeLiuNian?.topLabel ?? '';
+        if (column.key === 'daYun') return (activeYun?.subLabel ?? '').replace('~', '–');
+        return '';
+    };
+    const band = [...qiYunBand].sort((a, b) => (SEASON_BAND_ORDER[a.element] ?? 9) - (SEASON_BAND_ORDER[b.element] ?? 9));
+    const detail: Array<{ key: string; label: string; pick: (column: ProChartColumnView) => string; small?: boolean }> = [
+        { key: 'xingYun', label: '星运', pick: (column) => column.xingYun },
+        { key: 'ziZuo', label: '自坐', pick: (column) => column.ziZuo },
+        { key: 'kongWang', label: '空亡', pick: (column) => column.kongWang || '—' },
+        { key: 'naYin', label: '纳音', pick: (column) => column.naYin, small: true },
+    ];
+
+    return (
+        <Card
+            title="排盘"
+            first
+            dense
+            right={summary ? <Text style={styles.cardHeaderMeta} numberOfLines={1}>{summary}</Text> : null}
+            styles={styles}
+        >
+            <View style={styles.tableWrap}>
+                <View style={[styles.tableOverlay, styles.proTintOverlay]}>
+                    {columns.map((column, index) => (
+                        <View key={column.key} style={[styles.tableOverlayCol, index === dayIndex && styles.tableDayTint]} />
+                    ))}
+                </View>
+                <View style={[styles.tableOverlay, styles.proDividerOverlay]}>
+                    {columns.map((column, index) => (
+                        <View key={column.key} style={[styles.tableOverlayCol, index === groupSplit - 1 && styles.proGroupDivider]} />
+                    ))}
+                </View>
+
+                <View style={[styles.tableRow, styles.proGroupRow]}>
+                    <View style={styles.proLabelCell} />
+                    {groups.map((group) => (
+                        <View key={group.label} style={[styles.proGroupCell, { flex: group.span }]}>
+                            <Text style={styles.proGroupText}>{group.label}</Text>
+                        </View>
+                    ))}
+                </View>
+                <View style={[styles.tableRow, styles.proHeadRow]}>
+                    <View style={styles.proLabelCell} />
+                    {columns.map((column) => {
+                        const sub = subLabelFor(column);
+                        return (
+                            <View key={column.key} style={styles.tableCell}>
+                                <Text style={[styles.proHeadText, column.key === 'day' && styles.tableHeadTextDay]} numberOfLines={1}>{column.label}</Text>
+                                {sub ? <Text style={styles.proHeadSub} numberOfLines={1}>{sub}</Text> : null}
+                            </View>
+                        );
+                    })}
+                </View>
+                <View style={[styles.tableRow, styles.proStarRow]}>
+                    <Text style={[styles.proLabelCell, styles.tableRowLabel]}>主星</Text>
+                    {columns.map((column) => (
+                        <Text key={column.key} style={[styles.tableCellText, styles.proStarText]} numberOfLines={1}>
+                            {(column.key === 'day' ? column.mainStarShort : column.mainStarFull) || '—'}
+                        </Text>
+                    ))}
+                </View>
+                {[{ label: '天干', pick: (column: ProChartColumnView) => column.tianGan }, { label: '地支', pick: (column: ProChartColumnView) => column.diZhi }].map((row) => (
+                    <View key={row.label} style={[styles.tableRow, styles.proGlyphRow]}>
+                        <Text style={[styles.proLabelCell, styles.tableRowLabel]}>{row.label}</Text>
+                        {columns.map((column) => (
+                            <View key={column.key} style={styles.tableCell}>
+                                <GlyphWithIcon char={row.pick(column)} textStyle={dense ? styles.proGlyphTextDense : styles.proGlyphText} iconSize={11} palette={palette} styles={styles} />
+                            </View>
+                        ))}
                     </View>
-                ) : null}
-                <Text style={styles.chartHeaderMingZao}>{mingZaoText}</Text>
-            </View>
-        </View>
-    );
-
-const PanelModeSwitch: React.FC<{
-    panelMode: BaziPanelMode;
-    onToggle: () => void;
-    styles: ReturnType<typeof makeStyles>;
-}> = ({ panelMode, onToggle, styles }) => (
-    <Pressable
-        style={[styles.panelSwitch, panelMode === 'taiming' && styles.panelSwitchActive]}
-        onPress={onToggle}
-        accessibilityRole="switch"
-        accessibilityState={{ checked: panelMode === 'taiming' }}
-    >
-        <View style={[styles.panelSwitchThumb, panelMode === 'taiming' && styles.panelSwitchThumbActive]} />
-        <View style={styles.panelSwitchTextRow}>
-            <Text
-                style={[
-                    styles.panelSwitchLabel,
-                    panelMode === 'fortune' && styles.panelSwitchLabelActive,
-                ]}
-            >
-                流年大运
-            </Text>
-            <Text
-                style={[
-                    styles.panelSwitchLabel,
-                    panelMode === 'taiming' && styles.panelSwitchLabelActive,
-                ]}
-            >
-                胎命身
-            </Text>
-        </View>
-    </Pressable>
-);
-
-const DenseMatrix: React.FC<{
-    headerLabels: string[];
-    rows: ProChartRowView[];
-    styles: ReturnType<typeof makeStyles>;
-}> = ({ headerLabels, rows, styles }) => (
-    <View style={styles.proMatrixSurface}>
-        <View style={styles.proMatrixDenseHeadRow}>
-            <Text style={[styles.proMatrixDenseHeadLabelCell, styles.proMatrixDenseLabelCell]}>日期</Text>
-            {headerLabels.map((label) => (
-                <Text key={`head-${label}`} style={styles.proMatrixDenseHeadCell}>{label}</Text>
-            ))}
-        </View>
-        {rows.map((row) => {
-            const isLabelRow = row.density === 'label';
-            const isSymbolRow = row.density === 'symbol';
-            const isStackedRow = row.density === 'stacked';
-            return (
-                <View key={row.key} style={styles.proMatrixDenseRow}>
-                    <Text style={[styles.proMatrixDenseLabel, styles.proMatrixDenseLabelCell]}>{row.label}</Text>
-                    {row.cells.map((cell, index) => (
-                        <View
-                            key={`${row.key}-${index}`}
-                            style={[
-                                styles.proMatrixDenseCell,
-                                isStackedRow && styles.proMatrixDenseStackedCell,
-                            ]}
-                        >
-                            {cell.primary ? (
-                                <Text
-                                    style={[
-                                        styles.proMatrixDensePrimary,
-                                        isLabelRow && styles.proMatrixDenseLabelPrimary,
-                                        isSymbolRow && styles.proMatrixDenseSymbolPrimary,
-                                        cell.colorized ? { color: pickWuXingColor(cell.primary) ?? styles.proMatrixDensePrimary.color } : null,
-                                    ]}
-                                >
-                                    {cell.primary}
-                                </Text>
-                            ) : null}
-                            {cell.secondary ? (
-                                <Text style={styles.proMatrixDenseSecondary}>{cell.secondary}</Text>
-                            ) : null}
-                            {cell.lines?.map((line, lineIndex) => (
-                                <Text
-                                    key={`${row.key}-${index}-${line}-${lineIndex}`}
-                                    style={[
-                                        styles.proMatrixDenseLine,
-                                        row.key === 'shenSha' && styles.proMatrixDenseShenShaLine,
-                                        row.key === 'cangGan' && styles.proMatrixDenseCangGanLine,
-                                        cell.colorized ? { color: pickWuXingColor(line) ?? styles.proMatrixDenseLine.color } : null,
-                                    ]}
-                                >
-                                    {line}
-                                </Text>
+                ))}
+                <View style={[styles.tableRow, styles.proCangRow]}>
+                    <Text style={[styles.proLabelCell, styles.tableRowLabel]}>藏干</Text>
+                    {columns.map((column) => (
+                        <View key={column.key} style={styles.tableCellStack}>
+                            {(column.cangGanLines.length > 0 ? column.cangGanLines : ['—']).map((line, lineIndex) => (
+                                <StemLine key={`${line}-${lineIndex}`} line={line} stemSize={12} noteSize={11} lineHeight={17} palette={palette} styles={styles} />
                             ))}
                         </View>
                     ))}
                 </View>
-            );
-        })}
-    </View>
-);
-
-const DualInfoStrip: React.FC<{
-    infoStrip: ReturnType<typeof buildBaziProChartViewModel>['infoStrip'];
-    styles: ReturnType<typeof makeStyles>;
-}> = ({ infoStrip, styles }) => {
-    const renYuanColor = pickWuXingColor(infoStrip.renYuanShortText);
-    return (
-        <View style={styles.infoBand}>
-            <View style={styles.infoBandRow}>
-                <View style={styles.infoBandItem}>
-                    <Text style={styles.infoBandValue}>{infoStrip.startText}</Text>
-                </View>
-                <View style={[styles.infoBandItem, styles.infoBandItemRight]}>
-                    <Text style={[styles.infoBandValue, styles.infoBandValueRight]}>{infoStrip.ageText}</Text>
-                </View>
-            </View>
-            <View style={styles.infoBandRow}>
-                <View style={styles.infoBandItem}>
-                    <Text style={styles.infoBandValue}>{infoStrip.changeText}</Text>
-                </View>
-                <View style={[styles.infoBandItem, styles.infoBandItemRight]}>
-                    <Text style={[styles.infoBandValue, styles.infoBandValueRight]}>
-                        <Text style={styles.infoBandValue}>人元司令：</Text>
-                        <Text style={renYuanColor ? { color: renYuanColor } : null}>
-                            {infoStrip.renYuanShortText}
-                        </Text>
-                    </Text>
-                </View>
-            </View>
-        </View>
-    );
-};
-
-const PersistBanner: React.FC<{
-    message: string;
-    onPress: () => void;
-    styles: ReturnType<typeof makeStyles>;
-}> = ({ message, onPress, styles }) => (
-    <Pressable style={({ pressed }) => [styles.persistBanner, pressed && styles.pressed]} onPress={onPress}>
-        <Text style={styles.persistBannerText}>{message}</Text>
-    </Pressable>
-);
-
-const DenseTrackMatrix: React.FC<{
-    rowLabel: string;
-    columns: DenseTrackCellView[];
-    onSelect: (cell: DenseTrackCellView) => void;
-    styles: ReturnType<typeof makeStyles>;
-}> = ({ rowLabel, columns, onSelect, styles }) => {
-    if (columns.length === 0) {
-        return <Text style={styles.emptyHint}>无</Text>;
-    }
-    return (
-        <View style={styles.trackWrap}>
-            <View style={styles.trackLeft}>
-                <Text style={styles.trackLeftText}>{rowLabel}</Text>
-            </View>
-            <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.trackRow}
-                accessibilityLabel={`${rowLabel}轨道，可左右滑动查看更多`}
-            >
-                {columns.map((column) => {
-                    const primaryColor = pickWuXingColor(column.primaryText);
-                    const secondaryColor = pickWuXingColor(column.secondaryText);
-                    return (
-                        <Pressable
-                            key={column.key}
-                            style={({ pressed }) => [
-                                styles.trackColumn,
-                                column.active && styles.trackColumnActive,
-                                pressed && column.selectable && styles.pressed,
-                            ]}
-                            onPress={() => onSelect(column)}
-                            disabled={!column.selectable}
-                            accessibilityRole="button"
-                            accessibilityState={{ selected: column.active, disabled: !column.selectable }}
-                        >
-                            <Text style={[styles.trackTop, column.active && styles.trackActiveText]}>{column.topLabel}</Text>
-                            <Text style={[styles.trackSub, column.active && styles.trackActiveText]}>{column.subLabel}</Text>
-                            <Text style={[styles.trackPrimary, primaryColor ? { color: primaryColor } : null]}>{column.primaryText}</Text>
-                            <Text style={[styles.trackSecondary, secondaryColor ? { color: secondaryColor } : null]}>{column.secondaryText}</Text>
-                            {column.tertiaryText ? <Text style={styles.trackTertiary}>{column.tertiaryText}</Text> : null}
-                            {column.isCurrent ? <Text style={styles.currentTag}>当前</Text> : null}
-                        </Pressable>
-                    );
-                })}
-            </ScrollView>
-        </View>
-    );
-};
-
-const LayerStarBlock: React.FC<{ title: string; rows: string[]; styles: ReturnType<typeof makeStyles>; }> = ({ title, rows, styles }) => (
-    <View style={styles.layerBlock}>
-        <Text style={styles.layerTitle}>{title}</Text>
-        {rows.length === 0 ? (
-            <Text style={styles.emptyHint}>无</Text>
-        ) : rows.map((row) => (
-            <Text key={`${title}-${row}`} style={styles.layerRow}>{row}</Text>
-        ))}
-    </View>
-);
-
-const GanZhiLayerBlock: React.FC<{
-    layer: ReturnType<typeof buildBaziProChartViewModel>['ganZhiLayer'];
-    styles: ReturnType<typeof makeStyles>;
-}> = ({ layer, styles }) => {
-    const rows: Array<{ label: string; value: string }> = [
-        { label: '岁运天干：', value: layer.suiYunTianGan },
-        { label: '岁运地支：', value: layer.suiYunDiZhi },
-        { label: '岁运整柱：', value: layer.suiYunZhengZhu },
-        { label: '原局天干：', value: layer.yuanJuTianGan },
-        { label: '原局地支：', value: layer.yuanJuDiZhi },
-        { label: '原局整柱：', value: layer.yuanJuZhengZhu },
-    ];
-
-    return (
-        <View style={[styles.layerBlock, styles.ganZhiLayerBlock]}>
-            {rows.map((row, index) => (
-                <React.Fragment key={row.label}>
-                    {index === 3 ? <View style={styles.ganZhiLayerDivider} /> : null}
-                    <View style={styles.ganZhiLayerRow}>
-                        <Text style={styles.ganZhiLayerLabel}>{row.label}</Text>
-                        <Text style={styles.ganZhiLayerValue}>{row.value}</Text>
+                {detail.map((row, rowIndex) => (
+                    <View key={row.key} style={[styles.tableRow, styles.proDetailRow, rowIndex === 0 && styles.proDetailFirst]}>
+                        <Text style={[styles.proLabelCell, styles.tableRowLabel]}>{row.label}</Text>
+                        {columns.map((column) => (
+                            <Text
+                                key={column.key}
+                                style={[styles.tableCellText, styles.proDetailText, row.small && styles.proDetailTextSmall]}
+                                numberOfLines={1}
+                                adjustsFontSizeToFit
+                                minimumFontScale={0.8}
+                            >
+                                {row.pick(column) || '—'}
+                            </Text>
+                        ))}
                     </View>
-                </React.Fragment>
-            ))}
+                ))}
+                <View style={[styles.tableRow, styles.proStackRow]}>
+                    <Text style={[styles.proLabelCell, styles.tableRowLabel]}>神煞</Text>
+                    {columns.map((column) => (
+                        <View key={column.key} style={styles.tableCellStack}>
+                            {(column.shenSha.length > 0 ? column.shenSha : ['—']).map((line, lineIndex) => (
+                                <Text key={`${line}-${lineIndex}`} style={[styles.proShenShaText, dense && styles.proShenShaTextDense]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{line}</Text>
+                            ))}
+                        </View>
+                    ))}
+                </View>
+            </View>
+            {band.length > 0 ? (
+                <View style={styles.seasonRow} accessibilityLabel="月令旺衰">
+                    <Text style={styles.seasonLabel}>月令</Text>
+                    {band.map((item) => {
+                        const element = resolveWuXingElement(item.element);
+                        return (
+                            <View
+                                key={`${item.element}-${item.status}`}
+                                style={[styles.seasonChip, element ? { backgroundColor: palette.elementSoft[element] } : null]}
+                            >
+                                <WuXingIcon element={item.element} size={11} />
+                                <Text style={[styles.seasonElement, { color: elementColor(item.element, palette) }]}>{item.element}</Text>
+                                <Text style={styles.seasonStatus}>{item.status}</Text>
+                            </View>
+                        );
+                    })}
+                </View>
+            ) : null}
+        </Card>
+    );
+};
+
+const TRACK_CELL_WIDTH = 54;
+const TRACK_CELL_GAP = 6;
+/** 末格右侧留白，确保滚到底时最后一格完全露出、不被渐隐遮住 */
+const TRACK_END_PADDING = 18;
+
+const FortuneTrack: React.FC<{
+    label: string;
+    cells: DenseTrackCellView[];
+    onSelect: (cell: DenseTrackCellView) => void;
+    markXiaoYun?: boolean;
+    palette: Palette;
+    styles: Styles;
+}> = ({ label, cells, onSelect, markXiaoYun = false, palette, styles }) => {
+    const scrollRef = useRef<ScrollView>(null);
+    const [viewportWidth, setViewportWidth] = useState(0);
+    const hasScrolledRef = useRef(false);
+    const activeIndex = cells.findIndex((cell) => cell.active);
+    const cellCount = cells.length;
+
+    useEffect(() => {
+        if (viewportWidth <= 0 || activeIndex < 0) {
+            return;
+        }
+        const step = TRACK_CELL_WIDTH + TRACK_CELL_GAP;
+        const contentWidth = cellCount * step - TRACK_CELL_GAP + TRACK_END_PADDING;
+        // 让选中格尽量居中，并对齐到格子边界，避免左侧露出半格
+        const centred = activeIndex * step - (viewportWidth - TRACK_CELL_WIDTH) / 2;
+        const snapped = Math.round(centred / step) * step;
+        const x = Math.max(0, Math.min(snapped, contentWidth - viewportWidth));
+        scrollRef.current?.scrollTo({ x, animated: hasScrolledRef.current });
+        hasScrolledRef.current = true;
+    }, [activeIndex, cellCount, viewportWidth]);
+
+    const handleLayout = (event: LayoutChangeEvent) => {
+        const next = Math.round(event.nativeEvent.layout.width);
+        if (next !== viewportWidth) {
+            setViewportWidth(next);
+        }
+    };
+
+    return (
+        <View style={styles.trackRow}>
+            <View style={styles.trackLabel}>
+                {label.split('').map((char, index) => (
+                    <Text key={`${char}-${index}`} style={styles.trackLabelText}>{char}</Text>
+                ))}
+            </View>
+            {cells.length === 0 ? (
+                <View style={styles.trackEmpty}>
+                    <Text style={styles.noteText}>无</Text>
+                </View>
+            ) : (
+                <View style={styles.trackViewport} onLayout={handleLayout}>
+                    <ScrollView
+                        ref={scrollRef}
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.trackContent}
+                        accessibilityLabel={`${label}轨道，可左右滑动查看更多`}
+                    >
+                        {cells.map((cell) => {
+                            const primaryChar = cell.primaryText.charAt(0);
+                            const secondaryChar = cell.secondaryText.charAt(0);
+                            return (
+                                <Pressable
+                                    key={cell.key}
+                                    style={({ pressed }) => [
+                                        styles.trackCell,
+                                        cell.active && styles.trackCellActive,
+                                        pressed && cell.selectable && styles.pressed,
+                                    ]}
+                                    onPress={() => onSelect(cell)}
+                                    disabled={!cell.selectable}
+                                    accessibilityRole="button"
+                                    accessibilityState={{ selected: cell.active, disabled: !cell.selectable }}
+                                    accessibilityLabel={`${cell.topLabel} ${cell.subLabel} ${cell.primaryText}${cell.secondaryText}${cell.isCurrent ? ' 当前' : ''}`}
+                                >
+                                    {cell.isCurrent ? <View style={styles.trackCurrentDot} /> : null}
+                                    <Text style={styles.trackTop} numberOfLines={1}>{cell.topLabel}</Text>
+                                    <Text style={styles.trackSub} numberOfLines={1}>{cell.subLabel.replace('~', '–')}</Text>
+                                    <Text style={[styles.trackGlyph, styles.trackGlyphFirst, { color: ganZhiCharColor(primaryChar, palette) }]}>
+                                        {primaryChar}
+                                        <Text style={styles.trackGlyphNote}>{cell.primaryText.slice(1)}</Text>
+                                    </Text>
+                                    <Text style={[styles.trackGlyph, { color: ganZhiCharColor(secondaryChar, palette) }]}>
+                                        {secondaryChar}
+                                        <Text style={styles.trackGlyphNote}>{cell.secondaryText.slice(1)}</Text>
+                                    </Text>
+                                    {markXiaoYun && cell.trackKind === 'xiaoyun' ? <Text style={styles.trackTag}>小运</Text> : null}
+                                </Pressable>
+                            );
+                        })}
+                    </ScrollView>
+                    <LinearGradient
+                        colors={[palette.fadeFrom, palette.card]}
+                        start={{ x: 0, y: 0.5 }}
+                        end={{ x: 1, y: 0.5 }}
+                        style={styles.trackFade}
+                    />
+                </View>
+            )}
         </View>
     );
 };
 
-const makeStyles = (Colors: any, viewportWidth: number = 862) => {
+const YunChengCard: React.FC<{
+    result: BaziResult;
+    privacyEnabled: boolean;
+    daYunTrack: DenseTrackCellView[];
+    liuNianTrack: DenseTrackCellView[];
+    liuYueTrack: DenseTrackCellView[];
+    onSelectDaYun: (cell: DenseTrackCellView) => void;
+    onSelectLiuNian: (cell: DenseTrackCellView) => void;
+    onSelectLiuYue: (cell: DenseTrackCellView) => void;
+    palette: Palette;
+    styles: Styles;
+}> = ({ result, privacyEnabled, daYunTrack, liuNianTrack, liuYueTrack, onSelectDaYun, onSelectLiuNian, onSelectLiuYue, palette, styles }) => {
+    const limit = result.childLimit;
+    const age = liuNianTrack.find((cell) => cell.active)?.subLabel ?? '—';
+    const jiaoYunDate = splitFullDate(limit.jiaoYunDateTime).date;
+    const duty = result.baseInfo.renYuanDutyDetail;
+    const dutyName = duty?.stem ? `${duty.stem}${duty.element}` : '—';
+    const facts = [
+        { label: '当前', node: <Text style={styles.factValue} numberOfLines={1}>{age}</Text> },
+        { label: '起运', node: <Text style={styles.factValue} numberOfLines={1}>{`${limit.years}年${limit.months}月${limit.days}天`}</Text> },
+        { label: '交运', node: <Text style={styles.factValue} numberOfLines={1}>{privacyEnabled ? maskVisibleText(jiaoYunDate) : jiaoYunDate}</Text> },
+        {
+            label: '人元司令',
+            node: (
+                <View style={styles.inlineIconValueTight}>
+                    <WuXingIcon element={duty?.element || dutyName} size={12} />
+                    <Text style={[styles.factValue, styles.factValueInline, { color: elementColor(duty?.element || dutyName, palette) }]}>{dutyName}</Text>
+                </View>
+            ),
+        },
+    ];
+    return (
+        <Card title="运程" dense styles={styles}>
+            <View style={styles.factRow}>
+                {facts.map((fact) => (
+                    <View key={fact.label} style={styles.factItem}>
+                        <Text style={styles.fieldLabel} numberOfLines={1}>{fact.label}</Text>
+                        {fact.node}
+                    </View>
+                ))}
+            </View>
+            <View style={styles.trackStack}>
+                <FortuneTrack label="大运" cells={daYunTrack} onSelect={onSelectDaYun} markXiaoYun palette={palette} styles={styles} />
+                <FortuneTrack label="流年" cells={liuNianTrack} onSelect={onSelectLiuNian} palette={palette} styles={styles} />
+                <FortuneTrack label="流月" cells={liuYueTrack} onSelect={onSelectLiuYue} palette={palette} styles={styles} />
+            </View>
+        </Card>
+    );
+};
+
+const ShenShaCard: React.FC<{ rows: ProShenShaRowView[]; palette: Palette; styles: Styles }> = ({ rows, palette, styles }) => (
+    <Card title="神煞" dense styles={styles}>
+        <View style={styles.shenShaList}>
+            {rows.map((row, index) => {
+                const next = rows[index + 1];
+                const isGroupEnd = Boolean(next) && next.group !== row.group;
+                const isLast = index === rows.length - 1;
+                return (
+                    <View
+                        key={row.key}
+                        style={[
+                            styles.shenShaRow,
+                            !isLast && styles.shenShaRowDivider,
+                            isGroupEnd && styles.shenShaRowGroupEnd,
+                        ]}
+                    >
+                        <Text style={styles.shenShaLabel}>{row.label}</Text>
+                        <ColoredGanZhi value={row.ganZhi || '—'} palette={palette} style={styles.shenShaGanZhi} />
+                        <Text style={[styles.shenShaStars, row.stars.length === 0 && styles.shenShaStarsEmpty]}>
+                            {row.stars.length > 0 ? row.stars.join(' · ') : '—'}
+                        </Text>
+                    </View>
+                );
+            })}
+        </View>
+    </Card>
+);
+
+const GanZhiLayerCard: React.FC<{
+    layer: ReturnType<typeof buildBaziProChartViewModel>['ganZhiLayer'];
+    onOpenDetail: () => void;
+    palette: Palette;
+    styles: Styles;
+}> = ({ layer, onOpenDetail, palette, styles }) => {
+    const groups = [
+        {
+            title: '岁运作用',
+            rows: [
+                { label: '天干', value: layer.suiYunTianGan },
+                { label: '地支', value: layer.suiYunDiZhi },
+                { label: '整柱', value: layer.suiYunZhengZhu },
+            ],
+        },
+        {
+            title: '原局',
+            rows: [
+                { label: '天干', value: layer.yuanJuTianGan },
+                { label: '地支', value: layer.yuanJuDiZhi },
+                { label: '整柱', value: layer.yuanJuZhengZhu },
+            ],
+        },
+    ];
+    return (
+        <Card
+            title="干支分层"
+            dense
+            right={(
+                <Pressable
+                    style={({ pressed }) => [styles.cardLink, pressed && styles.pressed]}
+                    onPress={onOpenDetail}
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    accessibilityLabel="打开干支详情"
+                >
+                    <Text style={styles.cardLinkText}>干支详情</Text>
+                    <ChevronRightIcon size={12} color={palette.gold} />
+                </Pressable>
+            )}
+            styles={styles}
+        >
+            {groups.map((group, groupIndex) => (
+                <View key={group.title} style={groupIndex > 0 ? styles.relationGroupNext : styles.relationGroupFirst}>
+                    <Text style={styles.noteText}>{group.title}</Text>
+                    <View style={styles.relationRows}>
+                        {group.rows.map((row) => {
+                            const chips = splitStarText(row.value || '');
+                            return (
+                                <View key={row.label} style={styles.relationRow}>
+                                    <Text style={styles.relationLabel}>{row.label}</Text>
+                                    {chips.length > 0 ? (
+                                        <View style={styles.relationChips}>
+                                            {chips.map((chip, chipIndex) => (
+                                                <View key={`${chip}-${chipIndex}`} style={styles.relationChip}>
+                                                    <Text style={styles.relationChipText}>{chip}</Text>
+                                                </View>
+                                            ))}
+                                        </View>
+                                    ) : (
+                                        <Text style={styles.relationEmpty}>无</Text>
+                                    )}
+                                </View>
+                            );
+                        })}
+                    </View>
+                </View>
+            ))}
+        </Card>
+    );
+};
+
+/* ------------------------------------------------------------------ */
+/* 样式                                                                 */
+/* ------------------------------------------------------------------ */
+
+const makeStyles = (Colors: any, palette: Palette, viewportWidth: number = 862) => {
     const boundedWidth = Math.min(862, Math.max(320, viewportWidth));
     const fluid = (min: number, max: number): number => Math.round(min + ((boundedWidth - 320) / 542) * (max - min));
-    const gutter = fluid(17, 37);
-    const railLabelWidth = fluid(58, 81);
-    const sectionPadding = fluid(24, 33);
-    const sectionHeadingSize = fluid(21, 29);
-    const overviewHeroMinHeight = fluid(134, 157);
-    const overviewHeroPadding = fluid(20, 26);
-    const overviewNameSize = fluid(18, 25);
-    const overviewMingZaoSize = fluid(26, 39);
-    const pillarNameSize = fluid(16, 22);
-    const pillarStarSize = fluid(15, 20);
-    const pillarGlyphSize = fluid(37, 55);
-    const hiddenStemMinHeight = fluid(78, 101);
-    const railHeight = fluid(42, 50);
-    const metricTabHeight = fluid(47, 62);
-    const partyTrackHeight = fluid(25, 36);
-    const timelineHeight = fluid(140, 162);
-    const timelinePointWidth = fluid(86, 129);
-    const journeyHeight = fluid(68, 82);
-    const schoolHeight = fluid(62, 76);
+    const isNarrow = viewportWidth < 375;
+    const siZhuGlyph = fluid(34, 48);
+    const proGlyph = fluid(27, 38);
+    const proGlyphDense = fluid(24, 34);
+    const tabular = ['tabular-nums'] as Array<'tabular-nums'>;
+
     return StyleSheet.create({
-    container: { flex: 1, backgroundColor: Colors.bazi.pageBg },
-    shell: {
-        position: 'relative',
-        flex: 1,
-        width: '100%',
-        maxWidth: 862,
-        alignSelf: 'center',
-        overflow: 'hidden',
-        backgroundColor: Colors.bazi.surfacePrimary,
-        borderLeftWidth: StyleSheet.hairlineWidth,
-        borderRightWidth: StyleSheet.hairlineWidth,
-        borderColor: Colors.bazi.divider,
-    },
-    loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-    loadingText: { fontSize: FontSize.md, color: Colors.text.tertiary },
-    missingCard: {
-        width: '88%',
-        maxWidth: 420,
-        padding: Spacing.xl,
-        borderRadius: BorderRadius.lg,
-        borderWidth: 1,
-        borderColor: Colors.border.subtle,
-        backgroundColor: Colors.bg.card,
-        gap: Spacing.md,
-    },
-    missingTitle: {
-        fontSize: FontSize.lg,
-        color: Colors.text.heading,
-        fontWeight: '700',
-        textAlign: 'center',
-    },
-    missingBody: {
-        fontSize: FontSize.sm,
-        color: Colors.text.secondary,
-        lineHeight: 22,
-        textAlign: 'center',
-    },
-    missingActions: {
-        flexDirection: 'row',
-        gap: Spacing.sm,
-    },
-    missingBtn: {
-        flex: 1,
-        minHeight: 44,
-        borderRadius: BorderRadius.md,
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingHorizontal: Spacing.md,
-    },
-    missingBtnPrimary: {
-        backgroundColor: Colors.bazi.trackActiveBorder,
-    },
-    missingBtnSecondary: {
-        borderWidth: 1,
-        borderColor: Colors.border.subtle,
-        backgroundColor: Colors.bg.elevated,
-    },
-    missingBtnText: {
-        fontSize: FontSize.sm,
-        fontWeight: '600',
-    },
-    missingBtnPrimaryText: {
-        color: Colors.text.inverse,
-    },
-    missingBtnSecondaryText: {
-        color: Colors.text.primary,
-    },
-    compactHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: Spacing.xs,
-        paddingVertical: Spacing.xs,
-        height: 48,
-        gap: 4,
-        backgroundColor: Colors.bg.primary,
-        borderBottomWidth: 1,
-        borderBottomColor: Colors.border.subtle,
-    },
-    headerBtn: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
-    headerBtnDisabled: { opacity: 0.45 },
-    compactTabsRow: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 2,
-        marginHorizontal: 4,
-    },
-    compactTabBtn: {
-        flex: 1,
-        height: 32,
-        borderRadius: BorderRadius.md,
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingHorizontal: 4,
-    },
-    compactTabBtnActive: { backgroundColor: 'rgba(191,203,231,0.48)' },
-    compactTabText: { color: Colors.text.secondary, fontSize: FontSize.xs, fontWeight: '500' },
-    compactTabTextActive: { color: Colors.text.heading, fontWeight: '700' },
-    aiCompactBtn: {
-        height: 32,
-        paddingHorizontal: 8,
-        borderRadius: BorderRadius.md,
-        backgroundColor: Colors.accent.gold,
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexDirection: 'row',
-        gap: 4,
-    },
-    aiCompactBtnDisabled: {
-        opacity: 0.45,
-    },
-    aiCompactBtnText: {
-        fontSize: FontSize.xs,
-        color: Colors.text.inverse,
-        fontWeight: '700',
-    },
-    content: { flex: 1 },
-    contentContainer: { width: '100%', alignItems: 'center', paddingBottom: 0 },
-    pageSurface: { width: '100%', maxWidth: 862, backgroundColor: Colors.bazi.pageBg, paddingBottom: 0 },
-    overviewHero: {
-        minHeight: overviewHeroMinHeight,
-        flexDirection: 'row',
-        alignItems: 'stretch',
-        paddingHorizontal: gutter,
-        paddingVertical: overviewHeroPadding,
-        backgroundColor: Colors.bazi.heroBg,
-        borderBottomWidth: 1,
-        borderBottomColor: Colors.bazi.heroBorder,
-        gap: Spacing.md,
-    },
-    overviewHeroCompact: {
-        minHeight: overviewHeroMinHeight,
-        paddingVertical: overviewHeroPadding,
-        gap: Spacing.sm,
-    },
-    overviewHeroMain: { flex: 1, minWidth: 0, justifyContent: 'center' },
-    overviewNameBlock: { gap: 1 },
-    overviewName: { color: Colors.bazi.heroTitle, fontSize: overviewNameSize, lineHeight: fluid(24, 32), fontWeight: '700', letterSpacing: 1 },
-    overviewNameCompact: { fontSize: fluid(18, 22), lineHeight: fluid(23, 28), letterSpacing: 0.5 },
-    overviewIdentitySide: { width: '38%', minWidth: fluid(142, 293), maxWidth: 293, justifyContent: 'center', alignItems: 'flex-end', gap: fluid(7, 10) },
-    overviewMingZao: { color: Colors.bazi.selectedText, fontSize: overviewMingZaoSize, lineHeight: fluid(32, 45), fontWeight: '700' },
-    overviewMingZaoCompact: { fontSize: fluid(25, 33), lineHeight: fluid(30, 38) },
-    overviewIdentityMeta: { maxWidth: '100%', color: Colors.bazi.heroMeta, fontSize: 12, lineHeight: 17, textAlign: 'right', flexShrink: 1 },
-    overviewDateGroup: { gap: 5, marginTop: 11 },
-    overviewIdentityLine: { color: Colors.bazi.heroText, fontSize: FontSize.sm, lineHeight: 20, flexShrink: 1 },
-    overviewIdentityTime: { color: Colors.bazi.heroMeta, fontSize: 12, lineHeight: 18, fontVariant: ['tabular-nums'] },
-    overviewSection: {
-        width: '100%',
-        paddingHorizontal: gutter,
-        paddingTop: sectionPadding,
-        paddingBottom: sectionPadding,
-        marginHorizontal: 0,
-        marginTop: 0,
-        borderBottomWidth: 1,
-        borderBottomColor: Colors.bazi.divider,
-        backgroundColor: Colors.bazi.surfacePrimary,
-    },
-    overviewSectionWithoutHeader: { paddingTop: fluid(12, 18) },
-    overviewSectionFlush: { paddingBottom: 0 },
-    overviewSectionHeader: { minHeight: 0, marginBottom: fluid(20, 26), flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: Spacing.sm, paddingHorizontal: 0, paddingVertical: 0 },
-    overviewSectionTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: 0, minWidth: 0, flexShrink: 1 },
-    overviewSectionMarker: { width: 0, height: 0 },
-    overviewSectionTitle: { color: Colors.bazi.chromeTextActive, fontSize: sectionHeadingSize, lineHeight: fluid(27, 36), fontWeight: '700', letterSpacing: 1, flexShrink: 1 },
-    originPillarGrid: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: Colors.bazi.divider },
-    originPillar: { position: 'relative', flex: 1, minWidth: 0, alignItems: 'center', paddingHorizontal: 3, paddingTop: fluid(42, 57), paddingBottom: fluid(18, 24) },
-    originPillarDivider: { borderLeftWidth: 1, borderLeftColor: Colors.bazi.divider },
-    originPillarDayMaster: { backgroundColor: Colors.bazi.surfaceMuted, borderTopWidth: 2, borderTopColor: Colors.bazi.selectedBorder },
-    originDayMarker: { position: 'absolute', top: -14, paddingHorizontal: 7, color: Colors.bazi.selectedText, fontSize: 12, backgroundColor: Colors.bazi.surfacePrimary },
-    originPillarName: { color: Colors.text.tertiary, fontSize: pillarNameSize, lineHeight: fluid(21, 27), fontWeight: '600' },
-    originPillarStar: { marginTop: fluid(18, 25), color: Colors.text.secondary, fontSize: pillarStarSize, textAlign: 'center' },
-    originGlyphStack: { alignItems: 'center', gap: fluid(4, 6), marginTop: fluid(17, 23) },
-    originGlyph: { fontSize: pillarGlyphSize, lineHeight: fluid(39, 58), fontWeight: '700' },
-    originHiddenStems: { minHeight: hiddenStemMinHeight, alignItems: 'center', gap: 3, marginTop: fluid(16, 21) },
-    originHiddenStem: { fontSize: fluid(12, 18), lineHeight: fluid(15, 22), fontWeight: '600', textAlign: 'center' },
-    originRailStack: { borderBottomWidth: 1, borderBottomColor: Colors.bazi.divider },
-    originRail: { minHeight: railHeight, flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.bazi.divider },
-    originRailLabel: { width: railLabelWidth, color: Colors.text.tertiary, fontSize: FontSize.sm, fontWeight: '600' },
-    originRailValue: { flex: 1, minWidth: 0, color: Colors.text.secondary, fontSize: fluid(13, 18), lineHeight: fluid(17, 23), textAlign: 'center' },
-    originExtras: { marginHorizontal: -gutter, marginTop: 0, paddingHorizontal: gutter, paddingTop: fluid(6, 9), paddingBottom: fluid(22, 28), backgroundColor: Colors.bazi.surfaceRaised },
-    originExtraRow: { flexDirection: 'row', minHeight: fluid(44, 56), borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.bazi.divider },
-    originExtraLabel: { width: railLabelWidth, paddingVertical: fluid(10, 16), color: Colors.text.tertiary, fontSize: fluid(12, 16), fontWeight: '600', textAlign: 'center', textAlignVertical: 'center' },
-    originExtraCell: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', gap: 2, paddingHorizontal: 2, paddingVertical: fluid(10, 16) },
-    originExtraText: { color: Colors.text.secondary, fontSize: fluid(10, 14), lineHeight: fluid(14, 18), textAlign: 'center' },
-    analysisReferenceStrip: { width: '100%', flexDirection: 'row', backgroundColor: Colors.bazi.surfacePrimary, borderBottomWidth: 1, borderBottomColor: Colors.bazi.divider },
-    analysisReferenceItem: { flex: 1, minWidth: 0, minHeight: fluid(62, 82), alignItems: 'center', justifyContent: 'center', paddingHorizontal: fluid(2, 7), paddingVertical: fluid(8, 12), borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: Colors.bazi.divider },
-    analysisReferenceItemFirst: { borderLeftWidth: 0 },
-    analysisReferenceLabel: { color: Colors.text.tertiary, fontSize: fluid(9, 14), lineHeight: fluid(13, 18), textAlign: 'center' },
-    analysisReferenceValue: { marginTop: 4, color: Colors.bazi.selectedText, fontSize: fluid(10, 17), lineHeight: fluid(14, 22), fontWeight: '600', textAlign: 'center' },
-    metricTabs: { flexDirection: 'row', marginTop: fluid(20, 28), borderTopWidth: 1, borderBottomWidth: 1, borderColor: Colors.bazi.divider },
-    metricTab: { flex: 1, minHeight: metricTabHeight, alignItems: 'center', justifyContent: 'center' },
-    metricTabActive: { borderBottomWidth: 2, borderBottomColor: Colors.bazi.selectedBorder },
-    metricTabText: { color: Colors.text.tertiary, fontSize: FontSize.sm },
-    metricTabTextActive: { color: Colors.bazi.selectedText, fontWeight: '700' },
-    energyList: { paddingTop: 18, paddingBottom: 4, gap: 12 },
-    energyRow: { minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-    energyElement: { width: fluid(23, 30), fontSize: fluid(15, 20), fontWeight: '700' },
-    energyTrack: { flex: 1, height: fluid(9, 12), borderRadius: 999, overflow: 'hidden', backgroundColor: Colors.bazi.surfaceMuted },
-    energyFill: { height: '100%', borderRadius: 999 },
-    energyValueWrap: { width: 90, alignItems: 'flex-end' },
-    energyValue: { color: Colors.text.primary, fontSize: fluid(12, 17), fontWeight: '700' },
-    energyMeta: { color: Colors.text.tertiary, fontSize: fluid(10, 13), marginTop: 1 },
-    partyBalance: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-    partyLabel: { color: Colors.text.secondary, fontSize: fluid(13, 18), fontWeight: '600' },
-    partyTrack: { flex: 1, height: partyTrackHeight, flexDirection: 'row', overflow: 'hidden', borderRadius: 999, backgroundColor: Colors.bazi.surfaceMuted },
-    partySegment: { height: '100%', alignItems: 'center', justifyContent: 'center', minWidth: 0 },
-    partySegmentText: { color: Colors.text.heading, fontSize: 12, fontWeight: '600' },
-    partySame: { backgroundColor: Colors.bazi.elementFire },
-    partyDifferent: { backgroundColor: Colors.bazi.elementWater },
-    energyScopeNote: { color: Colors.text.tertiary, fontSize: 11, lineHeight: 17, paddingTop: 16, textAlign: 'center' },
-    energyError: { marginTop: Spacing.md, padding: Spacing.md, borderRadius: 8, borderWidth: 1, borderColor: Colors.bazi.warningBorder, backgroundColor: Colors.bazi.warningBg, gap: 4 },
-    energyErrorTitle: { color: Colors.bazi.warningText, fontSize: FontSize.sm, fontWeight: '700' },
-    energyErrorText: { color: Colors.bazi.warningText, fontSize: 12, lineHeight: 18 },
-    jieQiTimeline: { minHeight: timelineHeight, position: 'relative', paddingTop: 0, paddingBottom: fluid(64, 76) },
-    jieQiLine: { position: 'absolute', left: '5%', right: '6%', top: 62, height: 1, backgroundColor: Colors.bazi.divider },
-    jieQiProgress: { position: 'absolute', left: '30%', top: 62, width: '28%', height: 1, backgroundColor: Colors.bazi.selectedBorder },
-    jieQiNode: { position: 'absolute', top: 0, width: timelinePointWidth, minWidth: 0, alignItems: 'center', paddingHorizontal: 2, marginLeft: -timelinePointWidth / 2 },
-    jieQiNodePrev: { left: '5%' },
-    jieQiNodeCurrent: { left: '30%' },
-    jieQiNodeBirth: { left: '58%' },
-    jieQiNodeNext: { left: '94%' },
-    jieQiName: { color: Colors.text.secondary, fontSize: fluid(13, 18), lineHeight: fluid(17, 23), textAlign: 'center' },
-    jieQiNameCurrent: { color: Colors.bazi.selectedText, fontWeight: '700' },
-    jieQiNameBirth: { color: Colors.bazi.selectedText, fontWeight: '700' },
-    jieQiDate: { color: Colors.text.tertiary, fontSize: fluid(9, 12), lineHeight: fluid(13, 16), textAlign: 'center', marginTop: 2, fontVariant: ['tabular-nums'] },
-    jieQiTime: { color: Colors.text.tertiary, fontSize: fluid(9, 12), lineHeight: fluid(13, 16), textAlign: 'center', fontVariant: ['tabular-nums'] },
-    jieQiDot: { width: 10, height: 10, marginTop: 8, borderRadius: 5, borderWidth: 1, borderColor: Colors.text.tertiary, backgroundColor: Colors.bazi.surfacePrimary },
-    jieQiDotCurrent: { width: 12, height: 12, marginTop: 7, borderWidth: 3, borderColor: Colors.bazi.selectedBg, backgroundColor: Colors.bazi.selectedBorder },
-    jieQiDotBirth: { width: 12, height: 12, marginTop: 7, borderWidth: 1, borderColor: Colors.bazi.elementMetal, backgroundColor: Colors.bazi.elementMetal },
-    birthContext: { position: 'absolute', top: 88, left: '33%', width: '50%', maxWidth: 380, alignItems: 'center' },
-    birthContextText: { color: Colors.text.secondary, fontSize: fluid(11, 15), lineHeight: fluid(15, 22), textAlign: 'center' },
-    birthContextDuty: { marginTop: 5, color: Colors.bazi.elementWood, fontSize: fluid(13, 18), lineHeight: fluid(18, 24), fontWeight: '600', textAlign: 'center' },
-    detailGrid: { flexDirection: 'row', flexWrap: 'wrap', paddingTop: 2, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.bazi.divider },
-    detailTile: { width: '25%', minHeight: fluid(66, 108), paddingHorizontal: fluid(2, 9), paddingVertical: fluid(10, 19), borderLeftWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: Colors.bazi.divider },
-    detailTileLabel: { color: Colors.text.tertiary, fontSize: fluid(10, 16), lineHeight: fluid(14, 21), textAlign: 'center' },
-    detailTileValue: { marginTop: 5, color: Colors.text.primary, fontSize: fluid(12, 20), lineHeight: fluid(16, 26), fontWeight: '600', textAlign: 'center' },
-    journeyBlock: { width: '100%', backgroundColor: Colors.bazi.pageBg },
-    journeyBand: { minHeight: journeyHeight, marginHorizontal: 0, paddingHorizontal: gutter, flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.bg.primary, borderBottomWidth: 1, borderBottomColor: Colors.bazi.divider },
-    journeyItem: { width: '50%', minWidth: 0, minHeight: fluid(56, 64), flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: fluid(7, 15), borderBottomWidth: 0, borderBottomColor: Colors.bazi.divider },
-    journeyItemLast: { justifyContent: 'flex-end' },
-    journeyLabel: { color: Colors.bazi.selectedText, fontSize: fluid(14, 19), fontWeight: '700' },
-    journeyValue: { flexShrink: 1, minWidth: 0, color: Colors.text.primary, fontSize: fluid(12, 19), lineHeight: fluid(18, 25), fontVariant: ['tabular-nums'] },
-    journeyValueStart: { textAlign: 'left' },
-    journeyValueEnd: { textAlign: 'right' },
-    schoolBand: { minHeight: schoolHeight, marginHorizontal: 0, paddingHorizontal: gutter, flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.bg.primary },
-    schoolItem: { flex: 1, minWidth: 0, paddingHorizontal: 6, borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: Colors.bazi.divider },
-    schoolLabel: { color: Colors.text.tertiary, fontSize: fluid(10, 14), textAlign: 'center' },
-    schoolValue: { marginTop: 5, color: Colors.text.secondary, fontSize: fluid(11, 15), lineHeight: fluid(16, 20), textAlign: 'center' },
-    proFlow: {
-        marginHorizontal: 0,
-        marginTop: 0,
-        gap: 0,
-    },
-    chartHeaderStrip: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingHorizontal: 10,
-        paddingVertical: 12,
-        backgroundColor: Colors.bazi.heroBg,
-        borderBottomWidth: 1,
-        borderBottomColor: Colors.bazi.heroBorder,
-    },
-    chartHeaderMain: {
-        flex: 1,
-        paddingRight: Spacing.md,
-    },
-    chartHeaderSide: {
-        minWidth: 122,
-        alignItems: 'flex-end',
-        justifyContent: 'center',
-    },
-    chartHeaderActions: {
-        flexDirection: 'row',
-        gap: Spacing.xs,
-        marginBottom: 8,
-    },
-    panelSwitch: {
-        width: 118,
-        height: 34,
-        borderRadius: BorderRadius.round,
-        backgroundColor: Colors.bazi.actionBg,
-        borderWidth: 1,
-        borderColor: Colors.bazi.actionBorder,
-        justifyContent: 'center',
-        overflow: 'hidden',
-    },
-    panelSwitchActive: {
-        backgroundColor: Colors.bazi.actionBgActive,
-        borderColor: Colors.bazi.chromeTextActive,
-    },
-    panelSwitchThumb: {
-        position: 'absolute',
-        left: 2,
-        width: 50,
-        height: 28,
-        borderRadius: BorderRadius.round,
-        backgroundColor: Colors.bg.card,
-    },
-    panelSwitchThumbActive: {
-        left: 66,
-    },
-    panelSwitchTextRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        height: '100%',
-    },
-    panelSwitchLabel: {
-        flex: 1,
-        fontSize: 10,
-        color: Colors.bazi.heroText,
-        fontWeight: '600',
-        zIndex: 1,
-        textAlign: 'center',
-    },
-    panelSwitchLabelActive: {
-        color: Colors.bazi.chromeTextActive,
-    },
-    chartHeaderName: {
-        fontSize: FontSize.lg,
-        color: Colors.bazi.heroTitle,
-        fontWeight: '700',
-        lineHeight: 24,
-    },
-    chartHeaderLine: {
-        marginTop: 4,
-        fontSize: FontSize.lg,
-        color: Colors.bazi.heroText,
-        lineHeight: 24,
-    },
-    chartHeaderMingZao: {
-        fontSize: FontSize.lg,
-        color: Colors.bazi.chromeTextActive,
-        fontWeight: '700',
-    },
-    infoBand: {
-        backgroundColor: Colors.bazi.surfacePrimary,
-        borderTopWidth: 1,
-        borderTopColor: Colors.bazi.chromeBorder,
-        borderBottomWidth: 1,
-        borderBottomColor: Colors.bazi.chromeBorder,
-        paddingHorizontal: 10,
-        paddingVertical: 8,
-    },
-    infoBandRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        gap: Spacing.md,
-    },
-    infoBandItem: {
-        flex: 1,
-        minHeight: 22,
-        justifyContent: 'center',
-    },
-    infoBandItemRight: {
-        flex: 0,
-        minWidth: 120,
-        alignItems: 'flex-end',
-    },
-    infoBandValue: {
-        fontSize: FontSize.sm,
-        color: Colors.text.secondary,
-        lineHeight: 18,
-        fontWeight: '600',
-    },
-    infoBandValueRight: {
-        textAlign: 'right',
-    },
-    persistBanner: {
-        paddingHorizontal: Spacing.md,
-        paddingVertical: Spacing.sm,
-        backgroundColor: Colors.bazi.warningBg,
-        borderBottomWidth: 1,
-        borderBottomColor: Colors.bazi.warningBorder,
-    },
-    persistBannerText: {
-        color: Colors.bazi.warningText,
-        fontSize: FontSize.sm,
-        textAlign: 'center',
-    },
-    proMatrixSurface: {
-        backgroundColor: Colors.bg.card,
-        borderBottomWidth: 1,
-        borderBottomColor: Colors.border.subtle,
-    },
-    proMatrixDenseHeadRow: {
-        flexDirection: 'row',
-        backgroundColor: Colors.bg.elevated,
-    },
-    proMatrixDenseHeadLabelCell: {
-        width: 40,
-        minHeight: 38,
-        textAlign: 'center',
-        textAlignVertical: 'center',
-        color: Colors.text.tertiary,
-        fontSize: 16,
-        paddingVertical: 6,
-    },
-    proMatrixDenseHeadCell: {
-        flex: 1,
-        minWidth: 0,
-        minHeight: 38,
-        textAlign: 'center',
-        textAlignVertical: 'center',
-        color: Colors.text.secondary,
-        fontSize: 16,
-        paddingVertical: 6,
-    },
-    proMatrixDenseLabelCell: {
-        color: Colors.text.tertiary,
-    },
-    proMatrixDenseRow: {
-        flexDirection: 'row',
-        borderTopWidth: 1,
-        borderTopColor: Colors.border.subtle,
-    },
-    proMatrixDenseLabel: {
-        width: 40,
-        minHeight: 46,
-        textAlign: 'center',
-        textAlignVertical: 'center',
-        color: Colors.text.primary,
-        fontSize: 16,
-        paddingVertical: 5,
-    },
-    proMatrixDenseCell: {
-        flex: 1,
-        minWidth: 0,
-        minHeight: 46,
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingHorizontal: 0,
-        paddingVertical: 5,
-    },
-    proMatrixDenseStackedCell: {
-        paddingVertical: 8,
-    },
-    proMatrixDensePrimary: {
-        fontSize: 16,
-        color: Colors.text.primary,
-        fontWeight: '600',
-    },
-    proMatrixDenseLabelPrimary: {
-        fontSize: 16,
-        lineHeight: 22,
-    },
-    proMatrixDenseSymbolPrimary: {
-        fontSize: 32,
-        lineHeight: 36,
-        fontWeight: '700',
-    },
-    proMatrixDenseSecondary: {
-        fontSize: 12,
-        color: Colors.text.tertiary,
-        lineHeight: 15,
-    },
-    proMatrixDenseLine: {
-        fontSize: 13,
-        color: Colors.text.secondary,
-        lineHeight: 16,
-    },
-    proMatrixDenseCangGanLine: {
-        fontSize: 13,
-        lineHeight: 16,
-        fontWeight: '600',
-    },
-    proMatrixDenseShenShaLine: {
-        fontSize: 12,
-        lineHeight: 16,
-        color: Colors.text.tertiary,
-    },
-    subTitle: {
-        marginTop: Spacing.xs,
-        fontSize: FontSize.md,
-        color: Colors.text.heading,
-        fontWeight: '600',
-    },
-    trackWrap: {
-        flexDirection: 'row',
-        borderTopWidth: 1,
-        borderTopColor: Colors.border.subtle,
-        borderBottomWidth: 1,
-        borderBottomColor: Colors.border.subtle,
-    },
-    trackLeft: {
-        width: 38,
-        backgroundColor: Colors.bg.elevated,
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderRightWidth: 1,
-        borderRightColor: Colors.border.subtle,
-    },
-    trackLeftText: {
-        fontSize: FontSize.lg,
-        color: Colors.text.tertiary,
-        fontWeight: '600',
-        letterSpacing: 1,
-    },
-    trackRow: { gap: 0 },
-    trackColumn: {
-        width: 62,
-        borderRightWidth: 1,
-        borderRightColor: Colors.border.subtle,
-        backgroundColor: Colors.bg.card,
-        paddingVertical: 3,
-        paddingHorizontal: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    trackColumnActive: {
-        borderColor: Colors.bazi.trackActiveBorder,
-        backgroundColor: Colors.bazi.trackActiveBg,
-    },
-    trackTop: { fontSize: FontSize.md, color: Colors.text.primary, fontWeight: '700', lineHeight: 18 },
-    trackSub: { fontSize: 10, color: Colors.text.tertiary, lineHeight: 12 },
-    trackPrimary: { fontSize: FontSize.md, color: Colors.text.primary, fontWeight: '700', lineHeight: 18 },
-    trackSecondary: { fontSize: FontSize.md, color: Colors.text.secondary, fontWeight: '700', lineHeight: 18 },
-    trackTertiary: { fontSize: 10, color: Colors.text.tertiary, lineHeight: 12, textAlign: 'center' },
-    trackActiveText: { color: Colors.bazi.trackActiveText },
-    currentTag: { color: Colors.bazi.trackActiveText, fontSize: FontSize.xs, fontWeight: '600' },
-    proQiYunBand: {
-        flexDirection: 'row',
-        borderRadius: 0,
-        overflow: 'hidden',
-        backgroundColor: Colors.bazi.surfacePrimary,
-        borderBottomWidth: 1,
-        borderBottomColor: Colors.border.subtle,
-    },
-    proQiYunBandCell: {
-        flex: 1,
-        minHeight: 30,
-        position: 'relative',
-        overflow: 'hidden',
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 4,
-        borderRightWidth: 1,
-        borderRightColor: Colors.border.subtle,
-    },
-    proQiYunBandCellLast: {
-        borderRightWidth: 0,
-    },
-    proQiYunBandText: {
-        fontSize: FontSize.sm,
-        color: Colors.text.primary,
-        fontWeight: '600',
-    },
-    qiYunBand: { flexDirection: 'row', marginTop: 24, borderBottomWidth: 1, borderBottomColor: Colors.bazi.divider },
-    qiYunBandCell: {
-        flex: 1,
-        minHeight: 46,
-        position: 'relative',
-        alignItems: 'center',
-        justifyContent: 'flex-start',
-        paddingBottom: 15,
-    },
-    qiYunBandText: {
-        fontSize: FontSize.sm,
-        color: Colors.text.secondary,
-        fontWeight: '600',
-    },
-    qiYunDot: { position: 'absolute', bottom: -5, width: 9, height: 9, borderWidth: 1, borderRadius: 5, backgroundColor: Colors.bazi.surfacePrimary },
-    sectionTitleBar: {
-        backgroundColor: Colors.bg.elevated,
-        borderTopWidth: 1,
-        borderTopColor: Colors.border.subtle,
-        borderBottomWidth: 1,
-        borderBottomColor: Colors.border.subtle,
-        paddingHorizontal: Spacing.md,
-        paddingVertical: 6,
-    },
-    sectionTitleBarRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingVertical: 5,
-    },
-    subTitleInRow: {
-        marginTop: 0,
-    },
-    ganZhiVisualEntry: {
-        minHeight: 26,
-        paddingHorizontal: 8,
-        borderRadius: BorderRadius.sm,
-        borderCurve: 'continuous',
-        borderWidth: 1,
-        borderColor: Colors.bazi.actionBorder,
-        backgroundColor: Colors.bazi.surfaceMuted,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 3,
-    },
-    ganZhiVisualEntryPressed: {
-        backgroundColor: Colors.bazi.actionBgActive,
-        opacity: 0.86,
-    },
-    ganZhiVisualEntryText: {
-        color: Colors.bazi.chromeTextActive,
-        fontSize: FontSize.sm,
-        fontWeight: '600',
-    },
-    layerBlock: {
-        borderRadius: 0,
-        borderWidth: 0,
-        borderBottomWidth: 1,
-        borderBottomColor: Colors.border.subtle,
-        backgroundColor: Colors.bg.card,
-        paddingHorizontal: Spacing.md,
-        paddingVertical: 8,
-        gap: 3,
-    },
-    ganZhiLayerBlock: { borderBottomWidth: 0, paddingBottom: 0 },
-    layerTitle: { fontSize: FontSize.sm, color: Colors.bazi.chromeTextActive, fontWeight: '600' },
-    layerRow: { fontSize: FontSize.xs, color: Colors.text.secondary, lineHeight: 16 },
-    ganZhiLayerRow: {
-        flexDirection: 'row',
-        alignItems: 'flex-start',
-        gap: Spacing.xs,
-    },
-    ganZhiLayerLabel: {
-        fontSize: FontSize.xs,
-        color: Colors.text.tertiary,
-        lineHeight: 18,
-    },
-    ganZhiLayerValue: {
-        flex: 1,
-        fontSize: FontSize.xs,
-        color: Colors.text.secondary,
-        lineHeight: 18,
-    },
-    ganZhiLayerDivider: {
-        height: 1,
-        backgroundColor: Colors.border.subtle,
-        marginVertical: 6,
-    },
-    emptyHint: { fontSize: FontSize.xs, color: Colors.text.tertiary },
-    pressed: { opacity: 0.72, transform: [{ scale: 0.985 }] },
+        container: { flex: 1, backgroundColor: palette.page },
+        shell: {
+            position: 'relative',
+            flex: 1,
+            width: '100%',
+            maxWidth: 862,
+            alignSelf: 'center',
+            overflow: 'hidden',
+            backgroundColor: palette.page,
+            borderLeftWidth: viewportWidth > 862 ? StyleSheet.hairlineWidth : 0,
+            borderRightWidth: viewportWidth > 862 ? StyleSheet.hairlineWidth : 0,
+            borderColor: Colors.bazi.divider,
+        },
+        loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+        loadingText: { fontSize: FontSize.md, color: Colors.text.tertiary },
+        missingCard: {
+            width: '88%',
+            maxWidth: 420,
+            padding: Spacing.xl,
+            borderRadius: BorderRadius.lg,
+            borderWidth: 1,
+            borderColor: Colors.border.subtle,
+            backgroundColor: Colors.bg.card,
+            gap: Spacing.md,
+        },
+        missingTitle: {
+            fontSize: FontSize.lg,
+            color: Colors.text.heading,
+            fontWeight: '700',
+            textAlign: 'center',
+        },
+        missingBody: {
+            fontSize: FontSize.sm,
+            color: Colors.text.secondary,
+            lineHeight: 22,
+            textAlign: 'center',
+        },
+        missingActions: { flexDirection: 'row', gap: Spacing.sm },
+        missingBtn: {
+            flex: 1,
+            minHeight: 44,
+            borderRadius: BorderRadius.md,
+            alignItems: 'center',
+            justifyContent: 'center',
+            paddingHorizontal: Spacing.md,
+        },
+        missingBtnPrimary: { backgroundColor: Colors.bazi.trackActiveBorder },
+        missingBtnSecondary: {
+            borderWidth: 1,
+            borderColor: Colors.border.subtle,
+            backgroundColor: Colors.bg.elevated,
+        },
+        missingBtnText: { fontSize: FontSize.sm, fontWeight: '600' },
+        missingBtnPrimaryText: { color: Colors.text.inverse },
+        missingBtnSecondaryText: { color: Colors.text.primary },
+
+        /* 顶部导航：与头部同底，连成一整块卷首 */
+        topBar: {
+            height: 48,
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingHorizontal: 4,
+            backgroundColor: palette.card,
+            borderBottomWidth: 1,
+            borderBottomColor: palette.card,
+            zIndex: 2,
+        },
+        topBarScrolled: { borderBottomColor: palette.hairline },
+        topBarIconBtn: { width: 40, height: 44, alignItems: 'center', justifyContent: 'center' },
+        topBarBackBtn: { width: 44 },
+        topBarIconBtnDisabled: { opacity: 0.45 },
+        topBarSpacer: { flex: 1 },
+        topTabs: { flexDirection: 'row', alignItems: 'center', gap: isNarrow ? 16 : 20, marginLeft: 2 },
+        topTab: { height: 44, paddingHorizontal: 2, justifyContent: 'center' },
+        topTabText: {
+            fontSize: isNarrow ? 14 : 15,
+            lineHeight: 20,
+            fontWeight: '500',
+            color: palette.muted,
+        },
+        topTabTextActive: { fontWeight: '700', color: palette.heading },
+        topTabIndicator: {
+            position: 'absolute',
+            left: '50%',
+            bottom: 6,
+            width: 16,
+            height: 2,
+            marginLeft: -8,
+            borderRadius: 1,
+            backgroundColor: palette.vermilion,
+        },
+        aiChip: {
+            height: 28,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 4,
+            marginRight: 2,
+            paddingLeft: 8,
+            paddingRight: 10,
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: palette.goldBorder,
+            backgroundColor: palette.goldSoft,
+        },
+        aiChipDisabled: { opacity: 0.45 },
+        aiChipText: { fontSize: 12, lineHeight: 16, fontWeight: '600', color: palette.gold },
+        privacyOnBadge: {
+            width: 32,
+            height: 28,
+            borderRadius: 14,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: palette.chipBg,
+        },
+        persistBanner: {
+            paddingHorizontal: Spacing.md,
+            paddingVertical: Spacing.sm,
+            backgroundColor: Colors.bazi.warningBg,
+            borderBottomWidth: 1,
+            borderBottomColor: Colors.bazi.warningBorder,
+        },
+        persistBannerText: {
+            color: Colors.bazi.warningText,
+            fontSize: FontSize.sm,
+            textAlign: 'center',
+        },
+
+        content: { flex: 1 },
+        contentContainer: { width: '100%', alignItems: 'center', paddingBottom: 28 },
+        pageSurface: { width: '100%', maxWidth: 862, backgroundColor: palette.page },
+
+        /* 头部：宣纸底 + 右侧剪纸生肖 */
+        hero: {
+            position: 'relative',
+            overflow: 'hidden',
+            paddingTop: 14,
+            paddingBottom: 18,
+            paddingHorizontal: 20,
+            backgroundColor: palette.card,
+            borderBottomWidth: 1,
+            borderBottomColor: palette.heroBorder,
+        },
+        heroPaperCut: {
+            position: 'absolute',
+            top: -10,
+            right: -16,
+            width: 180,
+            height: 180,
+            pointerEvents: 'none',
+        },
+        heroNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+        heroName: {
+            flexShrink: 1,
+            fontSize: 22,
+            lineHeight: 28,
+            fontWeight: '700',
+            letterSpacing: 1,
+            color: palette.heading,
+        },
+        heroSeal: {
+            minWidth: 36,
+            height: 20,
+            paddingHorizontal: 4,
+            borderRadius: 3,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: palette.vermilion,
+        },
+        heroSealText: {
+            fontSize: 11,
+            lineHeight: 14,
+            fontWeight: '700',
+            letterSpacing: 1,
+            color: palette.sealText,
+        },
+        heroChip: {
+            paddingHorizontal: 6,
+            paddingVertical: 1,
+            borderRadius: 4,
+            backgroundColor: palette.chipBg,
+        },
+        heroChipText: { fontSize: 11, lineHeight: 16, fontWeight: '500', color: palette.chipInk },
+        heroSwitch: {
+            flexDirection: 'row',
+            height: 24,
+            marginLeft: 2,
+            padding: 2,
+            borderRadius: 12,
+            backgroundColor: palette.segTrack,
+        },
+        heroSwitchBtn: {
+            height: 20,
+            paddingHorizontal: 8,
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: 'transparent',
+            justifyContent: 'center',
+        },
+        heroSwitchBtnOn: { borderColor: palette.segBorder, backgroundColor: palette.segOn },
+        heroSwitchText: { fontSize: 11, lineHeight: 15, color: palette.muted },
+        heroSwitchTextOn: { fontWeight: '600', color: palette.ink },
+        heroRows: { marginTop: 12, gap: 6 },
+        heroRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+        heroRowLabel: { width: 56, fontSize: 12, lineHeight: 18, color: palette.muted },
+        heroRowValue: {
+            flexShrink: 1,
+            fontSize: 13,
+            lineHeight: 18,
+            color: palette.ink,
+            fontVariant: tabular,
+        },
+
+        /* 卡片 */
+        card: {
+            marginHorizontal: 12,
+            marginTop: 10,
+            padding: 14,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: palette.cardBorder,
+            backgroundColor: palette.card,
+        },
+        cardFirst: { marginTop: 12 },
+        cardDense: { padding: 12 },
+        cardHeader: { minHeight: 22, flexDirection: 'row', alignItems: 'center', gap: 8 },
+        cardDiamond: {
+            width: 5,
+            height: 5,
+            backgroundColor: palette.vermilion,
+            transform: [{ rotate: '45deg' }],
+        },
+        cardTitle: {
+            flex: 1,
+            fontSize: 15,
+            lineHeight: 22,
+            fontWeight: '600',
+            letterSpacing: 1,
+            color: palette.heading,
+        },
+        cardHeaderMeta: { flexShrink: 1, fontSize: 12, color: palette.muted, fontVariant: tabular },
+        cardLink: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+        cardLinkText: { fontSize: 12, color: palette.gold },
+        cardFooterRow: {
+            marginTop: 14,
+            paddingTop: 12,
+            borderTopWidth: 1,
+            borderTopColor: palette.hairline,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 10,
+        },
+        footerLabel: { fontSize: 12, color: palette.muted },
+        footerStrong: { fontSize: 15, lineHeight: 22, fontWeight: '600' },
+        footerBody: { fontSize: 13, color: palette.body },
+        noteText: { fontSize: 11, lineHeight: 16, color: palette.muted },
+        fieldLabel: { fontSize: 11, lineHeight: 16, color: palette.muted },
+        fieldValueStrong: {
+            marginTop: 4,
+            fontSize: 15,
+            lineHeight: 22,
+            fontWeight: '600',
+            color: palette.ink,
+            fontVariant: tabular,
+        },
+        fieldValueMinor: { fontSize: 12, fontWeight: '400', color: palette.muted },
+        inlineIconValue: { marginTop: 0, flexDirection: 'row', alignItems: 'center', gap: 4 },
+        inlineIconValueTight: { marginTop: 2, flexDirection: 'row', alignItems: 'center', gap: 3 },
+
+        /* 表格（四柱 / 排盘）共用 */
+        tableWrap: { position: 'relative', marginTop: 12 },
+        tableOverlay: {
+            position: 'absolute',
+            right: 0,
+            flexDirection: 'row',
+            pointerEvents: 'none',
+        },
+        tableOverlayCol: { flex: 1 },
+        tableDayTint: { borderRadius: 8, backgroundColor: palette.dayTint },
+        tableRow: { flexDirection: 'row', alignItems: 'center' },
+        tableCell: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+        tableCellStack: { flex: 1, alignItems: 'center' },
+        tableCellText: { flex: 1, textAlign: 'center' },
+        tableRowLabel: { fontSize: 11, lineHeight: 16, color: palette.muted },
+        tableHeadText: { fontSize: 12, color: palette.muted },
+        tableHeadTextDay: { fontWeight: '600', color: palette.ink },
+        glyphWrap: { position: 'relative' },
+        glyphIcon: { position: 'absolute', right: '100%', top: '50%' },
+        glyphText: { fontWeight: '700', textAlign: 'center' },
+        stemLine: { textAlign: 'center' },
+        stemChar: { fontWeight: '700' },
+        stemNote: { color: palette.muted, textAlign: 'center' },
+
+        /* 四柱 */
+        siZhuOverlay: { top: 0, bottom: 0, left: 30 },
+        siZhuLabelCell: { width: 30 },
+        siZhuHeadRow: { height: 26 },
+        siZhuStarRow: { height: 28 },
+        siZhuStarText: { fontSize: 14, color: palette.body },
+        siZhuGlyphRow: { height: Math.round(siZhuGlyph * 1.28) },
+        siZhuGlyphText: { fontSize: siZhuGlyph, lineHeight: Math.round(siZhuGlyph * 1.24) },
+        siZhuCangRow: { minHeight: 66, paddingVertical: 4 },
+        siZhuDetailRow: { height: 34, borderTopWidth: 1, borderTopColor: palette.hairline },
+        siZhuDetailFirst: { marginTop: 8 },
+        siZhuDetailText: { fontSize: 13, color: palette.body },
+        siZhuStackRow: {
+            paddingTop: 8,
+            paddingBottom: 4,
+            borderTopWidth: 1,
+            borderTopColor: palette.hairline,
+        },
+        siZhuShenShaText: { fontSize: 12, lineHeight: 17, color: palette.muted, textAlign: 'center' },
+
+        /* 命局参考 */
+        pairGrid: { marginTop: 12, gap: 14 },
+        pairRow: { flexDirection: 'row', gap: 12 },
+        pairItem: { flex: 1, minWidth: 0 },
+        schoolLines: { marginTop: 4, gap: 4 },
+        schoolLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+        schoolTag: {
+            width: 16,
+            height: 16,
+            borderRadius: 3,
+            borderWidth: 1,
+            borderColor: palette.tagBorder,
+            alignItems: 'center',
+            justifyContent: 'center',
+        },
+        schoolTagText: { fontSize: 10, lineHeight: 13, color: palette.muted },
+        schoolLineText: { flexShrink: 1, fontSize: 13, lineHeight: 20, color: palette.ink },
+
+        /* 五行 */
+        segmented: {
+            flexDirection: 'row',
+            height: 28,
+            padding: 2,
+            borderRadius: 14,
+            backgroundColor: palette.segTrack,
+        },
+        segmentedBtn: {
+            height: 24,
+            paddingHorizontal: 10,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: 'transparent',
+            justifyContent: 'center',
+        },
+        segmentedBtnOn: { borderColor: palette.segBorder, backgroundColor: palette.segOn },
+        segmentedText: { fontSize: 12, lineHeight: 16, color: palette.muted },
+        segmentedTextOn: { fontWeight: '600', color: palette.ink },
+        energyList: { marginTop: 12, gap: 8 },
+        energyRow: { height: 30, flexDirection: 'row', alignItems: 'center', gap: 10 },
+        energyLabel: { width: 38, flexDirection: 'row', alignItems: 'center', gap: 4 },
+        energyElement: { fontSize: 15, lineHeight: 20, fontWeight: '600' },
+        energyTrack: {
+            flex: 1,
+            height: 6,
+            borderRadius: 3,
+            overflow: 'hidden',
+            backgroundColor: palette.barTrack,
+        },
+        energyFill: { height: '100%', borderRadius: 3 },
+        energyValue: {
+            width: 38,
+            textAlign: 'right',
+            fontSize: 13,
+            fontWeight: '600',
+            color: palette.ink,
+            fontVariant: tabular,
+        },
+        energyMeta: { width: 60, textAlign: 'right', fontSize: 12, color: palette.muted },
+        energyError: { marginTop: 12, gap: 4 },
+        energyErrorTitle: { fontSize: 13, fontWeight: '600', color: Colors.bazi.warningText },
+        energyErrorText: { fontSize: 12, lineHeight: 18, color: palette.muted },
+        partyBlock: {
+            marginTop: 14,
+            paddingTop: 14,
+            borderTopWidth: 1,
+            borderTopColor: palette.hairline,
+        },
+        partyRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+        partyLabel: { fontSize: 12, color: palette.muted },
+        partyValue: { fontSize: 15, fontWeight: '600', color: palette.ink, fontVariant: tabular },
+        partyBar: { flex: 1, height: 6, flexDirection: 'row', gap: 2 },
+        partySame: { borderRadius: 3, backgroundColor: palette.partySame },
+        partyDiff: { flex: 1, borderRadius: 3, backgroundColor: palette.partyDiff },
+        partyLegend: { marginTop: 6, flexDirection: 'row', justifyContent: 'space-between' },
+        energyScopeNote: { marginTop: 12 },
+
+        /* 节气 */
+        timeline: { position: 'relative', marginTop: 14, height: 96 },
+        timelineSpan: {
+            position: 'absolute',
+            top: 8,
+            textAlign: 'center',
+            fontSize: 11,
+            lineHeight: 16,
+            color: palette.muted,
+            fontVariant: tabular,
+        },
+        timelineSpanLeft: { left: '16.6%', right: '50%' },
+        timelineSpanRight: { left: '50%', right: '16.6%' },
+        timelineLinePast: {
+            position: 'absolute',
+            left: '16.6%',
+            right: '50%',
+            top: 33,
+            height: 2,
+            backgroundColor: palette.gold,
+        },
+        timelineLineFuture: {
+            position: 'absolute',
+            left: '50%',
+            right: '16.6%',
+            top: 33.5,
+            height: 1,
+            backgroundColor: palette.timelineThin,
+        },
+        timelineNode: { position: 'absolute', top: 27, width: '33.3%', alignItems: 'center' },
+        timelineDiamond: {
+            width: 10,
+            height: 10,
+            marginTop: 2,
+            backgroundColor: palette.gold,
+            transform: [{ rotate: '45deg' }],
+        },
+        timelineDiamondHollow: {
+            borderWidth: 1.5,
+            borderColor: palette.timelineHollow,
+            backgroundColor: palette.card,
+        },
+        timelineBirthDot: {
+            width: 14,
+            height: 14,
+            borderRadius: 7,
+            borderWidth: 3,
+            borderColor: palette.birthHalo,
+            backgroundColor: palette.vermilion,
+        },
+        timelineName: {
+            marginTop: 9,
+            fontSize: 15,
+            lineHeight: 20,
+            fontWeight: '600',
+            color: palette.ink,
+        },
+        timelineNameBirth: { color: palette.vermilion },
+        timelineNameNext: { fontWeight: '400', color: palette.body },
+        timelineDate: { fontSize: 12, lineHeight: 16, color: palette.muted, fontVariant: tabular },
+
+        /* 命理参数 */
+        paramGrid: { marginTop: 6 },
+        paramPair: { flexDirection: 'row', gap: 16 },
+        paramCell: {
+            flex: 1,
+            minWidth: 0,
+            height: 44,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 8,
+        },
+        paramCellDivider: { borderBottomWidth: 1, borderBottomColor: palette.hairline },
+        paramLabel: { width: 30, fontSize: 12, color: palette.muted },
+        paramMain: { fontSize: 14, color: palette.ink },
+        paramSub: { flexShrink: 1, fontSize: 12, color: palette.muted },
+        paramTight: { marginLeft: -4 },
+
+        /* 起运 */
+        qiYunGrid: { marginTop: 12 },
+        qiYunRule: { marginTop: 8 },
+        chipRow: { flexWrap: 'wrap', gap: 6 },
+        chipRowLabel: { marginRight: 2, fontSize: 11, color: palette.muted },
+        outlineChip: {
+            paddingHorizontal: 8,
+            paddingVertical: 2,
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: palette.chipBorder,
+        },
+        outlineChipText: { fontSize: 11, lineHeight: 16, color: palette.body },
+
+        /* 排盘 */
+        proTintOverlay: { top: 20, bottom: 0, left: 28 },
+        proDividerOverlay: { top: 24, bottom: 4, left: 28 },
+        proGroupDivider: { borderRightWidth: 1, borderRightColor: palette.rule },
+        proLabelCell: { width: 28 },
+        proGroupRow: { height: 20, alignItems: 'stretch' },
+        proGroupCell: {
+            marginHorizontal: 6,
+            borderBottomWidth: 1,
+            borderBottomColor: palette.rule,
+            justifyContent: 'center',
+        },
+        proGroupText: { textAlign: 'center', fontSize: 11, lineHeight: 16, color: palette.muted },
+        proHeadRow: { height: 36 },
+        proHeadText: { fontSize: 12, lineHeight: 15, color: palette.muted },
+        proHeadSub: { fontSize: isNarrow ? 9 : 10, lineHeight: 15, color: palette.muted, fontVariant: tabular },
+        proStarRow: { height: 26 },
+        proStarText: { fontSize: 13, color: palette.body },
+        proGlyphRow: { height: Math.round(proGlyph * 1.42) },
+        proGlyphText: { fontSize: proGlyph, lineHeight: Math.round(proGlyph * 1.28) },
+        proGlyphTextDense: { fontSize: proGlyphDense, lineHeight: Math.round(proGlyphDense * 1.28) },
+        proCangRow: { minHeight: 58, paddingVertical: 4 },
+        proDetailRow: { height: 30, borderTopWidth: 1, borderTopColor: palette.hairline },
+        proDetailFirst: { marginTop: 6 },
+        proDetailText: { fontSize: 13, color: palette.body },
+        proDetailTextSmall: { fontSize: isNarrow ? 11 : 12 },
+        proStackRow: {
+            paddingTop: 7,
+            paddingBottom: 4,
+            borderTopWidth: 1,
+            borderTopColor: palette.hairline,
+        },
+        proShenShaText: { fontSize: isNarrow ? 10 : 11, lineHeight: 16, color: palette.muted, textAlign: 'center' },
+        proShenShaTextDense: { fontSize: isNarrow ? 9 : 10, lineHeight: 15 },
+        seasonRow: {
+            marginTop: 10,
+            paddingTop: 10,
+            borderTopWidth: 1,
+            borderTopColor: palette.hairline,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 6,
+        },
+        seasonLabel: { width: 28, fontSize: 11, color: palette.muted },
+        seasonChip: {
+            flex: 1,
+            height: 24,
+            borderRadius: 12,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 3,
+            backgroundColor: palette.chipBg,
+        },
+        seasonElement: { fontSize: 12, fontWeight: '700' },
+        seasonStatus: { fontSize: 12, color: palette.body },
+
+        /* 运程 */
+        factRow: { marginTop: 10, flexDirection: 'row', justifyContent: 'space-between', gap: isNarrow ? 6 : 10 },
+        factItem: { flexShrink: 1 },
+        factValue: {
+            marginTop: 2,
+            fontSize: isNarrow ? 13 : 14,
+            lineHeight: 20,
+            fontWeight: '600',
+            color: palette.ink,
+            fontVariant: tabular,
+        },
+        factValueInline: { marginTop: 0 },
+        trackStack: {
+            marginTop: 12,
+            paddingTop: 12,
+            borderTopWidth: 1,
+            borderTopColor: palette.hairline,
+            gap: 10,
+        },
+        trackRow: { flexDirection: 'row', alignItems: 'stretch', gap: 8 },
+        trackLabel: {
+            width: 28,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRightWidth: 1,
+            borderRightColor: palette.hairline,
+        },
+        trackLabelText: { fontSize: 12, lineHeight: 16, fontWeight: '600', color: palette.ink },
+        trackViewport: { position: 'relative', flex: 1, minWidth: 0 },
+        trackEmpty: { flex: 1, minHeight: 40, justifyContent: 'center' },
+        trackContent: { gap: TRACK_CELL_GAP, paddingRight: TRACK_END_PADDING },
+        trackCell: {
+            position: 'relative',
+            width: TRACK_CELL_WIDTH,
+            paddingVertical: 7,
+            alignItems: 'center',
+            borderRadius: 8,
+            borderWidth: 1,
+            borderColor: palette.trackCellBorder,
+            backgroundColor: palette.trackCellBg,
+        },
+        trackCellActive: {
+            borderWidth: 1.5,
+            borderColor: palette.gold,
+            backgroundColor: palette.dayTint,
+        },
+        trackCurrentDot: {
+            position: 'absolute',
+            top: 4,
+            right: 4,
+            width: 5,
+            height: 5,
+            borderRadius: 3,
+            backgroundColor: palette.vermilion,
+        },
+        trackTop: { fontSize: 12, lineHeight: 16, fontWeight: '600', color: palette.ink, fontVariant: tabular },
+        trackSub: { fontSize: 10, lineHeight: 13, color: palette.muted, fontVariant: tabular },
+        trackGlyph: { fontSize: 17, lineHeight: 22, fontWeight: '700' },
+        trackGlyphFirst: { marginTop: 5 },
+        trackGlyphNote: { fontSize: 11, fontWeight: '400', color: palette.muted },
+        trackTag: { marginTop: 2, fontSize: 9, lineHeight: 12, color: palette.muted },
+        trackFade: { position: 'absolute', top: 0, right: 0, bottom: 0, width: 18, pointerEvents: 'none' },
+
+        /* 神煞 */
+        shenShaList: { marginTop: 6 },
+        shenShaRow: { minHeight: 34, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 8 },
+        shenShaRowDivider: { borderBottomWidth: 1, borderBottomColor: palette.hairline },
+        shenShaRowGroupEnd: { borderBottomColor: palette.rule },
+        shenShaLabel: { width: 30, fontSize: 12, color: palette.muted },
+        shenShaGanZhi: { width: 32, fontSize: 13, lineHeight: 20, fontWeight: '600' },
+        shenShaStars: { flex: 1, fontSize: 13, lineHeight: 20, color: palette.ink },
+        shenShaStarsEmpty: { color: palette.muted },
+
+        /* 干支分层 */
+        relationGroupFirst: { marginTop: 10 },
+        relationGroupNext: {
+            marginTop: 12,
+            paddingTop: 10,
+            borderTopWidth: 1,
+            borderTopColor: palette.hairline,
+        },
+        relationRows: { marginTop: 4, gap: 8 },
+        relationRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+        relationLabel: { width: 30, paddingTop: 2, fontSize: 12, lineHeight: 18, color: palette.muted },
+        relationChips: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
+        relationChip: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, backgroundColor: palette.relationBg },
+        relationChipText: { fontSize: 12, lineHeight: 18, color: palette.body },
+        relationEmpty: { paddingTop: 2, fontSize: 12, lineHeight: 18, color: palette.muted },
+
+        pressed: { opacity: 0.72 },
     });
 };
