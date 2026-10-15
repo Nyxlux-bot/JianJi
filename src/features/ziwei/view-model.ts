@@ -577,7 +577,18 @@ function buildPalaceAnalysisView(
     };
 }
 
+/**
+ * iztro 只在 astrolabe.palace() 取宫时才把宫位挂回星盘；直接遍历 astrolabe.palaces 时
+ * palace.mutagedPlaces() 拿不到星盘，宫干飞化会全部落空。先逐宫取一遍把引用挂上。
+ */
+function linkPalacesToAstrolabe(astrolabe: IFunctionalAstrolabe): void {
+    astrolabe.palaces.forEach((palace) => {
+        astrolabe.palace(palace.index);
+    });
+}
+
 export function buildZiweiStaticPalaceAnalysisViews(astrolabe: IFunctionalAstrolabe, algorithm: ZiweiAlgorithm): ZiweiPalaceAnalysisView[] {
+    linkPalacesToAstrolabe(astrolabe);
     return astrolabe.palaces.map((palace) => buildPalaceAnalysisView(astrolabe, palace, [], algorithm));
 }
 
@@ -586,6 +597,7 @@ export function buildZiweiPalaceAnalysisViews(
     horoscope: IFunctionalHoroscope,
     algorithm: ZiweiAlgorithm,
 ): ZiweiPalaceAnalysisView[] {
+    linkPalacesToAstrolabe(astrolabe);
     return astrolabe.palaces.map((palace) => buildPalaceAnalysisView(astrolabe, palace, buildActiveScopes(palace.index, horoscope), algorithm));
 }
 
