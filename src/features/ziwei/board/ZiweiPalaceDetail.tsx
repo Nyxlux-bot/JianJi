@@ -1,7 +1,5 @@
 import React, { memo, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { getMutagensByHeavenlyStem } from 'iztro/lib/utils';
-import { kot } from 'iztro/lib/i18n';
 import type {
     ZiweiDynamicHoroscopeResult,
     ZiweiDynamicScope,
@@ -13,8 +11,8 @@ import {
     lunarMonthLabel,
     palaceShortLabel,
     parseMutKey,
+    stemMutagenStars,
     ZIWEI_MUTAGEN_ORDER,
-    zh,
     type ZiweiCursorInfo,
     type ZiweiView,
 } from '../scope-layer';
@@ -162,13 +160,7 @@ function ZiweiPalaceDetailBase({
     const scopeMutagens = useMemo(() => parseMutKey(mutKey), [mutKey]);
     const byName = useMemo(() => Object.fromEntries(palaces.map((item) => [item.name, item])), [palaces]);
     const insight = focusedStar && starByName ? starByName[focusedStar] : null;
-    const stemStars = useMemo(() => {
-        try {
-            return (getMutagensByHeavenlyStem(kot(palace.heavenlyStem, 'Heavenly') as never) as string[]).map((name) => zh(name));
-        } catch {
-            return ['', '', '', ''];
-        }
-    }, [palace.heavenlyStem]);
+    const stemStars = useMemo(() => stemMutagenStars(palace.heavenlyStem), [palace.heavenlyStem]);
 
     const toggleStar = (name: string) => {
         const next = focusedStar === name ? null : name;

@@ -45,7 +45,7 @@ import {
     normalizeZiweiHoroscopeCursorDate,
     ZIWEI_DEFAULT_CONFIG,
 } from '../../src/features/ziwei/iztro-adapter';
-import { ZiweiChartEngine } from '../../src/features/ziwei/chart-engine';
+import { scheduleIdleTask, ZiweiChartEngine } from '../../src/features/ziwei/chart-engine';
 import {
     buildNatalLayer,
     buildPrewarmResolvers,
@@ -67,6 +67,7 @@ import {
 } from '../../src/features/ziwei/board/ZiweiPalaceDetail';
 import { ChevronIcon, ZiweiPeekBar, ZiweiSheet, ZiweiTopBar } from '../../src/features/ziwei/board/ZiweiChrome';
 import { ZiweiZoomCard } from '../../src/features/ziwei/board/ZiweiZoomCard';
+import { ZiweiInfoPanel } from '../../src/features/ziwei/board/ZiweiInfoPanel';
 import {
     createZiweiSelectionStore,
     useZiweiSelectedIndex,
@@ -159,10 +160,6 @@ function logZiweiRuntimeWarning(scope: string, error: unknown): void {
     void recordDiagnosticLog({ level: 'warn', source: `ziwei:${scope}`, message });
 }
 
-function formatDateTime(date: Date): string {
-    return formatLocalDateTime(date).replace('T', ' ');
-}
-
 function formatDot(local: string): string {
     // 1990-05-17T08:30 → 1990.05.17 08:30
     return local.replace('T', ' ').replace(/^(\d{4})-(\d{2})-(\d{2})/, '$1.$2.$3').slice(0, 16);
@@ -240,16 +237,13 @@ function buildPersistStatusNotice(status: 'saving' | 'saved' | 'error' | null, e
 /** 空闲时预算附近的落点：命中缓存后，切换只剩渲染 */
 function schedulePrewarm(tasks: Array<() => void>, delay = 120): () => void {
     let cancelled = false;
-    let handle: ReturnType<typeof setTimeout> | number | null = null;
-    const idle = (globalThis as typeof globalThis & {
-        requestIdleCallback?: (cb: () => void, options?: { timeout: number }) => number;
-        cancelIdleCallback?: (handle: number) => void;
-    });
+    // 定时器与空闲回调分开取消：新架构的 cancelIdleCallback 只认空闲句柄，传定时器 id 会直接抛错
+    let pending: { cancel: () => void } | null = null;
     const next = (index: number) => {
         if (cancelled || index >= tasks.length) {
             return;
         }
-        const run = () => {
+        pending = scheduleIdleTask(() => {
             if (cancelled) {
                 return;
             }
@@ -259,20 +253,13 @@ function schedulePrewarm(tasks: Array<() => void>, delay = 120): () => void {
                 // 预热失败不影响交互
             }
             next(index + 1);
-        };
-        handle = typeof idle.requestIdleCallback === 'function'
-            ? idle.requestIdleCallback(run, { timeout: 400 })
-            : setTimeout(run, 40);
+        }, 400);
     };
-    handle = setTimeout(() => next(0), delay);
+    const timer = setTimeout(() => next(0), delay);
     return () => {
         cancelled = true;
-        if (handle !== null) {
-            if (typeof handle === 'number' && typeof idle.cancelIdleCallback === 'function') {
-                idle.cancelIdleCallback(handle);
-            }
-            clearTimeout(handle as ReturnType<typeof setTimeout>);
-        }
+        clearTimeout(timer);
+        pending?.cancel();
     };
 }
 
@@ -671,6 +658,20 @@ export default function ZiweiResultPage() {
         setSettingsVisible(true);
     }, [activePayload, recordResult]);
 
+    const handleInfoEditConfig = useCallback(() => {
+        setInfoOpen(false);
+        handleOpenSettings();
+    }, [handleOpenSettings]);
+    const handleInfoOpenPalace = useCallback((index: number) => {
+        selection.set(index);
+        selectedStarRef.current = null;
+        setInfoOpen(false);
+        // 宽屏右侧栏就是详情，选中即可
+        if (screenWidth < 720) {
+            handleOpenDetail();
+        }
+    }, [handleOpenDetail, screenWidth, selection]);
+
     const handleDismissSettings = useCallback(() => {
         if (persistStatus === 'saving') {
             return;
@@ -781,6 +782,15 @@ export default function ZiweiResultPage() {
         || null;
     const soul = (staticChart?.astrolabe.soul as string | undefined) || chartSnapshot?.staticMeta.soul || '';
     const body = (staticChart?.astrolabe.body as string | undefined) || chartSnapshot?.staticMeta.body || '';
+    const cityLabel = staticChart?.input.cityLabel || recordResult?.cityLabel || '';
+    const lunarLine = staticChart ? `${staticChart.astrolabe.lunarDate} ${staticChart.input.timeLabel}` : chartSnapshot?.staticMeta.lunarDate || '';
+    const infoDateRows = useMemo<Array<[string, string]>>(() => [
+        ['阳历', birthLocal ? formatDot(birthLocal) : '—'],
+        ['真太阳时', trueSolar ? `${formatDot(trueSolar)}${cityLabel ? ` · ${cityLabel}` : ''}` : '—'],
+        ['农历', lunarLine || '—'],
+    ], [birthLocal, cityLabel, lunarLine, trueSolar]);
+    const infoConfig = activePayload?.config || recordResult?.config || staticChart?.input.config || ZIWEI_DEFAULT_CONFIG;
+    const infoConfigChips = useMemo(() => formatConfigChips(infoConfig), [infoConfig]);
     const metaFor = useCallback((palace: ZiweiPalaceAnalysisView) => {
         const range = palace.decadalRange.replace(/[^\d–-]/g, '').replace('-', '–');
         const role = view !== 'natal' && dynamic ? dynamic.runtimeSnapshot.scopes[view].palaceNames[palace.palaceIndex] : '';
@@ -1091,56 +1101,25 @@ export default function ZiweiResultPage() {
                 )}
             >
                 <GestureScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24 }} showsVerticalScrollIndicator={false}>
-                    <View style={detailStyles.section}>
-                        <Text style={detailStyles.sectionTitle}>基本信息</Text>
-                        {[
-                            ['命主', `${currentName} · ${genderLabel}`],
-                            ['阳历', birthLocal ? formatDot(birthLocal) : '—'],
-                            ['真太阳时', trueSolar ? formatDot(trueSolar) : '—'],
-                            ['农历', staticChart ? `${staticChart.astrolabe.lunarDate} ${staticChart.input.timeLabel}` : chartSnapshot?.staticMeta.lunarDate || '—'],
-                            ['五行局', fiveElements || '—'],
-                            ['命主 / 身主', `${soul || '—'} / ${body || '—'}`],
-                            ['生肖', zodiac || '—'],
-                        ].map(([label, value]) => (
-                            <Text key={label} style={detailStyles.lineText}>
-                                <Text style={detailStyles.lineLabel}>{`${label}　`}</Text>
-                                {value}
-                            </Text>
-                        ))}
-                        <Text style={detailStyles.lineText}>
-                            <Text style={detailStyles.lineLabel}>四柱　</Text>
-                            <GanzhiSpan text={chineseDate.replace(/ /g, '　')} palette={palette} />
-                        </Text>
-                    </View>
-                    <View style={[detailStyles.section, detailStyles.sectionRule]}>
-                        <View style={styles.infoRow}>
-                            <Text style={detailStyles.sectionTitle}>排盘设置</Text>
-                            <Pressable onPress={() => { setInfoOpen(false); handleOpenSettings(); }} hitSlop={8} disabled={!recordResult}>
-                                <Text style={styles.infoAction}>修改</Text>
-                            </Pressable>
-                        </View>
-                        <View style={detailStyles.checks}>
-                            {formatConfigChips(activePayload?.config || recordResult?.config || staticChart?.input.config || ZIWEI_DEFAULT_CONFIG).map((chip) => (
-                                <View key={chip} style={detailStyles.check}><Text style={[detailStyles.checkText, { color: palette.body }]}>{chip}</Text></View>
-                            ))}
-                        </View>
-                    </View>
-                    {dynamic ? (
-                        <View style={[detailStyles.section, detailStyles.sectionRule]}>
-                            <Text style={detailStyles.sectionTitle}>当前运限</Text>
-                            {[
-                                dynamic.horoscopeSummary.decadal,
-                                dynamic.horoscopeSummary.age,
-                                dynamic.horoscopeSummary.yearly,
-                                dynamic.horoscopeSummary.monthly,
-                                dynamic.horoscopeSummary.daily,
-                                dynamic.horoscopeSummary.hourly,
-                            ].filter(Boolean).map((line) => (
-                                <Text key={line} style={detailStyles.lineText}>{line}</Text>
-                            ))}
-                            <Text style={[detailStyles.lineText, { color: palette.muted }]}>{`运限时间点 ${formatDateTime(cursorDate)}`}</Text>
-                        </View>
-                    ) : null}
+                    <ZiweiInfoPanel
+                        name={currentName}
+                        gender={(staticChart?.input.gender || recordResult?.gender) === 'female' ? 'female' : 'male'}
+                        chineseDate={chineseDate}
+                        zodiac={zodiac}
+                        sign={(staticChart?.astrolabe.sign as string | undefined) || ''}
+                        fiveElements={fiveElements}
+                        soul={soul}
+                        body={body}
+                        dateRows={infoDateRows}
+                        palaceByIndex={palaceByIndex}
+                        dynamic={dynamic}
+                        cursorLabel={formatDot(formatLocalDateTime(cursorDate))}
+                        configChips={infoConfigChips}
+                        canEditConfig={Boolean(recordResult)}
+                        palette={palette}
+                        onOpenPalace={handleInfoOpenPalace}
+                        onEditConfig={handleInfoEditConfig}
+                    />
                 </GestureScrollView>
             </ZiweiSheet>
             ) : null}
@@ -1265,8 +1244,6 @@ function makeStyles(Colors: any, palette: ReturnType<typeof buildZiweiPalette>) 
         contextMain: { ...base, fontSize: 13, lineHeight: 18, fontWeight: '600', color: palette.ink, fontVariant: ['tabular-nums'] },
         contextMeta: { ...base, fontSize: 12, lineHeight: 18, color: palette.muted, flexShrink: 1 },
         contextAI: { ...base, fontSize: 12, lineHeight: 18, fontWeight: '600', color: palette.gold },
-        infoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-        infoAction: { ...base, fontSize: 12, lineHeight: 16, fontWeight: '600', color: palette.gold },
         modalWrap: { flex: 1, backgroundColor: Colors.bg.overlay },
         modalBackdrop: { ...StyleSheet.absoluteFill },
         configModalCard: {
