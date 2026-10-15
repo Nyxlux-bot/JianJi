@@ -61,6 +61,11 @@ function lunarOf(date: Date): LunarDateValue {
     return lunarCache.get(key) ?? remember(lunarCache, key, solar2lunar(date), LUNAR_CACHE_LIMIT);
 }
 
+/** 运限用的农历日期（与 iztro 同源，按天缓存） */
+export function getCachedLunarDate(date: Date): { lunarYear: number; lunarMonth: number; lunarDay: number; isLeap: boolean } {
+    return lunarOf(date);
+}
+
 function ganzhiOf(date: Date, timeIndex: number, year: DivideValue, month?: DivideValue): GanzhiValue {
     // 'exact' 分界按节气交接时刻判定，同一天不同时间可能落在两侧，所以带上时分
     const exact = year === 'exact' || month === 'exact';
