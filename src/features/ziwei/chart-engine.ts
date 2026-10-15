@@ -1,10 +1,4 @@
 import {
-    buildZiweiBoardDecorations,
-    buildZiweiBoardScopeModel,
-    buildZiweiDirectHoroscopeScopeViewByScope,
-    buildZiweiOrbitDrawerState,
-} from './view-model';
-import {
     computeZiweiDynamicHoroscope,
     loadZiweiStaticChartAsync,
     normalizeZiweiHoroscopeCursorDate,
@@ -12,12 +6,8 @@ import {
 import { measureZiweiAsyncPerf, measureZiweiPerf } from './perf';
 import type {
     ZiweiActiveScope,
-    ZiweiBoardDecorationModel,
-    ZiweiBoardScopeModel,
     ZiweiDynamicHoroscopeResult,
-    ZiweiDirectHoroscopeScopeView,
     ZiweiInputPayload,
-    ZiweiOrbitDrawerState,
     ZiweiStaticChartResult,
 } from './types';
 
@@ -155,14 +145,14 @@ async function resolveCachedAsync<T>(params: {
     return nextPromise;
 }
 
+/**
+ * 结果页需要的只有运限结果本身；宫格的运限层、时间轴都由 scope-layer 在渲染时
+ * 以纯函数按需推出（各不到 0.3 ms），不再提前把每个视图的整套模型算好存起来。
+ */
 export interface ZiweiRuntimeBundle {
     cacheKey: string;
     dynamic: ZiweiDynamicHoroscopeResult;
     scope: ZiweiActiveScope;
-    boardScopeModel: ZiweiBoardScopeModel;
-    boardDecorations: ZiweiBoardDecorationModel;
-    orbitDrawerState: ZiweiOrbitDrawerState;
-    selectedDirectScope: ZiweiDirectHoroscopeScopeView | null;
 }
 
 export interface ZiweiRuntimeSet {
@@ -191,51 +181,11 @@ function buildRuntimeBundle(
     dynamic: ZiweiDynamicHoroscopeResult,
     scope: ZiweiActiveScope,
 ): ZiweiRuntimeBundle {
-    return measureZiweiPerf(`buildRuntimeBundle:${scope}`, () => {
-        const selectedDirectScope = measureZiweiPerf(`buildDirectScope:${scope}`, () => (
-            scope === 'age'
-                ? null
-                : buildZiweiDirectHoroscopeScopeViewByScope(
-                    staticChart.astrolabe,
-                    dynamic.horoscopeNow,
-                    scope,
-                    staticChart.input.config.algorithm,
-                )
-        ));
-        const boardScopeModel = measureZiweiPerf(`buildBoardScope:${scope}`, () => (
-            buildZiweiBoardScopeModel(
-                staticChart,
-                dynamic,
-                scope,
-                selectedDirectScope,
-            )
-        ));
-        const boardDecorations = measureZiweiPerf(`buildBoardDecorations:${scope}`, () => (
-            buildZiweiBoardDecorations(
-                staticChart,
-                dynamic,
-                scope,
-                computeZiweiDynamicHoroscope,
-            )
-        ));
-        const orbitDrawerState = measureZiweiPerf(`buildOrbitDrawer:${scope}`, () => (
-            buildZiweiOrbitDrawerState(
-                staticChart,
-                dynamic,
-                scope,
-            )
-        ));
-
-        return {
-            cacheKey: buildRuntimeBundleKey(staticChart, dynamic.cursorDate, scope),
-            dynamic,
-            scope,
-            boardScopeModel,
-            boardDecorations,
-            orbitDrawerState,
-            selectedDirectScope,
-        };
-    });
+    return {
+        cacheKey: buildRuntimeBundleKey(staticChart, dynamic.cursorDate, scope),
+        dynamic,
+        scope,
+    };
 }
 
 function buildRuntimeSet(
