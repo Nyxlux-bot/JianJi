@@ -8,6 +8,7 @@
  */
 import { LunarYear, Solar } from 'lunar-typescript';
 import { kot, t } from 'iztro/lib/i18n';
+import { getMutagensByHeavenlyStem } from 'iztro/lib/utils';
 import { getCachedLunarDate } from './horoscope-fast';
 import type {
     ZiweiDynamicHoroscopeResult,
@@ -77,6 +78,15 @@ export function zh(value: string, kind?: string): string {
         zhCache.set(key, result);
     }
     return result;
+}
+
+/** 天干四化：按 [禄, 权, 科, 忌] 给出星名，随当前算法配置（中州派与通行派个别天干不同） */
+export function stemMutagenStars(stem: string): string[] {
+    try {
+        return (getMutagensByHeavenlyStem(kot(stem, 'Heavenly') as never) as string[]).map((name) => zh(name));
+    } catch {
+        return ['', '', '', ''];
+    }
 }
 
 export function yearGanzhi(year: number): string {
