@@ -807,7 +807,8 @@ function buildZiweiHoroscopePalaceViewFromDynamic(
         ...(dynamic.runtimeSnapshot.scopes.decadal.starNamesByPalaceIndex[resolvedPalaceIndex] || []),
         ...(dynamic.runtimeSnapshot.scopes.yearly.starNamesByPalaceIndex[resolvedPalaceIndex] || []),
     ]);
-    const activeMutagens = scopeSnapshot.mutagensByPalaceIndex[requestedPalace.palaceIndex] || [];
+    // The scope palace named `palaceName` is the resolved one, so its 四化 are the ones it holds.
+    const activeMutagens = scopeSnapshot.mutagensByPalaceIndex[resolvedPalaceIndex] || [];
 
     return {
         scope,

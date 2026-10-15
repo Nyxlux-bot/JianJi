@@ -136,21 +136,14 @@ function buildZiweiDynamicRuntimeSnapshot(
     const runtimeIndex = getZiweiRuntimeIndex(staticChart);
     const scopes = Object.fromEntries(ZIWEI_DYNAMIC_SCOPES.map((scope) => {
         const item = horoscope[scope];
-        const mappedPalaceIndexByName = Object.fromEntries(
-            item.palaceNames.map((palaceName, palaceIndex) => [palaceName, palaceIndex]),
-        ) as Record<string, number>;
-        const mutagensByPalaceIndex = runtimeIndex.palaceNameByIndex.map((palaceName) => {
-            const mappedPalaceIndex = mappedPalaceIndexByName[palaceName];
-            const birthStarNames = runtimeIndex.birthStarNamesByPalaceIndex[mappedPalaceIndex];
-            if (!birthStarNames) {
-                return [];
-            }
-
-            return ZIWEI_MUTAGENS.filter((_, mutagenIndex) => {
+        // Indexed by physical palace: a 运限四化 belongs to the palace that holds the star,
+        // whatever role that palace plays in this scope.
+        const mutagensByPalaceIndex = runtimeIndex.birthStarNamesByPalaceIndex.map((birthStarNames) => (
+            ZIWEI_MUTAGENS.filter((_, mutagenIndex) => {
                 const mutagenStarName = item.mutagen[mutagenIndex];
                 return Boolean(mutagenStarName && birthStarNames.has(mutagenStarName));
-            });
-        });
+            })
+        ));
 
         return [
             scope,
