@@ -46,7 +46,7 @@ function getLruValue<T>(cache: Map<string, T>, key: string): T | undefined {
     return value;
 }
 
-function scheduleIdleTask(
+export function scheduleIdleTask(
     task: (deadline: IdleDeadlineLike) => void,
     timeoutMs: number = 120,
 ): { cancel: () => void } {

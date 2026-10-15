@@ -2,7 +2,8 @@ import type { ZiweiWorkbenchLayout } from '../types';
 
 /**
  * 一屏工作台的尺寸规则（与设计稿「适配规则」一致）：
- * - 棋盘宽 = 屏宽 − 24（平板单栏时最多 600）；宫高 = 剩余高度 ÷ 4，限制在 100–124，屏宽 ≥ 414 放宽到 136；
+ * - 棋盘宽 = 屏宽 − 24（平板单栏时最多 600）；宫高 = 剩余高度 ÷ 4，限制在 100–124，屏宽 ≥ 414 放宽到 136，
+ *   高屏再放宽到宫宽的 1.6 倍；
  * - 宫高不到 100 → 紧凑模式（详情条压成一行）；紧凑后仍不到 96 → 退回整页滚动；
  * - 屏宽 ≥ 720 → 左盘右详情，字号整体 ×1.15。
  */
@@ -110,7 +111,8 @@ export function computeZiweiStageLayout(
     const boardWidth = Math.min(width - ZIWEI_STAGE.sidePadding * 2, 600);
     const roomy = width >= 414;
     const fontScale = boardWidth >= 560 ? 1.15 : 1;
-    const rowMax = fontScale > 1 ? 143 : roomy ? 136 : 124;
+    // 高屏（20:9 及更长）多出的高度交给宫格，免得时间轴与底部详情条之间空出一大块；宫高最多为宫宽的 1.6 倍
+    const rowMax = Math.max(fontScale > 1 ? 143 : roomy ? 136 : 124, Math.floor((boardWidth - chrome) / 4 * 1.6));
 
     let mode: ZiweiStageMode = 'std';
     let peekHeight: number = ZIWEI_STAGE.peekHeight;

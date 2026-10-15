@@ -1,5 +1,5 @@
-import React, { memo, useCallback, useMemo, useRef } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import Svg, { Circle, Line } from 'react-native-svg';
 import ZodiacPaperCut from '../../../components/ZodiacPaperCut';
 import type { ZiweiMutagen, ZiweiPalaceAnalysisView, ZiweiStarViewModel } from '../types';
@@ -11,6 +11,14 @@ import { ganzhiColor, type ZiweiPalette } from './palette';
 /* ------------------------------------------------------------------ */
 /* 样式：按配色与字号档位生成一次，所有宫格共用                           */
 /* ------------------------------------------------------------------ */
+
+/** 宫格纵向分区（按字号档位缩放）：底栏三行十二神，运限行压在底栏之上，其余高度留给星曜 */
+const TILE_FOOTER_HEIGHT = 35;
+const TILE_SCOPE_BOTTOM = 41;
+const TILE_SCOPE_HEIGHT = 12;
+const TILE_STAR_TOP = 4;
+const STAR_GAP = 2;
+const STAR_ROW_GAP = 3;
 
 export function makeBoardStyles(palette: ZiweiPalette, fontScale: number) {
     const f = (value: number) => Math.round(value * fontScale * 10) / 10;
@@ -25,14 +33,23 @@ export function makeBoardStyles(palette: ZiweiPalette, fontScale: number) {
         cell: { position: 'absolute', backgroundColor: palette.card },
         cellSelected: { position: 'absolute', backgroundColor: palette.selectedTint },
         tile: { position: 'absolute', overflow: 'hidden' },
-        starRow: {
+        starArea: {
             position: 'absolute',
             left: 5,
             right: 4,
-            top: 4,
+            top: TILE_STAR_TOP,
             flexDirection: 'row',
             alignItems: 'flex-start',
-            gap: f(2),
+            gap: f(STAR_GAP),
+        },
+        starSide: { flex: 1, minWidth: 0, overflow: 'hidden' },
+        starHidden: { opacity: 0 },
+        starWrap: {
+            flexDirection: 'row',
+            flexWrap: 'wrap',
+            alignItems: 'flex-start',
+            columnGap: f(STAR_GAP),
+            rowGap: f(STAR_ROW_GAP),
         },
         starCol: { alignItems: 'center' },
         starMajor: { ...base, fontSize: f(14), lineHeight: f(15), fontWeight: '700', color: palette.heading, textAlign: 'center' },
@@ -40,6 +57,7 @@ export function makeBoardStyles(palette: ZiweiPalette, fontScale: number) {
         starAdj: { ...base, fontSize: f(9.5), lineHeight: f(10.5), color: palette.muted, textAlign: 'center' },
         brightness: { ...base, marginTop: 1, fontSize: f(8.5), lineHeight: f(10), color: palette.faint },
         chipRow: { marginTop: 1, flexDirection: 'row', gap: 1 },
+        chipStack: { flexDirection: 'column' },
         chip: {
             width: f(12),
             height: f(12),
@@ -48,12 +66,12 @@ export function makeBoardStyles(palette: ZiweiPalette, fontScale: number) {
             justifyContent: 'center',
         },
         chipText: { ...base, fontSize: f(8.5), lineHeight: f(10), fontWeight: '700' },
-        more: { ...base, marginLeft: 1, fontSize: f(9), lineHeight: f(11), color: palette.faint },
+        more: { ...base, position: 'absolute', right: 0, bottom: 0, fontSize: f(9), lineHeight: f(10), color: palette.faint },
         scopeRow: {
             position: 'absolute',
             left: 5,
             right: 4,
-            bottom: f(30),
+            bottom: f(TILE_SCOPE_BOTTOM),
             flexDirection: 'row',
             alignItems: 'center',
             gap: 3,
@@ -75,12 +93,13 @@ export function makeBoardStyles(palette: ZiweiPalette, fontScale: number) {
             left: 5,
             right: 4,
             bottom: 4,
-            height: f(24),
+            height: f(TILE_FOOTER_HEIGHT),
             flexDirection: 'row',
             alignItems: 'flex-end',
             justifyContent: 'space-between',
         },
         gods: { ...base, fontSize: f(8.5), lineHeight: f(10.5), color: palette.faint },
+        branchBlock: { alignItems: 'center' },
         nameBlock: { alignItems: 'center' },
         nameRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
         badge: {
@@ -169,91 +188,141 @@ export function MutagenChip({
 
 type StarKind = 'major' | 'minor' | 'adj';
 
-interface PlacedStar {
-    star: ZiweiStarViewModel;
-    kind: StarKind;
-    scopeMutagen?: ZiweiMutagen;
-}
+/** 生年、运限两个四化标上下叠放时，带双标的主星列高（字 2×15 + 亮度 11 + 两标 2×13） */
+const STACKED_CHIP_COLUMN = 67;
 
-function placeStars(
-    palace: ZiweiPalaceAnalysisView,
-    scopeMutagens: Record<string, ZiweiMutagen>,
-    availableWidth: number,
-    fontScale: number,
-): { placed: PlacedStar[]; hidden: number } {
-    const all: PlacedStar[] = [
-        ...palace.majorStars.map((star) => ({ star, kind: 'major' as const })),
-        ...palace.minorStars.map((star) => ({ star, kind: 'minor' as const })),
-        ...palace.adjectiveStars.map((star) => ({ star, kind: 'adj' as const })),
-    ].map((item) => ({ ...item, scopeMutagen: item.kind === 'adj' ? undefined : scopeMutagens[item.star.name] }));
-    const gap = 2 * fontScale;
-    const widthOf = (item: PlacedStar) => {
-        const base = (item.kind === 'major' ? 15 : item.kind === 'minor' ? 12 : 10) * fontScale;
-        const chips = (item.star.mutagen ? 1 : 0) + (item.scopeMutagen ? 1 : 0);
-        return chips === 2 ? Math.max(base, 25 * fontScale) : base;
-    };
-
-    const placed: PlacedStar[] = [];
-    const widths: number[] = [];
-    let used = 0;
-    let hidden = 0;
-    for (const item of all) {
-        const width = widthOf(item);
-        if (hidden || used + width + (placed.length ? gap : 0) > availableWidth) {
-            hidden += 1;
-            continue;
-        }
-        used += width + (placed.length ? gap : 0);
-        placed.push(item);
-        widths.push(width);
-    }
-    // 给「+N」留出位置
-    while (hidden && placed.length && used + 15 * fontScale > availableWidth) {
-        used -= (widths.pop() || 0) + (placed.length > 1 ? gap : 0);
-        placed.pop();
-        hidden += 1;
-    }
-    return { placed, hidden };
-}
-
-
+/**
+ * 星曜排版交给布局引擎：左边主星（最多两颗）一列一列排，右边辅星、杂曜放进自动换行区，
+ * 换不换行、换到哪由引擎按真实字宽决定，不同机型、字体与系统字号下都不会错位。
+ * 换下来的星从右区左边起排，落在辅星、杂曜下面，不会压到主星的四化标；
+ * 右区每颗星由引擎回报实际落点，排不进可用高度的整颗隐去（不裁半截），角上显示「…」提示详情里有完整星曜。
+ */
 const TileStars = memo(function TileStars({
     palace,
     mutKey,
-    width,
+    height,
     fontScale,
     palette,
     styles,
 }: {
     palace: ZiweiPalaceAnalysisView;
     mutKey: string;
-    width: number;
+    height: number;
     fontScale: number;
     palette: ZiweiPalette;
     styles: ZiweiBoardStyles;
 }) {
-    const { placed, hidden } = useMemo(
-        () => placeStars(palace, parseMutKey(mutKey), width - 9, fontScale),
-        [fontScale, mutKey, palace, width],
-    );
+    const scopeMutagens = useMemo(() => parseMutKey(mutKey), [mutKey]);
+    const limit = height - TILE_STAR_TOP - (TILE_SCOPE_BOTTOM + TILE_SCOPE_HEIGHT) * fontScale - 2;
+    // 格子够高才把两个四化标上下叠放（列宽不翻倍）；矮格子仍并排，免得压到运限行
+    const stackChips = limit >= STACKED_CHIP_COLUMN * fontScale;
+    const moreHeight = 10 * fontScale;
+    const moreWidth = 10 * fontScale;
+    const sideStars = useMemo(() => [
+        ...palace.minorStars.map((star) => ({ star, kind: 'minor' as const })),
+        ...palace.adjectiveStars.map((star) => ({ star, kind: 'adj' as const })),
+    ], [palace]);
+    // 右区尺寸或某颗星尺寸一变，合并到下一个任务把各星相对右区的实际位置量一遍（真机、Web 一致；
+    // 不用动画帧，后台页面里它会被暂停）。按顺序取能完整放下的前缀；有隐藏时「…」占右下角，压到那一角的星也让出来
+    const wrapRef = useRef<View>(null);
+    const wrapWidthRef = useRef(0);
+    const itemRefs = useRef<Array<View | null>>([]);
+    const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [visibleCount, setVisibleCount] = useState(Number.POSITIVE_INFINITY);
+    const remeasure = useCallback(() => {
+        if (timerRef.current !== null || sideStars.length === 0) {
+            return;
+        }
+        timerRef.current = setTimeout(() => {
+            timerRef.current = null;
+            const wrap = wrapRef.current;
+            if (!wrap) {
+                return;
+            }
+            const boxes: Array<{ right: number; bottom: number } | undefined> = new Array(sideStars.length);
+            let pending = sideStars.length;
+            const settle = () => {
+                pending -= 1;
+                if (pending > 0) {
+                    return;
+                }
+                const fits = (index: number, reserveCorner: boolean) => {
+                    const box = boxes[index];
+                    if (!box || box.bottom > limit + 0.5) {
+                        return false;
+                    }
+                    const inCorner = box.right > wrapWidthRef.current - moreWidth && box.bottom > limit - moreHeight + 0.5;
+                    return !(reserveCorner && inCorner);
+                };
+                const prefix = (reserveCorner: boolean) => {
+                    let count = 0;
+                    while (count < boxes.length && fits(count, reserveCorner)) {
+                        count += 1;
+                    }
+                    return count;
+                };
+                const full = prefix(false);
+                const next = full === boxes.length ? full : prefix(true);
+                setVisibleCount((current) => (current === next ? current : next));
+            };
+            sideStars.forEach((_, index) => {
+                const item = itemRefs.current[index];
+                if (!item) {
+                    settle();
+                    return;
+                }
+                item.measureLayout(wrap, (x, y, itemWidth, itemHeight) => {
+                    boxes[index] = { right: x + itemWidth, bottom: y + itemHeight };
+                    settle();
+                }, settle);
+            });
+        }, 0);
+    }, [limit, moreHeight, moreWidth, sideStars]);
+    const handleWrapLayout = useCallback((event: LayoutChangeEvent) => {
+        wrapWidthRef.current = event.nativeEvent.layout.width;
+        remeasure();
+    }, [remeasure]);
+    useEffect(() => () => {
+        // 置空：开发模式会先卸载再挂载，留着旧句柄的话之后的测量都会被当成「已排队」跳过
+        if (timerRef.current !== null) {
+            clearTimeout(timerRef.current);
+            timerRef.current = null;
+        }
+    }, []);
+    const hiddenCount = Number.isFinite(visibleCount) ? sideStars.length - visibleCount : 0;
+
+    const renderColumn = (star: ZiweiStarViewModel, kind: StarKind, order = -1) => {
+        const scopeMutagen = kind === 'adj' ? undefined : scopeMutagens[star.name];
+        return (
+            <View
+                key={star.name}
+                ref={order >= 0 ? (node) => { itemRefs.current[order] = node; } : undefined}
+                style={[styles.starCol, order >= visibleCount && styles.starHidden]}
+                onLayout={order >= 0 ? remeasure : undefined}
+            >
+                <Text style={kind === 'major' ? styles.starMajor : kind === 'minor' ? styles.starMinor : styles.starAdj}>
+                    {verticalTextOf(star.name)}
+                </Text>
+                {kind !== 'adj' || star.brightness ? <Text style={styles.brightness}>{star.brightness || ' '}</Text> : null}
+                {star.mutagen || scopeMutagen ? (
+                    <View style={[styles.chipRow, stackChips && styles.chipStack]}>
+                        {star.mutagen ? <MutagenChip mutagen={star.mutagen as ZiweiMutagen} filled palette={palette} styles={styles} /> : null}
+                        {scopeMutagen ? <MutagenChip mutagen={scopeMutagen} filled={false} palette={palette} styles={styles} /> : null}
+                    </View>
+                ) : null}
+            </View>
+        );
+    };
 
     return (
-        <View style={styles.starRow} pointerEvents="none">
-            {placed.map(({ star, kind, scopeMutagen }) => (
-                <View key={star.name} style={styles.starCol}>
-                    <Text style={kind === 'major' ? styles.starMajor : kind === 'minor' ? styles.starMinor : styles.starAdj}>
-                        {verticalTextOf(star.name)}
-                    </Text>
-                    {kind !== 'adj' ? <Text style={styles.brightness}>{star.brightness || ' '}</Text> : null}
-                    {star.mutagen || scopeMutagen ? (
-                        <View style={styles.chipRow}>
-                            {star.mutagen ? <MutagenChip mutagen={star.mutagen as ZiweiMutagen} filled palette={palette} styles={styles} /> : null}
-                            {scopeMutagen ? <MutagenChip mutagen={scopeMutagen} filled={false} palette={palette} styles={styles} /> : null}
-                        </View>
-                    ) : null}
+        <View style={[styles.starArea, { height: limit }]} pointerEvents="none">
+            {palace.majorStars.map((star) => renderColumn(star, 'major'))}
+            <View style={[styles.starSide, { maxHeight: limit }]}>
+                <View ref={wrapRef} style={styles.starWrap} onLayout={handleWrapLayout}>
+                    {sideStars.map(({ star, kind }, order) => renderColumn(star, kind, order))}
                 </View>
-            ))}
-            {hidden ? <Text style={styles.more}>+{hidden}</Text> : null}
+            </View>
+            {hiddenCount > 0 ? <Text style={styles.more}>…</Text> : null}
         </View>
     );
 });
@@ -298,7 +367,7 @@ const TileFooter = memo(function TileFooter({
     const range = palace.decadalRange.replace(/[^\d–-]/g, '').replace('-', '–');
     return (
         <View style={styles.footer} pointerEvents="none">
-            <Text style={styles.gods}>{`${palace.changsheng12}\n${palace.boshi12}`}</Text>
+            <Text style={styles.gods}>{`${palace.boshi12}\n${palace.jiangqian12}\n${palace.suiqian12}`}</Text>
             <View style={styles.nameBlock}>
                 <View style={styles.nameRow}>
                     {palace.isBodyPalace ? (
@@ -315,7 +384,8 @@ const TileFooter = memo(function TileFooter({
                 </View>
                 <Text style={styles.range}>{range}</Text>
             </View>
-            <View>
+            <View style={styles.branchBlock}>
+                <Text style={styles.gods}>{palace.changsheng12}</Text>
                 <Text style={[styles.stemBranch, { color: ganzhiColor(palace.heavenlyStem, palette) }]}>{palace.heavenlyStem}</Text>
                 <Text style={[styles.stemBranch, { color: ganzhiColor(palace.earthlyBranch, palette) }]}>{palace.earthlyBranch}</Text>
             </View>
@@ -377,7 +447,7 @@ const ZiweiTile = memo(function ZiweiTile({
             accessibilityLabel={`${palace.name}，${palace.majorStars.map((star) => star.name).join('、') || '空宫'}`}
             onAccessibilityTap={handlePress}
         >
-            <TileStars palace={palace} mutKey={mutKey} width={frame.width} fontScale={fontScale} palette={palette} styles={styles} />
+            <TileStars palace={palace} mutKey={mutKey} height={frame.height} fontScale={fontScale} palette={palette} styles={styles} />
             <TileScopeRow tag={tag} isMing={isMing} flows={flows} styles={styles} />
             <TileFooter palace={palace} palette={palette} styles={styles} />
         </View>

@@ -1,6 +1,8 @@
 import { formatLocalDateTime } from '../../core/bazi-local-time';
 import type { ZiweiFormatterContext } from './ai-context';
+import { detectZiweiPatterns, ZIWEI_PATTERN_BASIS_LABEL, ZIWEI_PATTERN_TONE_LABEL } from './patterns';
 import { computeZiweiDynamicHoroscope, computeZiweiStaticChart } from './iztro-adapter';
+import { stemMutagenStars, zh } from './scope-layer';
 import type {
     ZiweiActiveScope,
     ZiweiComputedInput,
@@ -146,6 +148,80 @@ function formatPalaceFlags(palace: ZiweiPalaceAnalysisView): string {
     return flags.length > 0 ? ` [${flags.join(' / ')}]` : '';
 }
 
+/*
+ * 统一写法：字段之间用「 | 」，列表内用「 · 」或「、」，标签后用全角冒号；
+ * 四化一律写成「禄 天同 · 权 天机 · 科 文昌 · 忌 廉贞」，需要时在星名后括注本命落宫。
+ */
+
+const PALACE_SEQUENCE = ['命宫', '兄弟', '夫妻', '子女', '财帛', '疾厄', '迁移', '仆役', '交友', '官禄', '田宅', '福德', '父母'];
+const BRANCHES = '子丑寅卯辰巳午未申酉戌亥';
+const YANG_STEMS = '甲丙戊庚壬';
+const MUTAGEN_LABELS = ['禄', '权', '科', '忌'] as const;
+
+/** 按「命宫、兄弟、夫妻……父母」的十二宫次序排，读盘时从命宫起 */
+function orderedPalaces(palaces: ZiweiPalaceAnalysisView[]): ZiweiPalaceAnalysisView[] {
+    const rank = (name: string) => {
+        const order = PALACE_SEQUENCE.indexOf(name);
+        return order < 0 ? PALACE_SEQUENCE.length : order;
+    };
+    return [...palaces].sort((a, b) => rank(a.name) - rank(b.name));
+}
+
+function homeOfStar(palaces: ZiweiPalaceAnalysisView[], starName: string): ZiweiPalaceAnalysisView | undefined {
+    return palaces.find((palace) => [...palace.majorStars, ...palace.minorStars].some((star) => star.name === starName));
+}
+
+function formatGanzhi(palace: ZiweiPalaceAnalysisView): string {
+    return `${palace.heavenlyStem}${palace.earthlyBranch}`;
+}
+
+function formatDecadeRange(palace: ZiweiPalaceAnalysisView): string {
+    return `${palace.decadalRange.replace(/[^\d–-]/g, '').replace('-', '–')}岁`;
+}
+
+/** 四化一行：传入本命十二宫时在星名后括注落宫 */
+function formatMutagenRow(stars: string[], palaces?: ZiweiPalaceAnalysisView[]): string {
+    return MUTAGEN_LABELS.map((label, order) => {
+        const star = stars[order];
+        if (!star) {
+            return `${label} —`;
+        }
+        const home = palaces ? homeOfStar(palaces, star)?.name : '';
+        return `${label} ${star}${home ? `（${home}）` : ''}`;
+    }).join(' · ');
+}
+
+function sortedDecades(palaces: ZiweiPalaceAnalysisView[]): ZiweiPalaceAnalysisView[] {
+    return [...palaces].sort((a, b) => Number.parseInt(a.decadalRange, 10) - Number.parseInt(b.decadalRange, 10));
+}
+
+/** 盘头补充：阴阳与大限顺逆、命身来因所在、命主身主落宫、生年四化落宫 */
+function buildZiweiChartKeyLines(staticChart: ZiweiStaticChartResult): string[] {
+    const palaces = staticChart.palaces;
+    const ming = staticChart.palaceByName.命宫;
+    const body = palaces.find((palace) => palace.isBodyPalace);
+    const origin = palaces.find((palace) => palace.isOriginalPalace);
+    // 来因宫干就是排盘所用的年干（随年界设置）
+    const yearStem = origin?.heavenlyStem || String(staticChart.astrolabe.chineseDate || '').slice(0, 1);
+    const decades = sortedDecades(palaces);
+    const forward = decades.length > 1
+        && (BRANCHES.indexOf(decades[1].earthlyBranch) - BRANCHES.indexOf(decades[0].earthlyBranch) + 12) % 12 === 1;
+    const soul = String(staticChart.astrolabe.soul || '');
+    const bodyStar = String(staticChart.astrolabe.body || '');
+    const birthStars = MUTAGEN_LABELS.map((label) => (
+        palaces.flatMap((palace) => [...palace.majorStars, ...palace.minorStars]).find((star) => star.mutagen === label)?.name || ''
+    ));
+    const locate = (palace?: ZiweiPalaceAnalysisView) => (palace ? `${palace.name}（${formatGanzhi(palace)}）` : '未知');
+    const starHome = (star: string) => (star ? `${star}在${homeOfStar(palaces, star)?.name || '未知宫位'}` : '—');
+
+    return [
+        `- 阴阳与大限：${YANG_STEMS.includes(yearStem) ? '阳' : '阴'}${staticChart.input.gender === 'male' ? '男' : '女'} · 大限${forward ? '顺' : '逆'}行`,
+        `- 命宫 / 身宫 / 来因宫：命宫${ming ? `（${formatGanzhi(ming)}）` : ''} · 身宫在${locate(body)} · 来因宫在${locate(origin)}`,
+        `- 命主 / 身主落宫：${starHome(soul)} · ${starHome(bodyStar)}`,
+        `- 生年四化（${yearStem}干）：${formatMutagenRow(birthStars, palaces)}`,
+    ];
+}
+
 export function buildZiweiHeaderLinesFromStaticChart(staticChart: ZiweiStaticChartResult): string[] {
     const input = staticChart.input;
 
@@ -161,6 +237,7 @@ export function buildZiweiHeaderLinesFromStaticChart(staticChart: ZiweiStaticCha
         `- 农历：${staticChart.astrolabe.lunarDate}`,
         `- 五行局：${staticChart.astrolabe.fiveElementsClass}`,
         `- 命主 / 身主：${staticChart.astrolabe.soul} / ${staticChart.astrolabe.body}`,
+        ...buildZiweiChartKeyLines(staticChart),
         `- 当前配置：${formatZiweiConfigSummary(input)}`,
     ];
 }
@@ -183,10 +260,10 @@ function buildZiweiHeaderLinesFromRecord(record: ZiweiRecordLike): string[] {
 
 export function buildZiweiStaticPalaceLines(palace: ZiweiPalaceAnalysisView): string[] {
     return [
-        `- ${palace.name} ${palace.heavenlyStem}${palace.earthlyBranch}${formatPalaceFlags(palace)} | 大限 ${palace.decadalRange} | 小限 ${palace.ages}`,
+        `- ${palace.name} ${palace.heavenlyStem}${palace.earthlyBranch}${formatPalaceFlags(palace)} | 大限 ${formatDecadeRange(palace)} | 小限 ${palace.ages}`,
         `  主星：${formatStarGroup(palace.majorStars)}`,
         `  辅曜：${formatStarGroup(palace.minorStars)}`,
-        `  杂耀：${formatStarGroup(palace.adjectiveStars)}`,
+        `  杂曜：${formatStarGroup(palace.adjectiveStars)}`,
         `  长生/博士/岁前/将前：${palace.changsheng12} / ${palace.boshi12} / ${palace.suiqian12} / ${palace.jiangqian12}`,
     ];
 }
@@ -201,7 +278,7 @@ export function buildZiweiStructureLines(palace: ZiweiPalaceAnalysisView): strin
 
     return [
         `- ${palace.name}：三方四正 ${palace.surrounded.palaceNames.join(' / ')}`,
-        `  三方四正星曜汇总（不等于本宫同坐；星曜所在宫位见本命盘）：主星 ${palace.surrounded.majorStars.join('、') || '无'} | 辅曜 ${palace.surrounded.minorStars.join('、') || '无'} | 杂耀 ${palace.surrounded.adjectiveStars.join('、') || '无'}`,
+        `  三方四正汇总：主星 ${palace.surrounded.majorStars.join('、') || '无'} | 辅曜 ${palace.surrounded.minorStars.join('、') || '无'} | 杂曜 ${palace.surrounded.adjectiveStars.join('、') || '无'}`,
         `  本宫生年四化：${palace.flight.birthMutagens.join(' / ') || '无'} | 本宫自化：${palace.flight.selfMutagens.join(' / ') || '无'} | 本宫宫干飞化去向：${formatFlightTargets(palace)}`,
         `  三方四正四化汇总：${mutagenFlags || '无'}`,
         `  规则匹配成立：${palace.surrounded.checks.filter((item) => item.matched).map((item) => item.label).join('、') || '无'}`,
@@ -209,21 +286,64 @@ export function buildZiweiStructureLines(palace: ZiweiPalaceAnalysisView): strin
     ];
 }
 
+/** 本命盘、结构层、大限总览、命宫格局：盘种子与兼容全文共用 */
+function buildZiweiStaticSectionLines(staticChart: ZiweiStaticChartResult): string[] {
+    const palaces = orderedPalaces(staticChart.palaces);
+    return [
+        '【本命盘】',
+        ...palaces.flatMap((palace) => buildZiweiStaticPalaceLines(palace)),
+        '',
+        '【结构层】',
+        '三方四正汇总是本宫、对宫与两个三合宫的星曜合计，不等于本宫同坐；星曜所在宫位以【本命盘】为准。',
+        ...palaces.flatMap((palace) => buildZiweiStructureLines(palace)),
+        '',
+        ...buildZiweiDecadeLines(staticChart),
+        '',
+        ...buildZiweiPatternLines(staticChart),
+    ];
+}
+
 export function buildZiweiPromptSeed(staticChart: ZiweiStaticChartResult): string {
     const lines: string[] = ['【紫微斗数命盘】'];
     lines.push(...buildZiweiHeaderLinesFromStaticChart(staticChart));
     lines.push('');
-    lines.push('【本命盘】');
-    staticChart.palaces.forEach((palace) => {
-        lines.push(...buildZiweiStaticPalaceLines(palace));
-    });
-    lines.push('');
-    lines.push('【结构层】');
-    staticChart.palaces.forEach((palace) => {
-        lines.push(...buildZiweiStructureLines(palace));
-    });
+    lines.push(...buildZiweiStaticSectionLines(staticChart));
     return lines.join('\n');
 }
+
+const DECADE_SECTION_TITLE = '【大限总览】';
+const PATTERN_SECTION_TITLE = '【命宫格局】';
+
+function buildZiweiDecadeLines(staticChart: ZiweiStaticChartResult): string[] {
+    const palaces = staticChart.palaces;
+    return [
+        DECADE_SECTION_TITLE,
+        '大限四化取该大限宫干；括号内是四化星所在的本命宫位。',
+        ...sortedDecades(palaces).map((palace) => (
+            `- ${formatDecadeRange(palace)} · ${palace.name} ${formatGanzhi(palace)} | 主星：${palace.majorStars.map((star) => star.name).join('、') || '空宫'} | 大限四化：${formatMutagenRow(stemMutagenStars(palace.heavenlyStem), palaces)}`
+        )),
+    ];
+}
+
+function buildZiweiPatternLines(staticChart: ZiweiStaticChartResult): string[] {
+    const hits = detectZiweiPatterns(staticChart.palaces);
+    return [
+        PATTERN_SECTION_TITLE,
+        '依《紫微斗数全书》卷一定富、定贵、定贫贱三局原注判定；赋文有句无注者取通行释义，后世格局另标。只作结构线索，须结合整盘与运限，不可单凭格局论断吉凶。',
+        ...(hits.length > 0
+            ? hits.map((hit) => {
+                const source = hit.basis === 'later' ? ZIWEI_PATTERN_BASIS_LABEL.later : `${hit.source} · ${ZIWEI_PATTERN_BASIS_LABEL[hit.basis]}`;
+                return `- ${hit.name}（${ZIWEI_PATTERN_TONE_LABEL[hit.tone]} · ${source}）：${hit.detail}`;
+            })
+            : ['- 未见《全书》所载格局']),
+    ];
+}
+
+/** 旧记录存档的盘种子早于这些小节，调用时补上；不升种子版本，免得旧盘都被判为规则漂移 */
+const SEED_SUPPLEMENTS: Array<[string, (staticChart: ZiweiStaticChartResult) => string[]]> = [
+    [DECADE_SECTION_TITLE, buildZiweiDecadeLines],
+    [PATTERN_SECTION_TITLE, buildZiweiPatternLines],
+];
 
 function formatScopeLabel(scope: ZiweiActiveScope): string {
     switch (scope) {
@@ -260,22 +380,32 @@ function formatTopTabLabel(tab?: ZiweiFormatterContext['activeTopTab']): string 
 }
 
 function summarizeMutagenStars(mutagenStars: ZiweiHoroscopeMutagenStars): string {
-    return [
-        `禄:${mutagenStars.lu || '--'}`,
-        `权:${mutagenStars.quan || '--'}`,
-        `科:${mutagenStars.ke || '--'}`,
-        `忌:${mutagenStars.ji || '--'}`,
-    ].join(' / ');
+    return formatMutagenRow([mutagenStars.lu, mutagenStars.quan, mutagenStars.ke, mutagenStars.ji]);
+}
+
+/**
+ * 一层运限的定位，干支与宫位分开写，避免「流年 · 兄弟 · 丙午」这种把流年干支和宫位并列的歧义：
+ * 「流年 丙午：流年命宫落本命兄弟（戊午）」
+ */
+function describeScope(staticChart: ZiweiStaticChartResult, dynamic: ZiweiDynamicHoroscopeResult, scope: ZiweiActiveScope): string {
+    const item = dynamic.horoscopeNow[scope];
+    const home = staticChart.palaces[item.index];
+    const homeText = home ? `本命${home.name}（${formatGanzhi(home)}）` : '未知宫位';
+    const label = formatScopeLabel(scope);
+    if (scope === 'age') {
+        return `小限：小限命宫落${homeText} · 虚岁 ${dynamic.horoscopeNow.age.nominalAge}`;
+    }
+    const ganzhi = `${zh(item.heavenlyStem, 'Heavenly')}${zh(item.earthlyBranch, 'Earthly')}`;
+    const range = scope === 'decadal' && home ? `（${formatDecadeRange(home)}）` : '';
+    return `${label} ${ganzhi}${range}：${label}命宫落${homeText}`;
 }
 
 function buildScopeSummaryLines(staticChart: ZiweiStaticChartResult, dynamic: ZiweiDynamicHoroscopeResult, cursorDate: Date): string[] {
+    const scopes: ZiweiActiveScope[] = ['decadal', 'age', 'yearly', 'monthly', 'daily', 'hourly'];
     return [
-        `- 当前大限：${dynamic.horoscopeSummary.decadal}`,
-        `- 当前小限：${dynamic.horoscopeSummary.age}`,
-        `- 当前流年：${dynamic.horoscopeSummary.yearly}`,
-        `- 当前流月：${dynamic.horoscopeSummary.monthly}`,
-        `- 当前流日：${dynamic.horoscopeSummary.daily}`,
-        `- 当前流时：${dynamic.horoscopeSummary.hourly}`,
+        ...scopes.map((scope) => (
+            `- ${describeScope(staticChart, dynamic, scope)} | 四化：${formatMutagenRow(dynamic.horoscopeNow[scope].mutagen || [], staticChart.palaces)}`
+        )),
         `- 本组动态资料时点：${formatCursorDate(cursorDate)}（仅对应此时点，不是其他年份的运限资料）`,
         `- 当前配置：${formatZiweiConfigSummary(staticChart.input)}`,
     ];
@@ -294,7 +424,7 @@ function buildFocusLines(staticChart: ZiweiStaticChartResult, dynamic: ZiweiDyna
         `- 当前聚焦宫位：${focusPalace.name} · ${focusPalace.heavenlyStem}${focusPalace.earthlyBranch}`,
         `- 当前聚焦星曜：${context?.selectedStarName || '未选定'}`,
         `- 当前运限层：${formatScopeLabel(activeScope)}`,
-        `- 当前小限：${dynamic.horoscopeSummary.age}`,
+        `- 当前${describeScope(staticChart, dynamic, 'age')}`,
     ];
 
     if (context?.cursorDateIso) {
@@ -309,12 +439,15 @@ function buildStaticSelectedPalaceLine(palace: ZiweiPalaceAnalysisView): string 
 }
 
 function buildAgeScopeMatrixLine(staticChart: ZiweiStaticChartResult, dynamic: ZiweiDynamicHoroscopeResult, focusPalace: ZiweiPalaceAnalysisView): string {
-    const agePalaceName = staticChart.astrolabe.palaces[dynamic.horoscopeNow.age.index]?.name;
-    const resolvedPalaceName = dynamic.horoscopeNow.age.palaceNames[focusPalace.palaceIndex] || agePalaceName || focusPalace.name;
-    const resolvedPalace = staticChart.palaceByName[resolvedPalaceName] || focusPalace;
-    const [lu = '', quan = '', ke = '', ji = ''] = dynamic.horoscopeNow.age.mutagen || [];
+    const age = dynamic.horoscopeNow.age;
+    // 找小限盘里名为「聚焦宫」的那一宫落在本命哪里（与其他运限层同一取法）；取不到时命宫退回小限宫位
+    const resolvedIndex = ((age.palaceNames || []) as string[]).indexOf(focusPalace.name);
+    const resolvedPalace = staticChart.palaces[resolvedIndex >= 0 ? resolvedIndex : focusPalace.name === '命宫' ? age.index : -1];
+    if (!resolvedPalace) {
+        return `- 小限：${focusPalace.name} → 无法定位`;
+    }
 
-    return `- 小限：${focusPalace.name} → ${resolvedPalace.name} · ${resolvedPalace.heavenlyStem}${resolvedPalace.earthlyBranch} | 四化：禄:${lu || '--'} / 权:${quan || '--'} / 科:${ke || '--'} / 忌:${ji || '--'} | 直取流耀：无 | 虚岁：${dynamic.horoscopeNow.age.nominalAge}`;
+    return `- 小限：小限${focusPalace.name}落本命${resolvedPalace.name}（${formatGanzhi(resolvedPalace)}） | 四化：${formatMutagenRow(age.mutagen || [])} | 直取流耀：无 | 虚岁：${age.nominalAge}`;
 }
 
 function buildDynamicScopeMatrixLine(
@@ -340,7 +473,8 @@ function buildDynamicScopeMatrixLine(
         return `- ${formatScopeLabel(scope)}：${focusPalace.name} → 无法定位`;
     }
 
-    return `- ${formatScopeLabel(scope)}：${mapped.requestedPalaceName} → ${mapped.resolvedPalaceName} · ${mapped.heavenlyStem}${mapped.earthlyBranch} | 四化：${summarizeMutagenStars(mapped.mutagenStars)} | 直取流耀：${mapped.directHoroscopeStars.join('、') || '无'}`;
+    const label = formatScopeLabel(scope);
+    return `- ${label}：${label}${mapped.requestedPalaceName}落本命${mapped.resolvedPalaceName}（${mapped.heavenlyStem}${mapped.earthlyBranch}） | 四化：${summarizeMutagenStars(mapped.mutagenStars)} | 直取流耀：${mapped.directHoroscopeStars.join('、') || '无'}`;
 }
 
 function buildSelectedPalaceMatrixLines(staticChart: ZiweiStaticChartResult, dynamic: ZiweiDynamicHoroscopeResult, context?: ZiweiFormatterContext): string[] {
@@ -375,60 +509,6 @@ function buildFocusTriggerSummary(lines: string[]): string {
     return lines.slice(0, 4).join('；');
 }
 
-function buildYearlyCorePalaceLines(staticChart: ZiweiStaticChartResult, dynamic: ZiweiDynamicHoroscopeResult, palaceNames: string[]): string[] {
-    const yearlyDirect = buildZiweiDirectHoroscopeScopeViewByScope(
-        staticChart.astrolabe,
-        dynamic.horoscopeNow,
-        'yearly',
-        staticChart.input.config.algorithm,
-    );
-
-    return palaceNames.map((palaceName) => {
-        const mapped = buildZiweiHoroscopePalaceView(
-            dynamic.horoscopeNow,
-            palaceName,
-            'yearly',
-            yearlyDirect,
-        );
-        if (!mapped) {
-            return `  - ${palaceName}：无法定位流年映射`;
-        }
-        return `  - ${palaceName}：${mapped.requestedPalaceName} → ${mapped.resolvedPalaceName} · ${mapped.heavenlyStem}${mapped.earthlyBranch} | 四化：${summarizeMutagenStars(mapped.mutagenStars)} | 直取流耀：${mapped.directHoroscopeStars.join('、') || '无'}`;
-    });
-}
-
-function buildYearlyTriggerHighlights(staticChart: ZiweiStaticChartResult, dynamic: ZiweiDynamicHoroscopeResult, palaceNames: string[]): string {
-    const yearlyDirect = buildZiweiDirectHoroscopeScopeViewByScope(
-        staticChart.astrolabe,
-        dynamic.horoscopeNow,
-        'yearly',
-        staticChart.input.config.algorithm,
-    );
-    const triggers = palaceNames.map((palaceName) => {
-        const mapped = buildZiweiHoroscopePalaceView(
-            dynamic.horoscopeNow,
-            palaceName,
-            'yearly',
-            yearlyDirect,
-        );
-        if (!mapped) {
-            return '';
-        }
-
-        const tags = [
-            mapped.mutagenStars.lu ? `禄:${mapped.mutagenStars.lu}` : '',
-            mapped.mutagenStars.quan ? `权:${mapped.mutagenStars.quan}` : '',
-            mapped.mutagenStars.ke ? `科:${mapped.mutagenStars.ke}` : '',
-            mapped.mutagenStars.ji ? `忌:${mapped.mutagenStars.ji}` : '',
-            mapped.directHoroscopeStars.length > 0 ? `流耀:${mapped.directHoroscopeStars.join('/')}` : '',
-        ].filter(Boolean);
-
-        return tags.length > 0 ? `${palaceName}(${tags.join(' ')})` : '';
-    }).filter(Boolean);
-
-    return buildFocusTriggerSummary(triggers);
-}
-
 function buildYearEvidenceLines(
     staticChart: ZiweiStaticChartResult,
     dynamic: ZiweiDynamicHoroscopeResult,
@@ -440,12 +520,38 @@ function buildYearEvidenceLines(
         ...ZIWEI_CORE_PALACE_NAMES,
         focusPalaceName,
     ]));
+    const yearlyDirect = buildZiweiDirectHoroscopeScopeViewByScope(
+        staticChart.astrolabe,
+        dynamic.horoscopeNow,
+        'yearly',
+        staticChart.input.config.algorithm,
+    );
+    // 流年四化全年同一组，只在年头写一次；各宫只记落点、宫内实际见到的流年四化与流曜
+    const triggers: string[] = [];
+    const palaceLines = palaceNames.map((palaceName) => {
+        const mapped = buildZiweiHoroscopePalaceView(dynamic.horoscopeNow, palaceName, 'yearly', yearlyDirect);
+        if (!mapped) {
+            return `  - 流年${palaceName}：无法定位`;
+        }
+        const inside = [
+            mapped.hasLu ? `禄 ${mapped.mutagenStars.lu}` : '',
+            mapped.hasQuan ? `权 ${mapped.mutagenStars.quan}` : '',
+            mapped.hasKe ? `科 ${mapped.mutagenStars.ke}` : '',
+            mapped.hasJi ? `忌 ${mapped.mutagenStars.ji}` : '',
+        ].filter(Boolean);
+        const flows = mapped.directHoroscopeStars;
+        if (inside.length > 0 || flows.length > 0) {
+            triggers.push(`流年${palaceName}（${[...inside, ...(flows.length > 0 ? [`流曜 ${flows.join('、')}`] : [])].join(' · ')}）`);
+        }
+        return `  - 流年${palaceName}：落本命${mapped.resolvedPalaceName}（${mapped.heavenlyStem}${mapped.earthlyBranch}） | 宫内流年四化：${inside.join(' · ') || '无'} | 直取流耀：${flows.join('、') || '无'}`;
+    });
 
     return [
-        `- ${label}：${year}年 | 大限：${dynamic.horoscopeSummary.decadal} | 小限：${dynamic.horoscopeSummary.age} | 流年：${dynamic.horoscopeSummary.yearly}`,
-        '  - 以下宫位与四化是本组流年映射；本行所列大限、小限为该锚点背景，不代替本命宫位或其他年份的四化。',
-        ...buildYearlyCorePalaceLines(staticChart, dynamic, palaceNames),
-        `  - 重点宫位触发：${buildYearlyTriggerHighlights(staticChart, dynamic, palaceNames)}`,
+        `- ${label}：${year}年 | ${describeScope(staticChart, dynamic, 'decadal')} | ${describeScope(staticChart, dynamic, 'age')} | ${describeScope(staticChart, dynamic, 'yearly')}`,
+        `  - 流年四化：${formatMutagenRow(dynamic.horoscopeNow.yearly.mutagen || [], staticChart.palaces)}`,
+        '  - 以下是本组流年各宫的落点；大限、小限只作该锚点背景，不代替本命宫位或其他年份的四化。',
+        ...palaceLines,
+        `  - 重点宫位触发：${buildFocusTriggerSummary(triggers)}`,
     ];
 }
 
@@ -522,16 +628,9 @@ function buildCompatibilityFullText(record: ZiweiRecordLike, context?: ZiweiForm
     const lines: string[] = ['【紫微斗数命盘】', '旧记录资料范围：下列本命资料与游标时点的动态资料分别使用；本请求没有逐年年度证据包，不得把单一时点外推到整个五年。'];
 
     lines.push(...buildZiweiHeaderLinesFromRecord(record));
+    lines.push(...buildZiweiChartKeyLines(staticChart));
     lines.push('');
-    lines.push('【本命盘】');
-    staticChart.palaces.forEach((palace) => {
-        lines.push(...buildZiweiStaticPalaceLines(palace));
-    });
-    lines.push('');
-    lines.push('【结构层】');
-    staticChart.palaces.forEach((palace) => {
-        lines.push(...buildZiweiStructureLines(palace));
-    });
+    lines.push(...buildZiweiStaticSectionLines(staticChart));
     lines.push('');
     lines.push('【运限层】');
     lines.push(...buildScopeSummaryLines(staticChart, dynamic, cursorDate));
@@ -574,9 +673,15 @@ export function buildZiweiStageContext(
         };
     const dynamic = computeZiweiDynamicHoroscope(staticChart, runtimeDate);
     const focusPalace = resolveFocus(staticChart, runtimeContext);
-    const lines: string[] = [
-        record.aiContextSnapshot?.promptSeed?.trim() || buildZiweiPromptSeed(staticChart),
-    ];
+    const savedSeed = record.aiContextSnapshot?.promptSeed?.trim();
+    const lines: string[] = [savedSeed || buildZiweiPromptSeed(staticChart)];
+    if (savedSeed) {
+        SEED_SUPPLEMENTS.forEach(([title, build]) => {
+            if (!savedSeed.includes(title)) {
+                lines.push('', ...build(staticChart));
+            }
+        });
+    }
     lines.push('');
     lines.push('【当前焦点】');
     lines.push(...buildFocusLines(staticChart, dynamic, effectiveContext));
