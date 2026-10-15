@@ -44,7 +44,7 @@ export const AI_SKILLS: Record<AISkillEngine, AISkillDefinition> = {
     liuyao: { id: 'jianji-liuyao', version: 3, instructions: liuyao, requests: { initial: liuyaoInitial, followup: liuyaoFollowup, quick_replies: liuyaoQuick } },
     bazi: { id: 'jianji-bazi', version: 10, instructions: bazi, system: baziSystem,
         requests: { foundation: baziFoundation, kinship: baziKinship, verification: baziVerification, five_year: baziFiveYear, followup: baziFollowup, digest: baziDigest, quick_replies: baziQuick } },
-    ziwei: { id: 'jianji-ziwei', version: 5, instructions: ziwei, system: ziweiSystem,
+    ziwei: { id: 'jianji-ziwei', version: 6, instructions: ziwei, system: ziweiSystem,
         requests: { foundation: ziweiFoundation, verification: ziweiVerification, five_year: ziweiFiveYear, followup: ziweiFollowup, digest: ziweiDigest, quick_replies: ziweiQuick } },
     baziCompatibility: { id: 'jianji-bazi-compatibility', version: 4, instructions: compatibility, requests: { initial: compatibilityInitial } },
 };
