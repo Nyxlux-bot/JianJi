@@ -199,6 +199,7 @@ export async function shareChatMarkdown(result: AIDivinationResult, messages: Pe
         lines.push('');
         lines.push(`- 起卦方式：梅花易数 · ${MEIHUA_METHOD_LABEL[result.method]}`);
         lines.push(`- 本卦 / 互卦 / 变卦：${result.ben.fullName} / ${result.hu.fullName} / ${result.bian.fullName}`);
+        lines.push(`- 性别/起卦主体：${result.subject ? getLiuyaoSubjectLabel(result.subject) : '未指定（历史记录）'}`);
         lines.push(`- 占问事项：${result.question || '未填写'}`);
         lines.push(`- 导出时间：${new Date().toISOString()}`);
     } else {

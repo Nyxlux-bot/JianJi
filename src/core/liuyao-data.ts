@@ -26,6 +26,9 @@ export function isLiuyaoSubject(value: unknown): value is LiuyaoSubject {
     return value === 'male' || value === 'female' || value === 'other';
 }
 
+/** 头图角标用的短标签 */
+export const LIUYAO_SUBJECT_SHORT: Record<LiuyaoSubject, string> = { male: '男', female: '女', other: '其他' };
+
 export function getLiuyaoSubjectLabel(subject: LiuyaoSubject): string {
     switch (subject) {
         case 'male':

@@ -3,6 +3,7 @@ import { getLinePositionName, getTiYong, getTrigram } from './engine';
 import { getTrigramImages, TRIGRAM_IMAGE_SOURCE } from './images';
 import { analyzeMeihua, RELATION_RULES, type MeihuaRelation, type MeihuaTrigramRelation } from './rules';
 import { getHexagramText, getLineText } from '../../core/iching-texts';
+import { getLiuyaoSubjectLabel } from '../../core/liuyao-data';
 import { MEIHUA_METHOD_LABEL, type MeihuaHexagram, type MeihuaResult } from './types';
 
 const TONE_LABEL = { good: '吉', mixed: '平', bad: '凶' } as const;
@@ -45,6 +46,9 @@ export function formatMeihuaForAI(result: MeihuaResult): string {
         ? '取法：年支数＋农历月＋日为上卦数，再加时支数为下卦数，年月日时总数除六取动爻（《梅花易数》卷一「年月日时起例」）。'
         : '取法：前数为上卦，后数为下卦，两数并时支数除六取动爻（参《梅花易数》卷一「物数占例」以卦数并时数取爻）。');
     lines.push(`算式：上卦 ${result.formulas.upper}；下卦 ${result.formulas.lower}；动爻 ${result.formulas.moving}`);
+    lines.push(result.subject
+        ? `【性别/起卦主体】${getLiuyaoSubjectLabel(result.subject)}`
+        : '【性别/起卦主体】未指定（历史记录未保存该字段，请勿根据其他信息推断）');
     lines.push('');
 
     lines.push('【三卦】');
@@ -94,5 +98,12 @@ export function formatMeihuaForAI(result: MeihuaResult): string {
     lines.push(result.question.trim()
         ? `【占问】${result.question.trim()}`
         : '【占问】未填写；仅能先作卦象初步分析，不能擅定所问之事或当事人关系。');
+    if (result.recentEvents) {
+        lines.push(`【用户补充的近期事件】${result.recentEvents}`);
+        lines.push('（用户自述的背景，未经核实；只用来理解所问之事，不得当作卦象依据，也不得据此补造细节。）');
+    }
+    lines.push(result.timeRange
+        ? `【关注时间范围】${result.timeRange}（应期请落在此范围内讨论；超出范围的只简要提示。）`
+        : '【关注时间范围】未指定');
     return lines.join('\n');
 }

@@ -4,7 +4,7 @@
  */
 import { BA_GUA, DIZHI_INDEX, GUA_64, WuXing, yaoToGuaIndex } from '../../core/liuyao-data';
 import { getCurrentJieqi, solarToLunar } from '../../core/lunar';
-import type { MeihuaHexagram, MeihuaMethod, MeihuaNumberSource, MeihuaResult } from './types';
+import type { MeihuaCastContext, MeihuaHexagram, MeihuaMethod, MeihuaNumberSource, MeihuaResult } from './types';
 
 export type MeihuaCastInput =
     | { method: 'meihua_time' }
@@ -62,7 +62,7 @@ function formatClock(date: Date): { solarDate: string; solarTime: string } {
     };
 }
 
-export function castMeihua(input: MeihuaCastInput, date: Date, question = ''): MeihuaResult {
+export function castMeihua(input: MeihuaCastInput, date: Date, question = '', context: MeihuaCastContext = {}): MeihuaResult {
     const lunarInfo = solarToLunar(date);
     const hourValue = DIZHI_INDEX[lunarInfo.hourZhi];
     const hourSource: MeihuaNumberSource = { label: '时', source: lunarInfo.hourZhi, value: hourValue };
@@ -126,6 +126,9 @@ export function castMeihua(input: MeihuaCastInput, date: Date, question = ''): M
         formulas,
         movingLine,
         ...buildMeihuaHexagrams(remainder(upperSum, 8), remainder(lowerSum, 8), movingLine),
+        ...(context.subject ? { subject: context.subject } : {}),
+        ...(context.recentEvents?.trim() ? { recentEvents: context.recentEvents.trim() } : {}),
+        ...(context.timeRange?.trim() ? { timeRange: context.timeRange.trim() } : {}),
     };
 }
 

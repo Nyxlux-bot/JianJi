@@ -8,6 +8,9 @@ import StatusBarDecor from '../../src/components/StatusBarDecor';
 import { CustomAlert } from '../../src/components/CustomAlertProvider';
 import DateTimePicker from '../../src/components/DateTimePicker';
 import WuXingIcon from '../../src/components/WuXingIcon';
+import LiuyaoSubjectSelector from '../../src/components/LiuyaoSubjectSelector';
+import type { LiuyaoSubject } from '../../src/core/liuyao-data';
+import { getGanZhiElement } from '../../src/features/bazi/wuxing';
 import HexagramLines from '../../src/components/result/HexagramLines';
 import { BackIcon, ChevronRightIcon } from '../../src/components/Icons';
 import { useTheme } from '../../src/theme/ThemeContext';
@@ -42,6 +45,9 @@ export default function MeihuaInputPage() {
     const [first, setFirst] = useState('');
     const [second, setSecond] = useState('');
     const [question, setQuestion] = useState('');
+    const [subject, setSubject] = useState<LiuyaoSubject | null>(null);
+    const [recentEvents, setRecentEvents] = useState('');
+    const [timeRange, setTimeRange] = useState('');
     const [saving, setSaving] = useState(false);
 
     const firstValue = parseCount(first);
@@ -62,9 +68,13 @@ export default function MeihuaInputPage() {
             CustomAlert.alert('提示', '请先报上数和下数（正整数）');
             return;
         }
+        if (!subject) {
+            CustomAlert.alert('提示', '请选择起卦主体');
+            return;
+        }
         try {
             setSaving(true);
-            const result = castMeihua(castInput, mode === 'meihua_time' ? castDate : new Date(), question.trim());
+            const result = castMeihua(castInput, mode === 'meihua_time' ? castDate : new Date(), question.trim(), { subject, recentEvents, timeRange });
             await saveRecord({ engineType: 'meihua', result });
             router.push(`/meihua/result/${result.id}`);
         } catch (error: any) {
@@ -79,7 +89,19 @@ export default function MeihuaInputPage() {
         return (
             <View style={styles.trigramCell}>
                 <WuXingIcon element={trigram.wuxing} size={16} />
-                <Text style={[styles.bigValue, { color: palette.element[trigram.wuxing] }]}>{trigram.name}</Text>
+                <Text style={[styles.trigramText, { color: palette.element[trigram.wuxing] }]}>{trigram.name}</Text>
+            </View>
+        );
+    };
+
+    /** 取象：年支、时支配五行图标与五行色，月、日、报数照常显示 */
+    const renderSource = (source: string, key: string) => {
+        const element = source.length === 1 ? getGanZhiElement(source) : null;
+        if (!element) return <Text key={key} style={styles.cellText}>{source}</Text>;
+        return (
+            <View key={key} style={styles.trigramCell}>
+                <WuXingIcon element={element} size={14} />
+                <Text style={[styles.sourceText, { color: palette.element[element] }]}>{source}</Text>
             </View>
         );
     };
@@ -148,6 +170,8 @@ export default function MeihuaInputPage() {
                     </>
                 )}
 
+                <LiuyaoSubjectSelector value={subject} onChange={setSubject} style={styles.subject} labelStyle={styles.label} />
+
                 <Text style={styles.label}>占问事项（选填）</Text>
                 <TextInput
                     value={question}
@@ -157,6 +181,27 @@ export default function MeihuaInputPage() {
                     multiline
                     style={styles.question}
                     accessibilityLabel="占问事项"
+                />
+
+                <Text style={styles.label}>近期发生的事（选填）</Text>
+                <TextInput
+                    value={recentEvents}
+                    onChangeText={setRecentEvents}
+                    placeholder="如：上周面了两家公司，一家已进二面"
+                    placeholderTextColor={palette.muted}
+                    multiline
+                    style={styles.question}
+                    accessibilityLabel="近期发生的事"
+                />
+
+                <Text style={styles.label}>想看的时间范围（选填）</Text>
+                <TextInput
+                    value={timeRange}
+                    onChangeText={setTimeRange}
+                    placeholder="如：未来三个月、今年年底前"
+                    placeholderTextColor={palette.muted}
+                    style={styles.singleLine}
+                    accessibilityLabel="想看的时间范围"
                 />
 
                 <View style={styles.card}>
@@ -180,7 +225,7 @@ export default function MeihuaInputPage() {
                                 </View>
                                 <View style={styles.tableRow}>
                                     <Text style={styles.rowLabel}>取象</Text>
-                                    {preview.numbers.map((item) => <Text key={item.label} style={styles.cellText}>{item.source}</Text>)}
+                                    {preview.numbers.map((item) => renderSource(item.source, item.label))}
                                 </View>
                                 <View style={styles.tableRow}>
                                     <Text style={styles.rowLabel}>数</Text>
@@ -293,6 +338,17 @@ function makeStyles(palette: ResultPalette, Colors: any) {
         },
         numberLabel: { fontSize: 12, color: palette.muted },
         numberInput: { flex: 1, height: '100%', textAlign: 'right', fontSize: 17, fontWeight: '700', color: palette.heading },
+        subject: { marginBottom: 0 },
+        singleLine: {
+            height: 46,
+            paddingHorizontal: 14,
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: palette.cardBorder,
+            backgroundColor: palette.card,
+            fontSize: 14,
+            color: palette.heading,
+        },
         question: {
             minHeight: 58,
             paddingHorizontal: 14,
@@ -327,6 +383,8 @@ function makeStyles(palette: ResultPalette, Colors: any) {
         cellText: { flex: 1, textAlign: 'center', fontSize: 14, lineHeight: 24, color: palette.body },
         bigValue: { flex: 1, textAlign: 'center', fontSize: 22, lineHeight: 30, fontWeight: '700' },
         trigramCell: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 },
+        trigramText: { fontSize: 22, lineHeight: 30, fontWeight: '700' },
+        sourceText: { fontSize: 14, lineHeight: 24, fontWeight: '600' },
         formula: { flex: 1, textAlign: 'center', fontSize: 11.5, lineHeight: 16, color: palette.muted, fontVariant: ['tabular-nums'] },
         resultRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
         resultText: { flex: 1 },

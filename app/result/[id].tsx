@@ -22,7 +22,7 @@ import {
     makeResultChromeStyles, ResultCard, ResultHero, ResultTopBar, type ResultTab,
 } from '../../src/components/result/ResultChrome';
 import { PanResult } from '../../src/core/liuyao-calc';
-import { getLiuQin, type LiuQin, type LiuyaoSubject } from '../../src/core/liuyao-data';
+import { getLiuQin, LIUYAO_SUBJECT_SHORT, type LiuQin } from '../../src/core/liuyao-data';
 import { analyzeLiuyaoStatus, type LiuyaoMark } from '../../src/core/liuyao-status';
 import { getHexagramText, getLineText } from '../../src/core/iching-texts';
 import { getMonthGeneralByJieqi, getMoonPhase } from '../../src/core/time-signs';
@@ -38,7 +38,6 @@ import { buildResultPalette, type ResultPalette } from '../../src/theme/result-p
 type Section = 'board' | 'detail';
 const TABS: ResultTab<Section>[] = [{ key: 'board', label: '卦盘' }, { key: 'detail', label: '细批' }];
 const METHOD_SEAL: Record<string, string> = { time: '时间', coin: '摇卦', number: '数字', manual: '手动' };
-const SUBJECT_CHIP: Record<LiuyaoSubject, string> = { male: '男', female: '女', other: '其他' };
 const YAO_POS_CN = ['初', '二', '三', '四', '五', '上'];
 const YAO_TITLE = (pos: number, isYang: boolean) => (pos === 1 || pos === 6
     ? `${YAO_POS_CN[pos - 1]}${isYang ? '九' : '六'}`
@@ -236,12 +235,13 @@ export default function ResultPage() {
             <ResultHero
                 title={result.question?.trim() || result.benGua.fullName}
                 seal={METHOD_SEAL[result.method] || result.method}
-                chip={result.subject ? SUBJECT_CHIP[result.subject] : undefined}
+                chip={result.subject ? LIUYAO_SUBJECT_SHORT[result.subject] : undefined}
                 styles={chrome}
                 art={(
                     <View style={[chrome.heroArt, styles.coins]}>
-                        <YongleCoin face="back" size={76} style={[styles.coin, { right: 54, top: 2, transform: [{ rotate: '-12deg' }] }]} />
-                        <YongleCoin face="front" size={84} style={[styles.coin, { right: 0, top: 34, transform: [{ rotate: '16deg' }] }]} />
+                        <YongleCoin face="front" size={70} style={[styles.coin, { left: 0, top: 34, transform: [{ rotate: '-14deg' }] }]} />
+                        <YongleCoin face="back" size={70} style={[styles.coin, { left: 44, top: 0, transform: [{ rotate: '8deg' }] }]} />
+                        <YongleCoin face="front" size={70} style={[styles.coin, { left: 76, top: 46, transform: [{ rotate: '22deg' }] }]} />
                     </View>
                 )}
                 rows={[
