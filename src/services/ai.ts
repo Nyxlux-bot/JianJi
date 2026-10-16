@@ -39,6 +39,12 @@ import type { AIRequestRuntime } from './ai-provider-types';
 import type { AIExecutionMeta, AISkillVersion } from '../core/ai-execution-meta';
 import { recordDiagnosticLog } from './diagnostics';
 import { formatZiweiToText } from './ziwei-formatter';
+import { isMeihuaResult } from '../db/record-types';
+import { formatMeihuaForAI } from '../features/meihua/ai-serializer';
+import type { MeihuaResult } from '../features/meihua/types';
+
+/** 走 AI 对话的排盘结果（八字合盘另有独立流程）。 */
+export type AIDivinationResult = PanResult | BaziResult | ZiweiRecordResult | MeihuaResult;
 
 const ICHING_MAP = new Map<string, string>();
 (ichingData as any[]).forEach((item) => {
@@ -133,7 +139,7 @@ export interface AIChatMessage {
 }
 
 export interface AIRequestDebugMeta {
-    mode: 'liuyao' | 'bazi' | 'ziwei' | 'baziCompatibility';
+    mode: 'liuyao' | 'bazi' | 'ziwei' | 'baziCompatibility' | 'meihua';
     skills?: AISkillVersion[];
     requestType: 'main' | 'digest' | 'quick_replies';
     workflowStage?: BaziAIWorkflowStage;
@@ -172,11 +178,11 @@ export interface AIRequestOptions {
     onReasoning?: () => void;
 }
 
-function isBaziResult(result: PanResult | BaziResult | ZiweiRecordResult): result is BaziResult {
+function isBaziResult(result: AIDivinationResult): result is BaziResult {
     return Array.isArray((result as BaziResult).fourPillars);
 }
 
-function isZiweiResult(result: PanResult | BaziResult | ZiweiRecordResult): result is ZiweiRecordResult {
+function isZiweiResult(result: AIDivinationResult): result is ZiweiRecordResult {
     const candidate = result as Partial<ZiweiRecordResult>;
     return typeof candidate.id === 'string'
         && typeof candidate.birthLocal === 'string'
@@ -187,7 +193,7 @@ function isZiweiResult(result: PanResult | BaziResult | ZiweiRecordResult): resu
         && typeof candidate.timeIndex === 'number';
 }
 
-function isWorkflowResult(result: PanResult | BaziResult | ZiweiRecordResult): result is BaziResult | ZiweiRecordResult {
+function isWorkflowResult(result: AIDivinationResult): result is BaziResult | ZiweiRecordResult {
     return isBaziResult(result) || isZiweiResult(result);
 }
 
@@ -995,7 +1001,7 @@ export function getZiweiConversationStage(result: ZiweiRecordResult): AIConversa
 }
 
 export function shouldGeneratePostResponseArtifacts(
-    result: PanResult | BaziResult | ZiweiRecordResult,
+    result: AIDivinationResult,
     stageOrPhase: BaziAIConversationStage | 'initial' | 'followup',
 ): boolean {
     if (!isWorkflowResult(result)) {
@@ -1003,6 +1009,25 @@ export function shouldGeneratePostResponseArtifacts(
     }
 
     return stageOrPhase === 'followup_ready' || stageOrPhase === 'followup';
+}
+
+// 梅花与六爻同为单次解读加追问，沿用同一个隐藏完成标记
+function buildMeihuaSystemMessage(result: MeihuaResult): AIChatMessage {
+    return {
+        role: 'system',
+        content: `${composeSkillInstructions('meihua', 'initial', { completionMarker: LIUYAO_COMPLETION_MARKER })}\n\n【本轮起卦数据】\n${formatMeihuaForAI(result)}`,
+    };
+}
+
+export function getLocalMeihuaQuickReplies(result: MeihuaResult): string[] {
+    const question = result.question || '';
+    if (/婚|感情|复合|对象|恋|姻缘/u.test(question)) {
+        return ['这段关系的转折在哪', '对方的态度会变吗', '何时适合推进关系'];
+    }
+    if (/财|钱|投资|生意|工作|事业|项目|面试|考/u.test(question)) {
+        return ['过程中最大的阻碍是什么', '何时最容易有结果', '现在该主动还是等待'];
+    }
+    return ['体用关系对我意味着什么', '事情中途会有什么变化', '大概什么时候有结果'];
 }
 
 export async function buildSystemMessage(result: PanResult): Promise<AIChatMessage> {
@@ -1178,7 +1203,7 @@ export function ensureUserFirst(messages: AIChatMessage[]): AIChatMessage[] {
 }
 
 export async function buildRequestBundle(
-    result: PanResult | BaziResult | ZiweiRecordResult,
+    result: AIDivinationResult,
     chatHistory: PersistedAIChatMessage[],
     formatterContext?: BaziFormatterContext | ZiweiFormatterContext,
     requestContext: AIRequestBuildContext = {},
@@ -1193,11 +1218,33 @@ export async function buildRequestBundle(
 }
 
 async function buildRawRequestBundle(
-    result: PanResult | BaziResult | ZiweiRecordResult,
+    result: AIDivinationResult,
     chatHistory: PersistedAIChatMessage[],
     formatterContext?: BaziFormatterContext | ZiweiFormatterContext,
     requestContext: AIRequestBuildContext = {},
 ): Promise<AIRequestBundle> {
+    if (isMeihuaResult(result)) {
+        const isFollowup = requestContext.workflowStage === 'followup';
+        const stage = isFollowup ? 'followup' as const : 'initial' as const;
+        const messages = [
+            buildMeihuaSystemMessage(result),
+            { role: 'system' as const, content: renderSkillRequest('meihua', stage) },
+            ...toApiMessages(chatHistory),
+        ];
+        return {
+            messages,
+            debugMeta: {
+                mode: 'meihua',
+                requestType: 'main',
+                skills: getSkillVersions('meihua', stage),
+                usedDynamicEvidencePack: false,
+                usedDigest: false,
+                systemCharCount: messages[0].content.length,
+                messageCount: messages.length,
+            },
+        };
+    }
+
     if (!isBaziResult(result) && !isZiweiResult(result)) {
         const isFollowup = requestContext.workflowStage === 'followup';
         const stage = isFollowup ? 'followup' as const : 'initial' as const;
@@ -1297,7 +1344,7 @@ async function buildRawRequestBundle(
 }
 
 export async function buildRequestMessages(
-    result: PanResult | BaziResult | ZiweiRecordResult,
+    result: AIDivinationResult,
     chatHistory: PersistedAIChatMessage[],
     formatterContext?: BaziFormatterContext | ZiweiFormatterContext,
     requestContext: AIRequestBuildContext = {},
@@ -1509,7 +1556,7 @@ export async function generateZiweiConversationDigest(
 }
 
 export async function generateQuickReplies(
-    result: PanResult | BaziResult | ZiweiRecordResult,
+    result: AIDivinationResult,
     chatHistory: PersistedAIChatMessage[],
     runtime: AIRequestRuntime,
     signal?: AbortSignal,
@@ -1603,26 +1650,34 @@ export async function generateQuickReplies(
         return outcome;
     }
 
+    // 六爻与梅花共用 JSON 快捷追问流程，只换技能、资料和本地兜底
+    const meihua = isMeihuaResult(result);
+    const engine = meihua ? 'meihua' as const : 'liuyao' as const;
+    const stageName = `${engine}_quick_replies`;
+    const fallback = () => (meihua ? getLocalMeihuaQuickReplies(result) : getLocalLiuyaoQuickReplies(result));
     if (!result.question) {
-        return { value: getLocalLiuyaoQuickReplies(result) };
+        return { value: fallback() };
     }
 
-    const systemMsg: AIChatMessage = { role: 'system', content: composeSkillInstructions('liuyao', 'quick_replies') + '\n' + formatPanForAI(result) };
+    const systemMsg: AIChatMessage = {
+        role: 'system',
+        content: composeSkillInstructions(engine, 'quick_replies') + '\n' + (meihua ? formatMeihuaForAI(result) : formatPanForAI(result)),
+    };
     const instruction: AIChatMessage = {
         role: 'user',
-        content: renderSkillRequest('liuyao', 'quick_replies', { question: result.question, outputContract: JSON.stringify(LIUYAO_QUICK_REPLIES_OUTPUT) }),
+        content: renderSkillRequest(engine, 'quick_replies', { question: result.question, outputContract: JSON.stringify(LIUYAO_QUICK_REPLIES_OUTPUT) }),
     };
 
     const content = await requestChatCompletion(
         [systemMsg, ...toApiMessages(chatHistory), instruction],
-        { runtime, signal, stage: 'liuyao_quick_replies' },
+        { runtime, signal, stage: stageName },
     );
     if (!content.success || !content.content) {
         const outcome = {
-            value: getLocalLiuyaoQuickReplies(result),
+            value: fallback(),
             failure: content.failure ? { ...content.failure, usedFallback: true } : undefined,
         };
-        logAIFailure('liuyao_quick_replies', outcome.failure);
+        logAIFailure(stageName, outcome.failure);
         return outcome;
     }
 
@@ -1630,13 +1685,13 @@ export async function generateQuickReplies(
     const outcome = {
         value: parsed && Array.isArray(parsed.quickReplies)
             ? parsed.quickReplies.filter((item): item is string => typeof item === 'string')
-            : getLocalLiuyaoQuickReplies(result),
+            : fallback(),
         failure: parsed && Array.isArray(parsed.quickReplies)
             ? undefined
-            : createAIFailure('invalid_response', 'liuyao_quick_replies', '六爻快捷追问返回格式无效', { usedFallback: true }),
+            : createAIFailure('invalid_response', stageName, `${meihua ? '梅花' : '六爻'}快捷追问返回格式无效`, { usedFallback: true }),
     };
     if (outcome.failure) {
-        logAIFailure('liuyao_quick_replies', outcome.failure);
+        logAIFailure(stageName, outcome.failure);
     }
     return outcome;
 }

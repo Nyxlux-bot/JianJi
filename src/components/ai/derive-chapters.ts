@@ -4,7 +4,12 @@ import type { BaziAIWorkflowStage, PersistedAIChatMessage } from '../../core/ai-
  * Groups a conversation into the chapters (卷) the AI page shows. Pure: the
  * page passes its messages and job state and renders what comes back.
  */
-export type AIPageEngine = 'liuyao' | 'bazi' | 'ziwei' | 'baziCompatibility';
+export type AIPageEngine = 'liuyao' | 'bazi' | 'ziwei' | 'baziCompatibility' | 'meihua';
+
+/** 六爻、梅花：一次卦象解读加追问，不走分阶段工作流。 */
+export function isReadingEngine(engine: AIPageEngine): boolean {
+    return engine === 'liuyao' || engine === 'meihua';
+}
 export type ChapterId = 'foundation' | 'verification' | 'five_year' | 'followup' | 'compat' | 'liuyao';
 export type ChapterStatus = 'todo' | 'running' | 'done' | 'failed';
 
@@ -52,7 +57,7 @@ const NUMERALS = ['一', '二', '三', '四'];
 
 export function getChapterOrder(engine: AIPageEngine): ChapterId[] {
     if (engine === 'baziCompatibility') return ['compat'];
-    if (engine === 'liuyao') return ['liuyao', 'followup'];
+    if (isReadingEngine(engine)) return ['liuyao', 'followup'];
     return ['foundation', 'verification', 'five_year', 'followup'];
 }
 
@@ -67,7 +72,7 @@ function chapterOfStage(engine: AIPageEngine, stage: ChapterItem['stage']): Chap
 /** Chapter a running or failed job writes into. */
 export function getJobChapter(engine: AIPageEngine, job: Pick<ChapterJobInfo, 'expectedCompletion' | 'phase'>): ChapterId {
     if (engine === 'baziCompatibility') return 'compat';
-    if (engine === 'liuyao') return job.phase === 'initial' ? 'liuyao' : 'followup';
+    if (isReadingEngine(engine)) return job.phase === 'initial' ? 'liuyao' : 'followup';
     const stage = job.expectedCompletion;
     if (stage === 'foundation' || stage === 'kinship' || stage === 'kinship_review') return 'foundation';
     if (stage === 'verification' || stage === 'five_year') return stage;
@@ -86,7 +91,7 @@ function assignStages<M extends ChapterMessage>(engine: AIPageEngine, messages: 
     let assistantCount = 0;
     let lastUserStage: BaziAIWorkflowStage | undefined;
     return messages.map((message) => {
-        if (engine === 'liuyao') {
+        if (isReadingEngine(engine)) {
             if (message.role === 'assistant') assistantCount += 1;
             return message.role === 'assistant' ? (assistantCount === 1 ? 'liuyao' : 'followup') : (assistantCount === 0 ? 'liuyao' : 'followup');
         }

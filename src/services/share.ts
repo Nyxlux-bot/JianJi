@@ -9,7 +9,10 @@ import {
 import { PanResult } from '../core/liuyao-calc';
 import { getLiuyaoSubjectLabel } from '../core/liuyao-data';
 import { ZiweiRecordResult } from '../features/ziwei/record';
-import { formatPanForAI } from './ai';
+import { formatPanForAI, type AIDivinationResult } from './ai';
+import { isMeihuaResult } from '../db/record-types';
+import { formatMeihuaForAI } from '../features/meihua/ai-serializer';
+import { MEIHUA_METHOD_LABEL, type MeihuaResult } from '../features/meihua/types';
 import { formatBaziToText } from './bazi-formatter';
 
 const METHOD_LABEL: Record<string, string> = {
@@ -40,11 +43,11 @@ async function shareMarkdownFile(fileName: string, markdown: string): Promise<vo
     });
 }
 
-function isBaziResult(result: PanResult | BaziResult | ZiweiRecordResult): result is BaziResult {
+function isBaziResult(result: AIDivinationResult): result is BaziResult {
     return Array.isArray((result as BaziResult).fourPillars);
 }
 
-function isZiweiResult(result: PanResult | BaziResult | ZiweiRecordResult): result is ZiweiRecordResult {
+function isZiweiResult(result: AIDivinationResult): result is ZiweiRecordResult {
     const candidate = result as Partial<ZiweiRecordResult>;
     return typeof candidate.birthLocal === 'string'
         && typeof candidate.trueSolarDateTimeLocal === 'string'
@@ -53,7 +56,7 @@ function isZiweiResult(result: PanResult | BaziResult | ZiweiRecordResult): resu
         && typeof candidate.body === 'string';
 }
 
-function pickLastAssistant(result: PanResult): string {
+function pickLastAssistant(result: Pick<PanResult, 'aiChatHistory' | 'aiAnalysis'>): string {
     const chat = result.aiChatHistory || [];
     for (let i = chat.length - 1; i >= 0; i -= 1) {
         if (chat[i].role === 'assistant' && chat[i].content.trim()) {
@@ -128,6 +131,15 @@ export async function shareResultMarkdown(result: PanResult): Promise<void> {
     await shareMarkdownFile(fileName, markdown);
 }
 
+export async function shareMeihuaResultMarkdown(result: MeihuaResult): Promise<void> {
+    const aiConclusion = pickLastAssistant(result);
+    const lines = [`# 梅花起卦结果：${result.ben.fullName}`, '', '## 完整起卦资料', '', formatMeihuaForAI(result)];
+    if (aiConclusion) {
+        lines.push('', '## AI 分析结论', aiConclusion);
+    }
+    await shareMarkdownFile(`meihua_result_${sanitizeName(result.ben.fullName)}_${Date.now()}.md`, lines.join('\n'));
+}
+
 export function buildBaziResultMarkdown(
     result: BaziResult,
     ganZhiRelationSettings: GanZhiRelationSettings = DEFAULT_GAN_ZHI_RELATION_SETTINGS,
@@ -165,7 +177,7 @@ export async function shareBaziResultMarkdown(
     await shareMarkdownFile(fileName, markdown);
 }
 
-export async function shareChatMarkdown(result: PanResult | BaziResult | ZiweiRecordResult, messages: PersistedAIChatMessage[]): Promise<void> {
+export async function shareChatMarkdown(result: AIDivinationResult, messages: PersistedAIChatMessage[]): Promise<void> {
     const lines: string[] = [];
 
     if (isBaziResult(result)) {
@@ -181,6 +193,13 @@ export async function shareChatMarkdown(result: PanResult | BaziResult | ZiweiRe
         lines.push(`- 性别：${result.gender === 'male' ? '男命' : '女命'}`);
         lines.push(`- 命盘：${result.fiveElementsClass} · 命主${result.soul} / 身主${result.body}`);
         lines.push(`- 真太阳时：${result.trueSolarDateTimeLocal.replace('T', ' ')}`);
+        lines.push(`- 导出时间：${new Date().toISOString()}`);
+    } else if (isMeihuaResult(result)) {
+        lines.push(`# AI 会话导出：${result.ben.fullName}`);
+        lines.push('');
+        lines.push(`- 起卦方式：梅花易数 · ${MEIHUA_METHOD_LABEL[result.method]}`);
+        lines.push(`- 本卦 / 互卦 / 变卦：${result.ben.fullName} / ${result.hu.fullName} / ${result.bian.fullName}`);
+        lines.push(`- 占问事项：${result.question || '未填写'}`);
         lines.push(`- 导出时间：${new Date().toISOString()}`);
     } else {
         lines.push(`# AI 会话导出：${result.benGua.fullName}`);
@@ -209,6 +228,8 @@ export async function shareChatMarkdown(result: PanResult | BaziResult | ZiweiRe
         ? `bazi_chat_${sanitizeName(result.subject.name?.trim() || result.fourPillars.join('_'))}_${Date.now()}.md`
         : isZiweiResult(result)
             ? `ziwei_chat_${sanitizeName(result.name?.trim() || result.fiveElementsClass)}_${Date.now()}.md`
-        : `liuyao_chat_${sanitizeName(result.benGua.fullName)}_${Date.now()}.md`;
+            : isMeihuaResult(result)
+                ? `meihua_chat_${sanitizeName(result.ben.fullName)}_${Date.now()}.md`
+                : `liuyao_chat_${sanitizeName(result.benGua.fullName)}_${Date.now()}.md`;
     await shareMarkdownFile(fileName, lines.join('\n'));
 }

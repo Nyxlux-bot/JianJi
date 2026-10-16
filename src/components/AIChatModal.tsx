@@ -53,7 +53,9 @@ import {
     getZiweiFoundationPrompt,
     getLocalZiweiFoundationActionLabel,
     getLocalZiweiVerificationActions,
+    type AIDivinationResult,
 } from '../services/ai';
+import { isMeihuaResult } from '../db/record-types';
 import {
     AIAnalysisJobState,
     cancelAIAnalysisJob,
@@ -88,7 +90,7 @@ import { getZiweiNatalOverview, getZiweiYearOverviews } from '../features/ziwei/
 import { getBaziNatalEnergy, getBaziYearEnergy, getBaziYearInfo } from '../core/bazi-year-overview';
 import { setVerificationMark } from '../services/ai-verification-marks';
 import type { AIVerificationMark } from '../core/ai-verification-marks';
-import { deriveChapters, getJobChapter, type AIPageEngine, type ChapterId } from './ai/derive-chapters';
+import { deriveChapters, getJobChapter, isReadingEngine, type AIPageEngine, type ChapterId } from './ai/derive-chapters';
 import { AIChapterCard, type ChapterYearMeta } from './ai/AIChapterCard';
 import {
     ActionButton, AIComposer, AIModelChip, AIStageStepper, BaziChartSummary, CompatChartSummary, EnergyPanel,
@@ -107,7 +109,7 @@ interface AIChatModalProps {
     ziweiContext?: ZiweiFormatterContext;
 }
 
-type AIPageResult = PanResult | BaziResult | ZiweiRecordResult | BaziCompatibilityResult;
+type AIPageResult = AIDivinationResult | BaziCompatibilityResult;
 
 interface UIChatMessage extends PersistedAIChatMessage {
     uiId: string;
@@ -128,6 +130,7 @@ function getInitialPrompt(mode: AIPageEngine): string {
     if (mode === 'bazi') return getBaziFoundationPrompt();
     if (mode === 'ziwei') return getZiweiFoundationPrompt();
     if (mode === 'baziCompatibility') return '请进行八字合盘详批';
+    if (mode === 'meihua') return '请按体用生克帮我全面分析此卦！';
     return '请帮我全面分析一下此卦！';
 }
 
@@ -245,6 +248,10 @@ function buildHeaderMeta(result: AIPageResult): { title: string; subtitle: strin
         };
     }
 
+    if (isMeihuaResult(result)) {
+        return { title: result.ben.fullName, subtitle: result.bian.fullName };
+    }
+
     return {
         title: result.benGua.fullName,
         subtitle: result.bianGua?.fullName || '无变卦',
@@ -281,6 +288,8 @@ function buildZiweiStaleNotice(isStale: boolean): { title: string; body: string 
 function buildAnalysisJobPendingMessage(job: AIAnalysisJobState): UIChatMessage | null {
     const subject = job.engineType === 'liuyao'
         ? '六爻分析'
+        : job.engineType === 'meihua'
+            ? '梅花分析'
         : job.engineType === 'bazi'
             ? '八字分析'
             : '紫微分析';
@@ -408,7 +417,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     const [analysisJob, setAnalysisJob] = useState<AIAnalysisJobState | null>(null);
     const workflowMode: AIPageEngine = isBaziResult(result)
         ? 'bazi'
-        : isZiweiResult(result) ? 'ziwei' : isCompatResult(result) ? 'baziCompatibility' : 'liuyao';
+        : isZiweiResult(result) ? 'ziwei' : isCompatResult(result) ? 'baziCompatibility' : isMeihuaResult(result) ? 'meihua' : 'liuyao';
     const stagedMode = workflowMode === 'bazi' || workflowMode === 'ziwei';
     const kinshipWorkflow = isBaziResult(result) && getBaziWorkflowVersion(result) === 2;
     const kinshipState = isBaziResult(result) ? getCurrentKinshipVerification(result) : undefined;
@@ -597,7 +606,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             aiConfigSignature?: string | null;
             aiInvalidatedAt?: string | null;
         } = {},
-    ): Promise<PanResult | BaziResult | ZiweiRecordResult> => {
+    ): Promise<AIDivinationResult> => {
         const persistedMessages = toPersistedMessages(nextMessages);
         const baseResult = latestResultRef.current;
         if (isCompatResult(baseResult)) throw new Error('合盘详批没有分阶段会话');
@@ -616,7 +625,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
 
         if (!isBaziResult(baseResult) && overrides.aiConversationStage === 'kinship_ready') throw new Error('六亲阶段仅用于八字会话');
         const commonStage = overrides.aiConversationStage === 'kinship_ready' ? undefined : overrides.aiConversationStage;
-        const updatedResult: PanResult | BaziResult | ZiweiRecordResult = isBaziResult(baseResult)
+        const updatedResult: AIDivinationResult = isBaziResult(baseResult)
             ? {
                 ...baseResult,
                 aiWorkflowVersion: overrides.aiWorkflowVersion ?? baseResult.aiWorkflowVersion,
@@ -658,7 +667,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                 };
 
         await saveRecord({
-            engineType: isBaziResult(updatedResult) ? 'bazi' : (isZiweiResult(updatedResult) ? 'ziwei' : 'liuyao'),
+            engineType: isBaziResult(updatedResult) ? 'bazi' : isZiweiResult(updatedResult) ? 'ziwei' : isMeihuaResult(updatedResult) ? 'meihua' : 'liuyao',
             result: updatedResult,
         });
 
@@ -777,7 +786,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                 getInitialPrompt(workflowMode),
                 {
                     isAutoInitial: true,
-                    hiddenUser: workflowMode !== 'liuyao',
+                    hiddenUser: !isReadingEngine(workflowMode),
                     expectedCompletion: stagedMode ? 'foundation' : undefined,
                     nextWorkflowStage: stagedMode ? 'foundation_ready' : undefined,
                 },
@@ -1134,7 +1143,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             }
 
             // 类型断言：已排除 baziCompatibility
-            const typedResult = clearedResult as PanResult | BaziResult | ZiweiRecordResult;
+            const typedResult = clearedResult as AIDivinationResult;
 
             // 5. 更新 ref 和父组件状态
             latestResultRef.current = typedResult;
@@ -1567,7 +1576,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                                     <BackIcon size={24} color={Colors.text.primary} />
                                 </TouchableOpacity>
                                 <View style={pageStyles.headerTitleWrap}>
-                                    {workflowMode === 'liuyao' ? (
+                                    {isReadingEngine(workflowMode) ? (
                                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                                             <Text style={pageStyles.headerTitle} numberOfLines={1}>{headerMeta.title}</Text>
                                             <GuaArrowIcon size={14} color={Colors.accent.gold} />
@@ -1638,7 +1647,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                                             {footer ?? (
                                                 <ActionButton label="开始分析" primary styles={pageStyles} onPress={() => {
                                                     void handleSend(getInitialPrompt(workflowMode), {
-                                                        isAutoInitial: true, hiddenUser: workflowMode !== 'liuyao', baseMessagesOverride: [],
+                                                        isAutoInitial: true, hiddenUser: !isReadingEngine(workflowMode), baseMessagesOverride: [],
                                                         expectedCompletion: stagedMode ? 'foundation' : undefined,
                                                         nextWorkflowStage: stagedMode ? 'foundation_ready' : undefined,
                                                     });
