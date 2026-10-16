@@ -88,8 +88,10 @@ export default function MeihuaInputPage() {
         const trigram = getTrigram(index);
         return (
             <View style={styles.trigramCell}>
-                <WuXingIcon element={trigram.wuxing} size={16} />
-                <Text style={[styles.trigramText, { color: palette.element[trigram.wuxing] }]}>{trigram.name}</Text>
+                <View>
+                    <WuXingIcon element={trigram.wuxing} size={16} style={[styles.hangIcon, { top: 7 }]} />
+                    <Text style={[styles.trigramText, { color: palette.element[trigram.wuxing] }]}>{trigram.name}</Text>
+                </View>
             </View>
         );
     };
@@ -100,8 +102,10 @@ export default function MeihuaInputPage() {
         if (!element) return <Text key={key} style={styles.cellText}>{source}</Text>;
         return (
             <View key={key} style={styles.trigramCell}>
-                <WuXingIcon element={element} size={14} />
-                <Text style={[styles.sourceText, { color: palette.element[element] }]}>{source}</Text>
+                <View>
+                    <WuXingIcon element={element} size={14} style={[styles.hangIcon, { top: 5 }]} />
+                    <Text style={[styles.sourceText, { color: palette.element[element] }]}>{source}</Text>
+                </View>
             </View>
         );
     };
@@ -337,7 +341,7 @@ function makeStyles(palette: ResultPalette, Colors: any) {
             backgroundColor: palette.card,
         },
         numberLabel: { fontSize: 12, color: palette.muted },
-        numberInput: { flex: 1, height: '100%', textAlign: 'right', fontSize: 17, fontWeight: '700', color: palette.heading },
+        numberInput: { flex: 1, minWidth: 0, height: '100%', textAlign: 'right', fontSize: 17, fontWeight: '700', color: palette.heading },
         subject: { marginBottom: 0 },
         singleLine: {
             height: 46,
@@ -382,7 +386,9 @@ function makeStyles(palette: ResultPalette, Colors: any) {
         colHead: { flex: 1, textAlign: 'center', fontSize: 12, lineHeight: 17, color: palette.muted },
         cellText: { flex: 1, textAlign: 'center', fontSize: 14, lineHeight: 24, color: palette.body },
         bigValue: { flex: 1, textAlign: 'center', fontSize: 22, lineHeight: 30, fontWeight: '700' },
-        trigramCell: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 },
+        trigramCell: { flex: 1, alignItems: 'center' },
+        // 图标挂在字左侧，字本身居中，和表头、算式对齐
+        hangIcon: { position: 'absolute', right: '100%', marginRight: 4 },
         trigramText: { fontSize: 22, lineHeight: 30, fontWeight: '700' },
         sourceText: { fontSize: 14, lineHeight: 24, fontWeight: '600' },
         formula: { flex: 1, textAlign: 'center', fontSize: 11.5, lineHeight: 16, color: palette.muted, fontVariant: ['tabular-nums'] },
