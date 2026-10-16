@@ -19,6 +19,7 @@ import HexagramDisplay from '../../src/components/HexagramDisplay';
 import FourPillars from '../../src/components/FourPillars';
 import { PanResult } from '../../src/core/liuyao-calc';
 import { getLiuyaoSubjectLabel } from '../../src/core/liuyao-data';
+import { getGanZhiColor } from '../../src/features/bazi/wuxing';
 import { getRecord, deleteRecord, getAllRecords, toggleFavorite } from '../../src/db/database';
 import { isAIConfigured } from '../../src/services/settings';
 import { useTheme } from "../../src/theme/ThemeContext";
@@ -257,8 +258,12 @@ export default function ResultPage() {
                                         </View>
                                     </View>
                                     <Text style={styles.movingDesc}>
-                                        {yao.liuShen} · {yao.liuQin}{yao.zhi}
-                                        {yao.bianZhi ? ` → ${yao.bianLiuQin}${yao.bianZhi}` : ''}
+                                        {yao.liuShen} · {yao.liuQin}
+                                        <Text style={{ color: getGanZhiColor(yao.zhi, Colors, Colors.text.secondary) }}>{yao.zhi}</Text>
+                                        {yao.bianZhi ? <>
+                                            {` → ${yao.bianLiuQin}`}
+                                            <Text style={{ color: getGanZhiColor(yao.bianZhi, Colors, Colors.text.secondary) }}>{yao.bianZhi}</Text>
+                                        </> : null}
                                     </Text>
                                 </View>
                             );
