@@ -40,13 +40,3 @@ export function resolveWuXingElement(text: string | null | undefined): WuXingEle
 export function getGanZhiElement(char: string): WuXingElement | null {
     return GAN_ZHI_ELEMENT[char] ?? null;
 }
-
-const ELEMENT_TOKEN: Record<WuXingElement, string> = {
-    木: 'elementWood', 火: 'elementFire', 土: 'elementEarth', 金: 'elementMetal', 水: 'elementWater',
-};
-
-/** 干支字取主题五行色（Colors.bazi.element*），非干支字返回 fallback */
-export function getGanZhiColor(char: string, Colors: { bazi: Record<string, any> }, fallback: string): string {
-    const element = GAN_ZHI_ELEMENT[char];
-    return element ? Colors.bazi[ELEMENT_TOKEN[element]] : fallback;
-}

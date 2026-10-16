@@ -43,10 +43,10 @@ const baseColors = {
   liushen: {
     qinglong: '#5C9A7B',     // 青龙（翠绿）
     zhuque: '#C64D3E',       // 朱雀（朱红）
-    gouchen: '#CFB53B',      // 勾陈（金）
-    tengshe: '#8C857B',      // 螣蛇（冷褐）
-    baihu: '#D0D0D0',        // 白虎（银白）
-    xuanwu: '#486C8C',       // 玄武（深灰蓝）
+    gouchen: '#D9A441',      // 勾陈（土黄，同剪纸图标）
+    tengshe: '#C07F45',      // 螣蛇（赭色）
+    baihu: '#E9E1C9',        // 白虎（象牙白）
+    xuanwu: '#9DB3CF',       // 玄武（提亮青灰，暗底可读）
   },
 
   // 边框
