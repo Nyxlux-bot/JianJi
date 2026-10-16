@@ -50,5 +50,6 @@ export function composeSkillInstructions(engine: AISkillEngine, stage: AISkillSt
         parts.push(SKILL_REFERENCES.baziEvidenceFormat, methods);
     }
     if (engine === 'liuyao' && variables.completionMarker !== undefined) parts.push(render(SKILL_REFERENCES.liuyaoCompletion, variables));
+    if (engine === 'meihua' && variables.completionMarker !== undefined) parts.push(render(SKILL_REFERENCES.meihuaCompletion, variables));
     return parts.filter(Boolean).join('\n\n');
 }

@@ -29,8 +29,13 @@ import ziweiDigest from './skills/ziwei/references/digest.md';
 import ziweiQuick from './skills/ziwei/references/quick_replies.md';
 import compatibility from './skills/bazi-compatibility/SKILL.md';
 import compatibilityInitial from './skills/bazi-compatibility/references/initial.md';
+import meihua from './skills/meihua/SKILL.md';
+import meihuaInitial from './skills/meihua/references/initial.md';
+import meihuaFollowup from './skills/meihua/references/followup.md';
+import meihuaCompletion from './skills/meihua/references/completion.md';
+import meihuaQuick from './skills/meihua/references/quick_replies.md';
 
-export type AISkillEngine = 'liuyao' | 'bazi' | 'ziwei' | 'baziCompatibility';
+export type AISkillEngine = 'liuyao' | 'bazi' | 'ziwei' | 'baziCompatibility' | 'meihua';
 export type AISkillStage = 'initial' | 'foundation' | 'kinship' | 'kinship_review' | 'verification' | 'five_year' | 'followup' | 'digest' | 'quick_replies' | 'retry';
 export interface AISkillDefinition {
     id: string;
@@ -47,5 +52,6 @@ export const AI_SKILLS: Record<AISkillEngine, AISkillDefinition> = {
     ziwei: { id: 'jianji-ziwei', version: 6, instructions: ziwei, system: ziweiSystem,
         requests: { foundation: ziweiFoundation, verification: ziweiVerification, five_year: ziweiFiveYear, followup: ziweiFollowup, digest: ziweiDigest, quick_replies: ziweiQuick } },
     baziCompatibility: { id: 'jianji-bazi-compatibility', version: 4, instructions: compatibility, requests: { initial: compatibilityInitial } },
+    meihua: { id: 'jianji-meihua', version: 1, instructions: meihua, requests: { initial: meihuaInitial, followup: meihuaFollowup, quick_replies: meihuaQuick } },
 };
-export const SKILL_REFERENCES = { liuyaoCompletion, baziKinshipBoundary, baziKinshipMethods, baziEvidenceFormat, baziEvidenceMethods };
+export const SKILL_REFERENCES = { liuyaoCompletion, meihuaCompletion, baziKinshipBoundary, baziKinshipMethods, baziEvidenceFormat, baziEvidenceMethods };

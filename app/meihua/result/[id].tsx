@@ -18,6 +18,9 @@ import { buildResultPalette, type ResultPalette } from '../../../src/theme/resul
 import { Spacing } from '../../../src/theme/colors';
 import { deleteRecord, getAllRecords, getRecord, toggleFavorite } from '../../../src/db/database';
 import { clearAIAnalysisJob } from '../../../src/services/ai-analysis-jobs';
+import { isAIConfigured } from '../../../src/services/settings';
+import { shareMeihuaResultMarkdown } from '../../../src/services/share';
+import AIChatModal from '../../../src/components/AIChatModal';
 import { getLinePositionName, getTiYong, getTrigram } from '../../../src/features/meihua/engine';
 import { analyzeMeihua, type MeihuaRelation, type MeihuaTone, type MeihuaTrigramRelation } from '../../../src/features/meihua/rules';
 import { getHexagramText, getLineText } from '../../../src/features/meihua/texts';
@@ -54,6 +57,8 @@ export default function MeihuaResultPage() {
     const [view, setView] = useState<View_>('gua');
     const [menuVisible, setMenuVisible] = useState(false);
     const [deleteVisible, setDeleteVisible] = useState(false);
+    const [aiConfigured, setAiConfigured] = useState(false);
+    const [aiVisible, setAiVisible] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -72,6 +77,8 @@ export default function MeihuaResultPage() {
             setResult(detail.result);
             setIsFavorite(Boolean(summaries.find((item) => item.id === id)?.isFavorite));
             setScreenState('ready');
+            const configured = await isAIConfigured();
+            if (!cancelled) setAiConfigured(configured);
         })();
         return () => {
             cancelled = true;
@@ -80,7 +87,28 @@ export default function MeihuaResultPage() {
 
     const analysis = useMemo(() => (result ? analyzeMeihua(result) : null), [result]);
 
+    const handleOpenAI = () => {
+        if (!aiConfigured) {
+            CustomAlert.alert('未配置AI', '请先在设置中配置 AI 接口地址和 API Key', [
+                { text: '去设置', onPress: () => router.push('/settings') },
+                { text: '取消', style: 'cancel' },
+            ]);
+            return;
+        }
+        setAiVisible(true);
+    };
+
     const menuItems: OverflowMenuItem[] = [
+        {
+            key: 'share', label: '导出分享', onPress: async () => {
+                if (!result) return;
+                try {
+                    await shareMeihuaResultMarkdown(result);
+                } catch (error: any) {
+                    CustomAlert.alert('分享失败', typeof error?.message === 'string' ? error.message : '导出失败，请稍后重试');
+                }
+            },
+        },
         {
             key: 'favorite', label: isFavorite ? '取消收藏' : '收藏结果', onPress: async () => {
                 if (!id) return;
@@ -151,7 +179,7 @@ export default function MeihuaResultPage() {
             <StatusBarDecor backgroundColor={palette.card} />
             <ResultTopBar
                 tabs={TABS} active={view} onTab={setView}
-                aiLabel="AI 解卦" aiDisabled onAI={() => undefined}
+                aiLabel="AI 解卦" aiDisabled={!aiConfigured} onAI={handleOpenAI}
                 onMore={() => setMenuVisible((prev) => !prev)}
                 styles={chrome} palette={palette}
             />
@@ -299,6 +327,13 @@ export default function MeihuaResultPage() {
                     </>
                 )}
             </ScrollView>
+
+            <AIChatModal
+                visible={aiVisible}
+                onClose={() => setAiVisible(false)}
+                result={result}
+                onUpdateResult={(updated) => setResult(updated as MeihuaResult)}
+            />
 
             <ConfirmModal
                 visible={deleteVisible}

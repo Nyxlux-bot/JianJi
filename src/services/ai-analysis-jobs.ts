@@ -20,12 +20,15 @@ import { buildBaziMatchAIMessages, validateBaziMatchAIContent } from '../feature
 import { getChapterLayoutStats, parseChapter, type ChapterLayoutKind } from '../ai/layout/parse-chapter';
 import { BaziCompatibilityResult } from '../features/bazi/match/types';
 import { ZiweiFormatterContext } from '../features/ziwei/ai-context';
+import { getTiYong, getTrigram } from '../features/meihua/engine';
+import type { MeihuaResult } from '../features/meihua/types';
 import {
     buildZiweiAIConfigSignature,
     ZiweiRecordResult,
 } from '../features/ziwei/record';
 import {
     AIErrorCode,
+    type AIDivinationResult,
     AIRequestDebugMeta,
     AIWorkflowResponseKind,
     analyzeWithAIChatStream,
@@ -35,6 +38,7 @@ import {
     generateZiweiConversationDigest,
     getBaziConversationStage,
     getLocalLiuyaoQuickReplies,
+    getLocalMeihuaQuickReplies,
     getZiweiConversationStage,
     hasLiuyaoCompletionMarker,
     sanitizeBaziStreamingContent,
@@ -269,7 +273,7 @@ function cleanStreamContent(engineType: DivinationEngine, content: string, kind?
     if (engineType === 'baziCompatibility') {
         return stripEmoji(stripThinkingBlocks(content)).trim();
     }
-    if (engineType === 'liuyao') {
+    if (isReadingEngine(engineType)) {
         return sanitizeLiuyaoStreamingContent(content);
     }
     return stripThinkingBlocks(content).trim();
@@ -285,7 +289,7 @@ function cleanFinalContent(engineType: DivinationEngine, content: string, kind?:
     if (engineType === 'baziCompatibility') {
         return stripEmoji(stripThinkingBlocks(content)).trim();
     }
-    if (engineType === 'liuyao') {
+    if (isReadingEngine(engineType)) {
         return stripLiuyaoCompletionMarker(content);
     }
     return stripThinkingBlocks(content).trim();
@@ -353,6 +357,10 @@ function validateContent(
         const validation = validateZiweiWorkflowResponse(request.expectedCompletion, rawContent);
         return { success: validation.success, issues: validation.issues };
     }
+    if (request.engineType === 'meihua') {
+        const validation = validateMeihuaAIContent(request.result as MeihuaResult, rawContent, request.phase);
+        return { success: validation.success, issues: validation.issues, notes: validation.notes };
+    }
     if (request.engineType === 'liuyao') {
         const validation = validateLiuyaoAIContent(request.result as PanResult, rawContent, request.phase);
         return { success: validation.success, issues: validation.issues, notes: validation.notes };
@@ -362,6 +370,43 @@ function validateContent(
         return { success: issues.length === 0, issues };
     }
     return { success: Boolean(cleanContent), issues: cleanContent ? [] : ['正文为空'] };
+}
+
+/** 六爻、梅花：单次解读加追问，共用完成标记与快捷追问流程。 */
+function isReadingEngine(engineType: DivinationEngine): boolean {
+    return engineType === 'liuyao' || engineType === 'meihua';
+}
+
+function getLocalReadingQuickReplies(engineType: DivinationEngine, result: DivinationResult): string[] {
+    if (engineType === 'meihua') return getLocalMeihuaQuickReplies(result as MeihuaResult);
+    if (engineType === 'liuyao') return getLocalLiuyaoQuickReplies(result as PanResult);
+    return [];
+}
+
+export function validateMeihuaAIContent(
+    result: MeihuaResult,
+    content: string,
+    phase: 'initial' | 'followup' = 'initial',
+): AIAnalysisValidationResult {
+    if (!hasLiuyaoCompletionMarker(content)) {
+        return { success: false, issues: ['流式响应在正文完成前结束（未收到梅花完成标记）'] };
+    }
+    const normalized = stripThinkingBlocks(content).trim();
+    const { ti, yong } = getTiYong(result);
+    const anchors = [result.ben.fullName, result.ben.name, getTrigram(ti).name, getTrigram(yong).name, '体', '用'];
+    if (phase === 'followup') {
+        return { success: true, issues: [], notes: hasAny(normalized, anchors) ? [] : ['未引用体用或卦名'] };
+    }
+    const sections: Array<{ label: string; pattern: RegExp }> = [
+        { label: '体用生克', pattern: /体用|体卦|用卦|生体|克体/u },
+        { label: '卦气旺衰', pattern: /旺|衰|卦气|月令/u },
+        { label: '互卦变卦', pattern: /互卦|变卦/u },
+        { label: '应期', pattern: /应期|时间|月份|日期|时机/u },
+        { label: '趋避建议', pattern: /建议|趋避|行动|风险|提醒/u },
+    ];
+    const notes = sections.filter((item) => !item.pattern.test(normalized)).map((item) => `缺少${item.label}`);
+    if (!hasAny(normalized, [result.ben.fullName, result.ben.name])) notes.push('缺少本卦引用');
+    return { success: true, issues: [], notes };
 }
 
 function hasAny(text: string, values: string[]): boolean {
@@ -576,7 +621,7 @@ async function buildMessagesForRequest(request: AIAnalysisJobRequest, asOf: Date
     const workflowStage = request.expectedCompletion
         ?? (request.phase === 'followup' ? 'followup' : undefined);
     const bundle = await buildRequestBundle(
-        requestResult as PanResult | BaziResult | ZiweiRecordResult,
+        requestResult as AIDivinationResult,
         request.requestMessages,
         formatterContext,
         { workflowStage, asOf },
@@ -591,7 +636,7 @@ async function buildMessagesForRequest(request: AIAnalysisJobRequest, asOf: Date
 
 async function generateArtifacts(
     request: AIAnalysisJobRequest,
-    result: PanResult | BaziResult | ZiweiRecordResult,
+    result: AIDivinationResult,
     finalMessages: PersistedAIChatMessage[],
     nextStage?: BaziAIConversationStage,
     runtime?: AIRequestRuntime,
@@ -601,7 +646,7 @@ async function generateArtifacts(
     digest?: BaziResult['aiConversationDigest'] | ZiweiRecordResult['aiConversationDigest'];
 }> {
     if (!runtime) throw new Error('缺少本次任务的模型配置');
-    const shouldGenerate = request.engineType === 'liuyao'
+    const shouldGenerate = isReadingEngine(request.engineType)
         || shouldGeneratePostResponseArtifacts(result, nextStage ?? request.phase);
     if (!shouldGenerate) {
         return { quickReplies: [] };
@@ -629,7 +674,7 @@ async function generateArtifacts(
             },
         });
         return {
-            quickReplies: request.engineType === 'liuyao' ? getLocalLiuyaoQuickReplies(result as PanResult) : [],
+            quickReplies: getLocalReadingQuickReplies(request.engineType, result),
         };
     }
 
@@ -644,7 +689,7 @@ async function generateArtifacts(
     return {
         quickReplies: quickReplyOutcome.value?.length
             ? quickReplyOutcome.value
-            : (request.engineType === 'liuyao' ? getLocalLiuyaoQuickReplies(result as PanResult) : []),
+            : getLocalReadingQuickReplies(request.engineType, result),
         digest: digestOutcome.value ?? undefined,
     };
 }
@@ -658,9 +703,9 @@ function buildUpdatedResult(
     artifacts: Awaited<ReturnType<typeof generateArtifacts>>,
     kinship?: { response: KinshipResponse; pack: BaziAIEvidencePack; id: string },
 ): DivinationResult | null {
-    if (request.engineType === 'liuyao') {
+    if (isReadingEngine(request.engineType)) {
         return {
-            ...(currentResult as PanResult),
+            ...(currentResult as PanResult | MeihuaResult),
             aiAnalysis: cleanContent,
             aiChatHistory: finalMessages,
             quickReplies: artifacts.quickReplies,
@@ -792,7 +837,7 @@ async function enrichSavedResultWithArtifacts(input: {
         }
         const artifacts = await generateArtifacts(
             request,
-            requestResult as PanResult | BaziResult | ZiweiRecordResult,
+            requestResult as AIDivinationResult,
             finalMessages,
             nextStage,
             runtime, signal,
@@ -919,7 +964,7 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
             const requestOptions = {
                 runtime,
                 skills: executionMeta.skills,
-                stage: request.engineType === 'liuyao' ? request.phase : `${request.engineType}_${request.expectedCompletion ?? request.phase}`,
+                stage: request.engineType === 'liuyao' ? request.phase : request.engineType === 'meihua' ? `meihua_${request.phase}` : `${request.engineType}_${request.expectedCompletion ?? request.phase}`,
                 debugMeta: built.debugMeta,
                 onReasoning: () => {},
             };
@@ -1045,9 +1090,7 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                     ? getZiweiConversationStage(built.requestResult as ZiweiRecordResult)
                     : undefined;
             const nextStage = request.nextWorkflowStage ?? currentStage;
-            const initialArtifacts = request.engineType === 'liuyao'
-                ? { quickReplies: getLocalLiuyaoQuickReplies(built.requestResult as PanResult) }
-                : { quickReplies: [] };
+            const initialArtifacts = { quickReplies: getLocalReadingQuickReplies(request.engineType, built.requestResult) };
             const savingJob = jobStates.get(key);
             if (!savingJob) {
                 return;
@@ -1087,9 +1130,9 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
             });
             await clearPersistedJob(request.engineType, request.result.id);
             if (request.engineType !== 'baziCompatibility'
-                && (request.engineType === 'liuyao'
+                && (isReadingEngine(request.engineType)
                     || shouldGeneratePostResponseArtifacts(
-                        built.requestResult as PanResult | BaziResult | ZiweiRecordResult,
+                        built.requestResult as AIDivinationResult,
                         nextStage ?? request.phase,
                     ))) {
                 void enrichSavedResultWithArtifacts({
