@@ -21,7 +21,7 @@ import ConfirmModal from '../../src/components/ConfirmModal';
 import StatusBarDecor from '../../src/components/StatusBarDecor';
 import { StarIcon, TrashIcon } from '../../src/components/Icons';
 import { deleteRecord, getAllRecords, RecordSummary, toggleFavorite } from '../../src/db/database';
-import { buildZiweiHistoryRestoreRoute } from '../../src/features/ziwei/result-route';
+import { getRecordRoute } from '../../src/utils/record-route';
 import { BorderRadius, FontSize, Spacing } from '../../src/theme/colors';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { clearAIAnalysisJob } from '../../src/services/ai-analysis-jobs';
@@ -317,19 +317,7 @@ export default function HistoryPage() {
     }, [loadRecords]);
 
     const handleOpenRecord = useCallback((id: string, engineType: RecordSummary['engineType']) => {
-        if (engineType === 'bazi') {
-            router.push(`/bazi/result/${id}`);
-            return;
-        }
-        if (engineType === 'baziCompatibility') {
-            router.push(`/bazi/match/result/${id}`);
-            return;
-        }
-        if (engineType === 'ziwei') {
-            router.push(buildZiweiHistoryRestoreRoute(id));
-            return;
-        }
-        router.push(`/result/${id}`);
+        router.push(getRecordRoute(engineType, id));
     }, []);
 
     const filteredRecords = useMemo(
