@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Animated, TouchableWithoutFeedback } from 'reac
 import { PanResult } from '../core/liuyao-calc';
 import { Spacing, FontSize, BorderRadius } from '../theme/colors';
 import { useTheme } from "../theme/ThemeContext";
+import { getGanZhiColor } from '../features/bazi/wuxing';
 
 interface HexagramDisplayProps {
     result: PanResult;
@@ -90,15 +91,17 @@ function HexagramDisplayComponent({ result }: HexagramDisplayProps) {
                                 <View style={styles.fuShenArea}>
                                     {yao.fuShen ? (
                                         <Text style={styles.fuShenText}>
-                                            {yao.fuShen.liuQin}{yao.fuShen.zhi}
+                                            {yao.fuShen.liuQin}
+                                            <Text style={{ color: getGanZhiColor(yao.fuShen.zhi, Colors, Colors.text.tertiary) }}>{yao.fuShen.zhi}</Text>
                                         </Text>
                                     ) : null}
                                 </View>
                                 <Text style={[styles.textBase, { color: liuShenColor, width: 34 }]}>
                                     {yao.liuShen}
                                 </Text>
-                                <Text style={[styles.textBase, { color: yaoColor, width: 44 }]}>
-                                    {yao.liuQin}{yao.zhi}
+                                <Text style={[styles.textBase, { color: yao.isMoving ? Colors.yao.moving : Colors.text.primary, width: 44 }]}>
+                                    {yao.liuQin}
+                                    <Text style={{ color: getGanZhiColor(yao.zhi, Colors, yaoColor) }}>{yao.zhi}</Text>
                                 </Text>
                             </View>
 
@@ -146,8 +149,9 @@ function HexagramDisplayComponent({ result }: HexagramDisplayProps) {
                                 <View style={styles.leftInfoStr}>
                                     <View style={styles.fuShenArea} />
                                     <View style={{ width: 34 }} />
-                                    <Text style={[styles.textBase, { color: yaoColor, width: 44 }]}>
-                                        {yao.liuQin}{yao.zhi}
+                                    <Text style={[styles.textBase, { color: Colors.text.primary, width: 44 }]}>
+                                        {yao.liuQin}
+                                        <Text style={{ color: getGanZhiColor(yao.zhi, Colors, yaoColor) }}>{yao.zhi}</Text>
                                     </Text>
                                 </View>
 

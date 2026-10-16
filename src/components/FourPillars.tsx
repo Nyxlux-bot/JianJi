@@ -9,6 +9,7 @@ import { PanResult } from '../core/liuyao-calc';
 import { getMonthGeneralByJieqi, getMoonPhase } from '../core/time-signs';
 import { Spacing, FontSize, BorderRadius } from '../theme/colors';
 import { useTheme } from "../theme/ThemeContext";
+import { getGanZhiColor } from '../features/bazi/wuxing';
 
 interface FourPillarsProps {
     result: PanResult;
@@ -21,14 +22,19 @@ const PillarItem: React.FC<{
     diZhi: string;
     highlight?: boolean;
     styles: any;
-}> = React.memo(({ label, ganZhi, naYin, diZhi, highlight = false, styles }) => (
+    colors: any;
+}> = React.memo(({ label, ganZhi, naYin, diZhi, highlight = false, styles, colors }) => (
     <View style={styles.pillarItem}>
         <Text style={styles.pillarLabel}>{label}</Text>
         <View style={[
             styles.pillarContent,
             highlight && styles.pillarHighlight,
         ]}>
-            <Text style={styles.pillarGanZhi}>{ganZhi}</Text>
+            <Text style={styles.pillarGanZhi}>
+                {[...ganZhi].map((char, index) => (
+                    <Text key={index} style={{ color: getGanZhiColor(char, colors, colors.text.heading) }}>{char}</Text>
+                ))}
+            </Text>
         </View>
         <Text style={styles.pillarNaYin}>{naYin}</Text>
         <Text style={styles.pillarDiZhi}>{diZhi}</Text>
@@ -66,6 +72,7 @@ const FourPillars: React.FC<FourPillarsProps> = React.memo(({ result }) => {
                     naYin={yearNaYin}
                     diZhi={yearGanZhi.charAt(1)}
                     styles={styles}
+                    colors={Colors}
                 />
                 <PillarItem
                     label="月柱"
@@ -73,6 +80,7 @@ const FourPillars: React.FC<FourPillarsProps> = React.memo(({ result }) => {
                     naYin={monthNaYin}
                     diZhi={monthGanZhi.charAt(1)}
                     styles={styles}
+                    colors={Colors}
                 />
                 <PillarItem
                     label="日柱"
@@ -81,6 +89,7 @@ const FourPillars: React.FC<FourPillarsProps> = React.memo(({ result }) => {
                     diZhi={dayGanZhi.charAt(1)}
                     highlight={true}
                     styles={styles}
+                    colors={Colors}
                 />
                 <PillarItem
                     label="时柱"
@@ -88,6 +97,7 @@ const FourPillars: React.FC<FourPillarsProps> = React.memo(({ result }) => {
                     naYin={hourNaYin}
                     diZhi={hourGanZhi.charAt(1)}
                     styles={styles}
+                    colors={Colors}
                 />
             </View>
 
