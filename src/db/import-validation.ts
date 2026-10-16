@@ -6,11 +6,14 @@ import { PanResult } from '../core/liuyao-calc';
 import { BaziCompatibilityResult } from '../features/bazi/match/types';
 import { ZiweiRecordResult } from '../features/ziwei/record';
 import { ZIWEI_SUPPORTED_TIMEZONE_OFFSET_MINUTES } from '../features/ziwei/runtime-meta';
+import { MeihuaResult } from '../features/meihua/types';
 import {
     DivinationEngine,
     DivinationRecordEnvelope,
+    isDivinationEngine,
     isDivinationMethod,
     isBaziCompatibilityResult,
+    isMeihuaResult,
     isPanResult,
     isZiweiRecordResult,
 } from './record-types';
@@ -94,6 +97,20 @@ function validateBaziCompatibilityRecord(result: unknown, index: number): BaziCo
     return result;
 }
 
+function validateMeihuaRecord(result: unknown, index: number): MeihuaResult {
+    const sanitized = isObject(result) && Array.isArray(result.aiChatHistory)
+        ? {
+            ...result,
+            aiChatHistory: result.aiChatHistory.filter((item) => isPersistedAIChatMessageStruct(item)).map((item) => ({ ...item, executionMeta: sanitizeAIExecutionMeta(item.executionMeta) })),
+        }
+        : result;
+    if (!isMeihuaResult(sanitized)) {
+        throw new Error(`第${index + 1}条记录格式无效：梅花结果结构非法`);
+    }
+    assertCreatedAt(sanitized.createdAt, index);
+    return sanitized;
+}
+
 function normalizeSummary(summary: unknown): DivinationRecordEnvelope['summary'] {
     if (!isObject(summary)) {
         return undefined;
@@ -107,7 +124,7 @@ function normalizeSummary(summary: unknown): DivinationRecordEnvelope['summary']
 }
 
 function assertEngineType(value: unknown, index: number): asserts value is DivinationEngine {
-    if (value !== 'liuyao' && value !== 'bazi' && value !== 'ziwei' && value !== 'baziCompatibility') {
+    if (!isDivinationEngine(value)) {
         throw new Error(`第${index + 1}条记录格式无效：缺少有效 engineType`);
     }
 }
@@ -138,6 +155,14 @@ function normalizeRecord(record: unknown, index: number): DivinationRecordEnvelo
             return {
                 engineType: 'bazi',
                 result,
+                summary: normalizeSummary(record.summary),
+            };
+        }
+
+        if (record.engineType === 'meihua') {
+            return {
+                engineType: 'meihua',
+                result: validateMeihuaRecord(record.result, index),
                 summary: normalizeSummary(record.summary),
             };
         }

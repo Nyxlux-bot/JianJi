@@ -20,12 +20,23 @@ import type {
 import { DivinationMethod, isLiuyaoSubject } from '../core/liuyao-data';
 import { ZiweiRecordResult } from '../features/ziwei/record';
 import { ZIWEI_SUPPORTED_TIMEZONE_OFFSET_MINUTES } from '../features/ziwei/runtime-meta';
+import { MEIHUA_METHOD_LABEL, MeihuaResult } from '../features/meihua/types';
 import { isBaziAnalysisProfile } from '../core/bazi-analysis-profile';
 import { normalizeVerificationMarks } from '../core/ai-verification-marks';
 
-export type DivinationEngine = 'liuyao' | 'bazi' | 'ziwei' | 'baziCompatibility';
+export type DivinationEngine = 'liuyao' | 'bazi' | 'ziwei' | 'baziCompatibility' | 'meihua';
 
-export type DivinationResult = PanResult | BaziResult | ZiweiRecordResult | BaziCompatibilityResult;
+export const DIVINATION_ENGINES: readonly DivinationEngine[] = ['liuyao', 'bazi', 'ziwei', 'baziCompatibility', 'meihua'];
+
+export const DIVINATION_ENGINE_LABEL: Record<DivinationEngine, string> = {
+    liuyao: '六爻', bazi: '八字', ziwei: '紫微', baziCompatibility: '合盘', meihua: '梅花',
+};
+
+export function isDivinationEngine(value: unknown): value is DivinationEngine {
+    return typeof value === 'string' && DIVINATION_ENGINES.includes(value as DivinationEngine);
+}
+
+export type DivinationResult = PanResult | BaziResult | ZiweiRecordResult | BaziCompatibilityResult | MeihuaResult;
 
 const LIUYAO_METHODS: readonly DivinationMethod[] = ['time', 'coin', 'number', 'manual'];
 const WUXING_VALUES = ['木', '火', '土', '金', '水'] as const;
@@ -509,7 +520,40 @@ export function isZiweiRecordResult(value: unknown): value is ZiweiRecordResult 
         );
 }
 
+function isMeihuaHexagram(value: unknown): boolean {
+    return isObject(value)
+        && isFiniteNumber(value.upper)
+        && isFiniteNumber(value.lower)
+        && Array.isArray(value.lines) && value.lines.length === 6
+        && typeof value.fullName === 'string';
+}
+
+export function isMeihuaResult(value: unknown): value is MeihuaResult {
+    if (!isObject(value)) {
+        return false;
+    }
+    const candidate = value as Partial<MeihuaResult>;
+    return candidate.kind === 'meihua'
+        && typeof candidate.id === 'string'
+        && typeof candidate.createdAt === 'string'
+        && (candidate.method === 'meihua_time' || candidate.method === 'meihua_number')
+        && typeof candidate.question === 'string'
+        && isObject(candidate.lunarInfo)
+        && Array.isArray(candidate.numbers)
+        && isFiniteNumber(candidate.movingLine)
+        && isMeihuaHexagram(candidate.ben)
+        && isMeihuaHexagram(candidate.hu)
+        && isMeihuaHexagram(candidate.bian)
+        && (candidate.tiPosition === 'upper' || candidate.tiPosition === 'lower')
+        && (candidate.aiAnalysis === undefined || typeof candidate.aiAnalysis === 'string')
+        && (candidate.aiChatHistory === undefined || isPersistedAIChatHistory(candidate.aiChatHistory))
+        && (candidate.quickReplies === undefined || isStringArray(candidate.quickReplies));
+}
+
 export function inferEngineFromResult(result: unknown): DivinationEngine {
+    if (isMeihuaResult(result)) {
+        return 'meihua';
+    }
     if (isPanResult(result)) {
         return 'liuyao';
     }
@@ -537,6 +581,18 @@ export function buildSummaryFields(envelope: DivinationRecordEnvelope): RecordSu
             question: summary?.question ?? result.question ?? '',
             title: summary?.title || result.benGua.fullName,
             subtitle: summary?.subtitle ?? result.bianGua?.fullName ?? '',
+        };
+    }
+
+    if (engineType === 'meihua') {
+        if (!isMeihuaResult(result)) {
+            throw new Error('梅花记录结构非法');
+        }
+        return {
+            method: summary?.method || result.method,
+            question: summary?.question ?? result.question ?? '',
+            title: summary?.title || result.ben.fullName,
+            subtitle: summary?.subtitle ?? `变 ${result.bian.fullName} · ${MEIHUA_METHOD_LABEL[result.method]}`,
         };
     }
 

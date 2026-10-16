@@ -10,7 +10,7 @@ import {
 import { BorderRadius, FontSize, Spacing } from '../theme/colors';
 import { useTheme } from '../theme/ThemeContext';
 import { DivinationRecordEnvelope, ImportConflictPolicy } from '../db/database';
-import { buildSummaryFields } from '../db/record-types';
+import { buildSummaryFields, DIVINATION_ENGINE_LABEL } from '../db/record-types';
 
 interface ImportPreviewModalProps {
     visible: boolean;
@@ -78,13 +78,7 @@ export default function ImportPreviewModal({
     const renderItem = ({ item }: { item: DivinationRecordEnvelope }) => {
         const checked = selectedIds.has(item.result.id);
         const summary = buildSummaryFields(item);
-        const engineLabel = item.engineType === 'bazi'
-            ? '八字'
-            : item.engineType === 'baziCompatibility'
-                ? '合盘'
-                : item.engineType === 'ziwei'
-                    ? '紫微'
-                    : '六爻';
+        const engineLabel = DIVINATION_ENGINE_LABEL[item.engineType];
         return (
             <TouchableOpacity style={styles.recordRow} onPress={() => toggleRecord(item.result.id)}>
                 <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
