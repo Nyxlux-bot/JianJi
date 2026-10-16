@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 import { BorderRadius, Colors as ThemeColors, FontSize, Spacing } from '../theme/colors';
 import { LIUYAO_SUBJECT_OPTIONS } from '../core/liuyao-data';
 import type { LiuyaoSubject } from '../core/liuyao-data';
@@ -8,19 +8,22 @@ import { useTheme } from '../theme/ThemeContext';
 interface LiuyaoSubjectSelectorProps {
     value: LiuyaoSubject | null;
     onChange: (value: LiuyaoSubject) => void;
+    /** 让标题和外边距跟随所在页面的表单样式 */
+    style?: StyleProp<ViewStyle>;
+    labelStyle?: StyleProp<TextStyle>;
 }
 
 /**
  * 六爻四种起卦方式共用的起卦主体选择器。
  * “其他”刻意覆盖其他性别、非人类物种、物品或其他非人的占问主体。
  */
-export default function LiuyaoSubjectSelector({ value, onChange }: LiuyaoSubjectSelectorProps) {
+export default function LiuyaoSubjectSelector({ value, onChange, style, labelStyle }: LiuyaoSubjectSelectorProps) {
     const { Colors } = useTheme();
     const styles = makeStyles(Colors);
 
     return (
-        <View style={styles.section}>
-            <Text style={styles.sectionLabel}>性别 / 起卦主体</Text>
+        <View style={[styles.section, style]}>
+            <Text style={[styles.sectionLabel, labelStyle]}>性别 / 起卦主体</Text>
             <View style={styles.optionsRow} accessibilityRole="radiogroup">
                 {LIUYAO_SUBJECT_OPTIONS.map((option) => {
                     const selected = value === option.value;

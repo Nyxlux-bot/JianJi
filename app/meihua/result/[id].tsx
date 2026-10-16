@@ -24,6 +24,7 @@ import AIChatModal from '../../../src/components/AIChatModal';
 import { getLinePositionName, getTiYong, getTrigram } from '../../../src/features/meihua/engine';
 import { analyzeMeihua, type MeihuaRelation, type MeihuaTone, type MeihuaTrigramRelation } from '../../../src/features/meihua/rules';
 import { getHexagramText, getLineText } from '../../../src/core/iching-texts';
+import { LIUYAO_SUBJECT_SHORT } from '../../../src/core/liuyao-data';
 import { getTrigramImages, TRIGRAM_IMAGE_SOURCE } from '../../../src/features/meihua/images';
 import type { MeihuaHexagram, MeihuaResult } from '../../../src/features/meihua/types';
 
@@ -188,6 +189,7 @@ export default function MeihuaResultPage() {
             <ResultHero
                 title={result.question || result.ben.fullName}
                 seal={SEAL[result.method]}
+                chip={result.subject ? LIUYAO_SUBJECT_SHORT[result.subject] : undefined}
                 styles={chrome}
                 art={<Image source={PLUM_BRANCH} style={[chrome.heroArt, styles.heroArt]} resizeMode="contain" accessibilityIgnoresInvertColors />}
                 rows={[
@@ -200,6 +202,7 @@ export default function MeihuaResultPage() {
                             </Text>
                         ),
                     },
+                    ...(result.timeRange ? [{ label: '时限', value: result.timeRange }] : []),
                 ]}
             />
 
@@ -324,6 +327,12 @@ export default function MeihuaResultPage() {
                                 ))}
                             </View>
                         </ResultCard>
+
+                        {result.recentEvents ? (
+                            <ResultCard title="近事" meta="起卦时补充" styles={chrome}>
+                                <Text style={styles.bodyText}>{result.recentEvents}</Text>
+                            </ResultCard>
+                        ) : null}
                     </>
                 )}
             </ScrollView>

@@ -545,6 +545,9 @@ export function isMeihuaResult(value: unknown): value is MeihuaResult {
         && isMeihuaHexagram(candidate.hu)
         && isMeihuaHexagram(candidate.bian)
         && (candidate.tiPosition === 'upper' || candidate.tiPosition === 'lower')
+        && (candidate.subject === undefined || isLiuyaoSubject(candidate.subject))
+        && (candidate.recentEvents === undefined || typeof candidate.recentEvents === 'string')
+        && (candidate.timeRange === undefined || typeof candidate.timeRange === 'string')
         && (candidate.aiAnalysis === undefined || typeof candidate.aiAnalysis === 'string')
         && (candidate.aiChatHistory === undefined || isPersistedAIChatHistory(candidate.aiChatHistory))
         && (candidate.quickReplies === undefined || isStringArray(candidate.quickReplies));
