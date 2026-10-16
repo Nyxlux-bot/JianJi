@@ -9,6 +9,7 @@ import { BaziResult } from '../core/bazi-types';
 import { PanResult } from '../core/liuyao-calc';
 import { BaziCompatibilityResult } from '../features/bazi/match/types';
 import { ZiweiRecordResult } from '../features/ziwei/record';
+import { MeihuaResult } from '../features/meihua/types';
 import { recordDiagnosticLog } from '../services/diagnostics';
 import { validateImportRecords } from './import-validation';
 import { resolveImportAction } from './import-strategy';
@@ -18,7 +19,9 @@ import {
     DivinationRecordEnvelope,
     DivinationResult,
     inferEngineFromResult,
+    isDivinationEngine,
     isDivinationMethod,
+    isMeihuaResult,
     isPanResult,
     isBaziCompatibilityResult,
     isZiweiRecordResult,
@@ -58,7 +61,8 @@ export type RecordDetail =
     | { engineType: 'liuyao'; result: PanResult; isFavorite: boolean }
     | { engineType: 'bazi'; result: BaziResult; isFavorite: boolean }
     | { engineType: 'baziCompatibility'; result: BaziCompatibilityResult; isFavorite: boolean }
-    | { engineType: 'ziwei'; result: ZiweiRecordResult; isFavorite: boolean };
+    | { engineType: 'ziwei'; result: ZiweiRecordResult; isFavorite: boolean }
+    | { engineType: 'meihua'; result: MeihuaResult; isFavorite: boolean };
 
 export type ImportMode = 'merge' | 'replace';
 export type ImportConflictPolicy = 'skip' | 'replace';
@@ -79,8 +83,11 @@ function normalizeEngineType(
     method: unknown,
     result: unknown
 ): DivinationEngine {
-    if (engineType === 'liuyao' || engineType === 'bazi' || engineType === 'ziwei' || engineType === 'baziCompatibility') {
+    if (isDivinationEngine(engineType)) {
         return engineType;
+    }
+    if (typeof method === 'string' && method.startsWith('meihua_')) {
+        return 'meihua';
     }
     if (method === 'baziCompatibility') {
         return 'baziCompatibility';
@@ -147,6 +154,9 @@ function toRecordDetail(row: RecordDetailRow): RecordDetail | null {
         }
     }
     if (engineType === 'ziwei' && isZiweiRecordResult(parsed)) {
+        return { engineType, result: parsed, isFavorite };
+    }
+    if (engineType === 'meihua' && isMeihuaResult(parsed)) {
         return { engineType, result: parsed, isFavorite };
     }
     return null;
@@ -270,7 +280,7 @@ function getWebRecords(): WebRecord[] {
             .filter((item) => (
                 typeof item.id === 'string'
                 && typeof item.createdAt === 'string'
-                && (item.engineType === 'liuyao' || item.engineType === 'bazi' || item.engineType === 'ziwei' || item.engineType === 'baziCompatibility')
+                && isDivinationEngine(item.engineType)
                 && typeof item.method === 'string'
                 && typeof item.title === 'string'
                 && typeof item.subtitle === 'string'
@@ -388,6 +398,13 @@ const webDb = {
                 isFavorite: record.isFavorite,
             };
         }
+        if (record.engineType === 'meihua' && isMeihuaResult(record.fullResult)) {
+            return {
+                engineType: 'meihua',
+                result: record.fullResult,
+                isFavorite: record.isFavorite,
+            };
+        }
         return null;
     },
 
@@ -434,6 +451,23 @@ const webDb = {
                 }
                 exported.push({
                     engineType: 'ziwei',
+                    result: record.fullResult,
+                    summary: {
+                        method: record.method || undefined,
+                        question: record.question,
+                        title: record.title,
+                        subtitle: record.subtitle,
+                    },
+                });
+                return;
+            }
+
+            if (record.engineType === 'meihua') {
+                if (!isMeihuaResult(record.fullResult)) {
+                    return;
+                }
+                exported.push({
+                    engineType: 'meihua',
                     result: record.fullResult,
                     summary: {
                         method: record.method || undefined,
@@ -952,6 +986,20 @@ export async function clearAIAnalysis(id: string): Promise<RecordDetail | null> 
         });
 
         return { engineType: 'liuyao', result: clearedResult, isFavorite };
+    } else if (engineType === 'meihua') {
+        const clearedResult: MeihuaResult = {
+            ...result,
+            aiAnalysis: undefined,
+            aiChatHistory: undefined,
+            quickReplies: undefined,
+        };
+
+        await saveRecord({
+            engineType: 'meihua',
+            result: clearedResult,
+        });
+
+        return { engineType: 'meihua', result: clearedResult, isFavorite };
     } else if (engineType === 'bazi') {
         const baziResult = result as BaziResult;
         const clearedResult: BaziResult = {
