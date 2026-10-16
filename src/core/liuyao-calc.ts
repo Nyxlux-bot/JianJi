@@ -1,11 +1,11 @@
 /**
  * 六爻排盘核心计算引擎
- * 支持四种起卦方式，生成完整排盘结果
+ * 摇卦与手动起卦生成完整排盘结果（旧记录的时间、数字起卦仍可读取）
  */
 
 import {
     YaoValue, WuXing, LiuQin, LiuShen, DivinationMethod,
-    BA_GUA, GUA_64, NA_JIA, DIZHI_WUXING, DIZHI_INDEX,
+    BA_GUA, GUA_64, NA_JIA, DIZHI_WUXING,
     getLiuQin, getLiuShen, LIUQIN_SHORT, LIUSHEN_SHORT,
     yaoToGuaIndex, GuaInfo,
 } from './liuyao-data';
@@ -341,67 +341,7 @@ export function calculatePan(
     return panResult;
 }
 
-// ==================== 四种起卦方式 ====================
-
-/** 时间排卦（梅花易数） */
-export function divinateByTime(
-    date: Date,
-    question: string = '',
-    longitude?: number,
-    locationName?: string,
-    subject?: LiuyaoSubject,
-): PanResult {
-    // 如有经度，先计算真太阳时用于确定时辰
-    const effectiveDate = (longitude !== undefined)
-        ? calculateTrueSolarTime(date, longitude)
-        : date;
-    const lunar = solarToLunar(effectiveDate);
-    const yearZhi = lunar.yearGanZhi[1];
-    const monthNum = lunar.month;
-    const dayNum = lunar.day;
-    const hourZhi = lunar.hourZhi;
-
-    const yearNum = DIZHI_INDEX[yearZhi];
-    const hourNum = DIZHI_INDEX[hourZhi];
-
-    // 上卦 = (年支数 + 月数 + 日数) mod 8
-    let upperNum = (yearNum + monthNum + dayNum) % 8;
-    if (upperNum === 0) upperNum = 8;
-
-    // 下卦 = (年支数 + 月数 + 日数 + 时支数) mod 8
-    let lowerNum = (yearNum + monthNum + dayNum + hourNum) % 8;
-    if (lowerNum === 0) lowerNum = 8;
-
-    // 动爻 = (年+月+日+时) mod 6
-    let movingYao = (yearNum + monthNum + dayNum + hourNum) % 6;
-    if (movingYao === 0) movingYao = 6;
-
-    // 构造爻值数组
-    const upperGua = BA_GUA[upperNum];
-    const lowerGua = BA_GUA[lowerNum];
-    const yaoValues: YaoValue[] = [];
-
-    for (let i = 0; i < 3; i++) {
-        const isYang = lowerGua.yao[i] === 1;
-        const isMoving = (i + 1) === movingYao;
-        if (isMoving) {
-            yaoValues.push(isYang ? 9 : 6);
-        } else {
-            yaoValues.push(isYang ? 7 : 8);
-        }
-    }
-    for (let i = 0; i < 3; i++) {
-        const isYang = upperGua.yao[i] === 1;
-        const isMoving = (i + 4) === movingYao;
-        if (isMoving) {
-            yaoValues.push(isYang ? 9 : 6);
-        } else {
-            yaoValues.push(isYang ? 7 : 8);
-        }
-    }
-
-    return calculatePan(yaoValues, date, 'time', question, longitude, locationName, subject);
-}
+// ==================== 起卦方式（时间、数字起卦已移至梅花易数） ====================
 
 /** 硬币排卦（金钱卦） - 传入6次结果 */
 export function divinateByCoin(
@@ -413,41 +353,6 @@ export function divinateByCoin(
     subject?: LiuyaoSubject,
 ): PanResult {
     return calculatePan(coinResults, date, 'coin', question, longitude, locationName, subject);
-}
-
-/** 数字排卦（两数法） */
-export function divinateByNumber(
-    num1: number,
-    num2: number,
-    date: Date,
-    question: string = '',
-    longitude?: number,
-    locationName?: string,
-    subject?: LiuyaoSubject,
-): PanResult {
-    let upperNum = num1 % 8;
-    if (upperNum === 0) upperNum = 8;
-    let lowerNum = num2 % 8;
-    if (lowerNum === 0) lowerNum = 8;
-    let movingYao = (num1 + num2) % 6;
-    if (movingYao === 0) movingYao = 6;
-
-    const upperGua = BA_GUA[upperNum];
-    const lowerGua = BA_GUA[lowerNum];
-    const yaoValues: YaoValue[] = [];
-
-    for (let i = 0; i < 3; i++) {
-        const isYang = lowerGua.yao[i] === 1;
-        const isMoving = (i + 1) === movingYao;
-        yaoValues.push(isMoving ? (isYang ? 9 : 6) : (isYang ? 7 : 8));
-    }
-    for (let i = 0; i < 3; i++) {
-        const isYang = upperGua.yao[i] === 1;
-        const isMoving = (i + 4) === movingYao;
-        yaoValues.push(isMoving ? (isYang ? 9 : 6) : (isYang ? 7 : 8));
-    }
-
-    return calculatePan(yaoValues, date, 'number', question, longitude, locationName, subject);
 }
 
 /** 手动起卦 */
