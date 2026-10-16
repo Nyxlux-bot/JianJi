@@ -29,7 +29,7 @@ import WuXingIcon from '../../../src/components/WuXingIcon';
 import ZodiacPaperCut from '../../../src/components/ZodiacPaperCut';
 import { useTheme } from '../../../src/theme/ThemeContext';
 import { BorderRadius, FontSize, Spacing } from '../../../src/theme/colors';
-import { getLuminance, mixHex, toRgba } from '../../../src/theme/bazi-theme';
+import { buildResultPalette as buildPalette, type ResultPalette } from '../../../src/theme/result-palette';
 import {
     BaziAnalysisProfile,
     BaziPillarMatrixRow,
@@ -79,66 +79,7 @@ type Styles = ReturnType<typeof makeStyles>;
 /* 配色：页面专用的语义色，阴阳两套                                       */
 /* ------------------------------------------------------------------ */
 
-function buildPalette(Colors: any) {
-    const isLight = getLuminance(Colors.bg.primary) > 0.42;
-    const card: string = Colors.bg.card;
-    const gold: string = Colors.accent.gold;
-    const vermilion: string = isLight ? Colors.accent.red : Colors.accent.redLight;
-    const element: Record<WuXingElement, string> = {
-        木: Colors.bazi.elementWood,
-        火: Colors.bazi.elementFire,
-        土: Colors.bazi.elementEarth,
-        金: Colors.bazi.elementMetal,
-        水: Colors.bazi.elementWater,
-    };
-    const softWeight = isLight ? 0.1 : 0.16;
-    const elementSoft = WUXING_ORDER.reduce((acc, key) => {
-        acc[key] = mixHex(card, element[key], softWeight);
-        return acc;
-    }, {} as Record<WuXingElement, string>);
-
-    return {
-        isLight,
-        page: Colors.bazi.pageBg as string,
-        card,
-        cardBorder: isLight ? '#ece2cf' : '#2E2E2E',
-        heroBorder: isLight ? '#e9dfcb' : '#2E2E2E',
-        hairline: isLight ? '#efe6d4' : '#333333',
-        rule: isLight ? '#e6dac4' : '#3D3D3D',
-        ink: Colors.text.primary as string,
-        heading: Colors.text.heading as string,
-        body: isLight ? '#4a3f31' : '#CFCFCF',
-        muted: isLight ? '#7d6d55' : '#949494',
-        icon: isLight ? '#5f5445' : '#BDBDBD',
-        vermilion,
-        sealText: '#fffaf0',
-        gold,
-        goldSoft: isLight ? '#f7eedb' : toRgba(gold, 0.1),
-        goldBorder: isLight ? '#ead9b5' : toRgba(gold, 0.34),
-        dayTint: isLight ? '#f7eedb' : toRgba(gold, 0.08),
-        chipBg: isLight ? '#f3ead8' : '#333333',
-        chipInk: isLight ? '#6f5b39' : '#C8C8C8',
-        segTrack: isLight ? '#f1e8d6' : '#1A1A1A',
-        segOn: isLight ? '#fffaf0' : '#333333',
-        segBorder: isLight ? '#e3d6bc' : '#3D3D3D',
-        barTrack: isLight ? '#f1e8d6' : '#333333',
-        partySame: isLight ? '#4a3f31' : '#BDBDBD',
-        partyDiff: isLight ? '#ddd0b6' : '#3D3D3D',
-        relationBg: isLight ? '#f6efe2' : '#2E2E2E',
-        trackCellBg: isLight ? '#fffdf8' : (Colors.bg.elevated as string),
-        trackCellBorder: isLight ? '#efe6d4' : '#333333',
-        tagBorder: isLight ? '#d9c9a8' : '#4A4A4A',
-        chipBorder: isLight ? '#e6dbc5' : '#3D3D3D',
-        timelineThin: isLight ? '#d9cdb5' : '#3D3D3D',
-        timelineHollow: isLight ? '#b8a682' : '#6B6B6B',
-        birthHalo: isLight ? '#f7e2dc' : toRgba(vermilion, 0.25),
-        fadeFrom: toRgba(card, 0),
-        element,
-        elementSoft,
-    };
-}
-
-type Palette = ReturnType<typeof buildPalette>;
+type Palette = ResultPalette;
 
 function elementColor(text: string, palette: Palette, fallback?: string): string {
     const element = resolveWuXingElement(text);

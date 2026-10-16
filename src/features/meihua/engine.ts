@@ -85,8 +85,8 @@ export function castMeihua(input: MeihuaCastInput, date: Date, question = ''): M
         lowerSum = upperSum + hourValue;
         movingSum = lowerSum;
         formulas = {
-            upper: `${numbers[0].value} + ${numbers[1].value} + ${numbers[2].value} = ${upperSum}，÷ 8 余 ${remainder(upperSum, 8)}`,
-            lower: `${upperSum} + ${hourValue} = ${lowerSum}，÷ 8 余 ${remainder(lowerSum, 8)}`,
+            upper: `${upperSum} ÷ 8 余 ${remainder(upperSum, 8)}`,
+            lower: `${lowerSum} ÷ 8 余 ${remainder(lowerSum, 8)}`,
             moving: `${movingSum} ÷ 6 余 ${remainder(movingSum, 6)}`,
         };
     } else {
@@ -107,7 +107,7 @@ export function castMeihua(input: MeihuaCastInput, date: Date, question = ''): M
         formulas = {
             upper: `${first} ÷ 8 余 ${remainder(first, 8)}`,
             lower: `${second} ÷ 8 余 ${remainder(second, 8)}`,
-            moving: `${first} + ${second} + ${hourValue} = ${movingSum}，÷ 6 余 ${remainder(movingSum, 6)}`,
+            moving: `${movingSum} ÷ 6 余 ${remainder(movingSum, 6)}`,
         };
     }
 
