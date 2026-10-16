@@ -34,13 +34,16 @@ import {
     HistoryActiveEngine,
     HistoryFilterState,
     LiuyaoHistoryCategory,
+    MeihuaHistoryCategory,
     ZiweiHistoryCategory,
+    getActiveHistoryCategory,
 } from '../../src/utils/history-filter';
 
 const HISTORY_FILTER_STORAGE_KEY = 'history_filter_state_v2';
 
 const ENGINE_OPTIONS: Array<{ key: HistoryActiveEngine; label: string; description: string }> = [
-    { key: 'liuyao', label: '六爻', description: '时间、硬币、数字、手动起卦' },
+    { key: 'liuyao', label: '六爻', description: '硬币摇卦、手动起卦' },
+    { key: 'meihua', label: '梅花', description: '时间、数字起卦与体用断语' },
     { key: 'bazi', label: '八字', description: '乾造、坤造与命盘收藏' },
     { key: 'baziCompatibility', label: '合盘', description: '八字合盘与合盘详批' },
     { key: 'ziwei', label: '紫微', description: '紫微斗数命盘与运限记录' },
@@ -48,10 +51,15 @@ const ENGINE_OPTIONS: Array<{ key: HistoryActiveEngine; label: string; descripti
 
 const LIUYAO_CATEGORY_OPTIONS: Array<{ key: LiuyaoHistoryCategory; label: string }> = [
     { key: 'all', label: '全部' },
-    { key: 'time', label: '时间' },
     { key: 'coin', label: '硬币' },
-    { key: 'number', label: '数字' },
     { key: 'manual', label: '手动' },
+    { key: 'favorite', label: '收藏' },
+];
+
+const MEIHUA_CATEGORY_OPTIONS: Array<{ key: MeihuaHistoryCategory; label: string }> = [
+    { key: 'all', label: '全部' },
+    { key: 'meihua_time', label: '时间' },
+    { key: 'meihua_number', label: '数字' },
     { key: 'favorite', label: '收藏' },
 ];
 
@@ -79,6 +87,8 @@ const META_LABELS: Record<string, string> = {
     coin: '硬币',
     number: '数字',
     manual: '手动',
+    meihua_time: '时间',
+    meihua_number: '数字',
     kunzao: '坤造',
     qianzao: '乾造',
     bazi: '八字',
@@ -210,6 +220,7 @@ function normalizeStoredFilters(raw: unknown): HistoryFilterState {
     const activeEngine = parsed.activeEngine === 'bazi'
         || parsed.activeEngine === 'ziwei'
         || parsed.activeEngine === 'baziCompatibility'
+        || parsed.activeEngine === 'meihua'
         ? parsed.activeEngine
         : 'liuyao';
     const liuyaoCategory = LIUYAO_CATEGORY_OPTIONS.some((item) => item.key === parsed.liuyaoCategory)
@@ -224,6 +235,9 @@ function normalizeStoredFilters(raw: unknown): HistoryFilterState {
     const baziCompatibilityCategory = BAZI_COMPATIBILITY_CATEGORY_OPTIONS.some((item) => item.key === parsed.baziCompatibilityCategory)
         ? parsed.baziCompatibilityCategory as BaziCompatibilityHistoryCategory
         : DEFAULT_HISTORY_FILTER.baziCompatibilityCategory;
+    const meihuaCategory = MEIHUA_CATEGORY_OPTIONS.some((item) => item.key === parsed.meihuaCategory)
+        ? parsed.meihuaCategory as MeihuaHistoryCategory
+        : DEFAULT_HISTORY_FILTER.meihuaCategory;
 
     return {
         keyword: typeof parsed.keyword === 'string' ? parsed.keyword : DEFAULT_HISTORY_FILTER.keyword,
@@ -232,16 +246,18 @@ function normalizeStoredFilters(raw: unknown): HistoryFilterState {
         baziCategory,
         ziweiCategory,
         baziCompatibilityCategory,
+        meihuaCategory,
     };
 }
 
-function buildPersistedFilters(filter: HistoryFilterState): Pick<HistoryFilterState, 'activeEngine' | 'liuyaoCategory' | 'baziCategory' | 'ziweiCategory' | 'baziCompatibilityCategory'> {
+function buildPersistedFilters(filter: HistoryFilterState): Pick<HistoryFilterState, 'activeEngine' | 'liuyaoCategory' | 'baziCategory' | 'ziweiCategory' | 'baziCompatibilityCategory' | 'meihuaCategory'> {
     return {
         activeEngine: filter.activeEngine,
         liuyaoCategory: filter.liuyaoCategory,
         baziCategory: filter.baziCategory,
         ziweiCategory: filter.ziweiCategory,
         baziCompatibilityCategory: filter.baziCompatibilityCategory,
+        meihuaCategory: filter.meihuaCategory,
     };
 }
 
@@ -282,7 +298,7 @@ export default function HistoryPage() {
             return;
         }
         void AsyncStorage.setItem(HISTORY_FILTER_STORAGE_KEY, JSON.stringify(buildPersistedFilters(filters)));
-    }, [filters.activeEngine, filters.baziCategory, filters.baziCompatibilityCategory, filters.liuyaoCategory, filters.ziweiCategory, filtersReady]);
+    }, [filters.activeEngine, filters.baziCategory, filters.baziCompatibilityCategory, filters.liuyaoCategory, filters.meihuaCategory, filters.ziweiCategory, filtersReady]);
 
     const loadRecords = useCallback(async () => {
         const data = await getAllRecords();
@@ -328,9 +344,11 @@ export default function HistoryPage() {
         [deferredKeyword, filters, records],
     );
     const currentEngineOption = ENGINE_OPTIONS.find((item) => item.key === filters.activeEngine) || ENGINE_OPTIONS[0];
-    const currentCategoryOptions = filters.activeEngine === 'liuyao'
+    const currentCategoryOptions: Array<{ key: string; label: string }> = filters.activeEngine === 'liuyao'
         ? LIUYAO_CATEGORY_OPTIONS
-        : filters.activeEngine === 'bazi'
+        : filters.activeEngine === 'meihua'
+            ? MEIHUA_CATEGORY_OPTIONS
+            : filters.activeEngine === 'bazi'
             ? BAZI_CATEGORY_OPTIONS
             : filters.activeEngine === 'baziCompatibility'
                 ? BAZI_COMPATIBILITY_CATEGORY_OPTIONS
@@ -352,11 +370,13 @@ export default function HistoryPage() {
         }));
     }, []);
 
-    const handleCategoryChange = useCallback((category: LiuyaoHistoryCategory | BaziHistoryCategory | ZiweiHistoryCategory | BaziCompatibilityHistoryCategory) => {
+    const handleCategoryChange = useCallback((category: string) => {
         setFilters((prev) => (
             prev.activeEngine === 'liuyao'
                 ? { ...prev, liuyaoCategory: category as LiuyaoHistoryCategory }
-                : prev.activeEngine === 'bazi'
+                : prev.activeEngine === 'meihua'
+                    ? { ...prev, meihuaCategory: category as MeihuaHistoryCategory }
+                    : prev.activeEngine === 'bazi'
                     ? { ...prev, baziCategory: category as BaziHistoryCategory }
                     : prev.activeEngine === 'baziCompatibility'
                         ? { ...prev, baziCompatibilityCategory: category as BaziCompatibilityHistoryCategory }
@@ -444,13 +464,7 @@ export default function HistoryPage() {
                     contentContainerStyle={styles.categoryScrollContent}
                 >
                     {currentCategoryOptions.map((option) => {
-                        const active = filters.activeEngine === 'liuyao'
-                            ? filters.liuyaoCategory === option.key
-                            : filters.activeEngine === 'bazi'
-                                ? filters.baziCategory === option.key
-                                : filters.activeEngine === 'baziCompatibility'
-                                    ? filters.baziCompatibilityCategory === option.key
-                                    : filters.ziweiCategory === option.key;
+                        const active = getActiveHistoryCategory(filters) === option.key;
                         return (
                             <TouchableOpacity
                                 key={option.key}

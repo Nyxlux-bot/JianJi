@@ -1,11 +1,12 @@
 import { DivinationMethod } from '../core/liuyao-data';
 import { DivinationEngine } from '../db/record-types';
 
-export type HistoryActiveEngine = 'liuyao' | 'bazi' | 'ziwei' | 'baziCompatibility';
+export type HistoryActiveEngine = 'liuyao' | 'bazi' | 'ziwei' | 'baziCompatibility' | 'meihua';
 export type LiuyaoHistoryCategory = 'all' | DivinationMethod | 'favorite';
 export type BaziHistoryCategory = 'all' | 'kunzao' | 'qianzao' | 'favorite';
 export type ZiweiHistoryCategory = 'all' | 'male' | 'female' | 'favorite';
 export type BaziCompatibilityHistoryCategory = 'all' | 'favorite';
+export type MeihuaHistoryCategory = 'all' | 'meihua_time' | 'meihua_number' | 'favorite';
 
 export interface HistoryRecordItem {
     id: string;
@@ -25,6 +26,7 @@ export interface HistoryFilterState {
     baziCategory: BaziHistoryCategory;
     ziweiCategory: ZiweiHistoryCategory;
     baziCompatibilityCategory: BaziCompatibilityHistoryCategory;
+    meihuaCategory: MeihuaHistoryCategory;
 }
 
 export const DEFAULT_HISTORY_FILTER: HistoryFilterState = {
@@ -34,11 +36,15 @@ export const DEFAULT_HISTORY_FILTER: HistoryFilterState = {
     baziCategory: 'all',
     ziweiCategory: 'all',
     baziCompatibilityCategory: 'all',
+    meihuaCategory: 'all',
 };
 
-export function getActiveHistoryCategory(filter: HistoryFilterState): LiuyaoHistoryCategory | BaziHistoryCategory | ZiweiHistoryCategory | BaziCompatibilityHistoryCategory {
+export function getActiveHistoryCategory(filter: HistoryFilterState): LiuyaoHistoryCategory | BaziHistoryCategory | ZiweiHistoryCategory | BaziCompatibilityHistoryCategory | MeihuaHistoryCategory {
     if (filter.activeEngine === 'liuyao') {
         return filter.liuyaoCategory;
+    }
+    if (filter.activeEngine === 'meihua') {
+        return filter.meihuaCategory;
     }
     if (filter.activeEngine === 'bazi') {
         return filter.baziCategory;
@@ -82,8 +88,8 @@ function getZiweiCategory(record: Pick<HistoryRecordItem, 'engineType' | 'subtit
 }
 
 export function getHistoryMetaLabel(record: HistoryRecordItem): string {
-    if (record.engineType === 'liuyao') {
-        return record.method || 'all';
+    if (record.engineType === 'liuyao' || record.engineType === 'meihua') {
+        return record.method || record.engineType;
     }
     if (record.engineType === 'ziwei') {
         return getZiweiCategory(record) || 'ziwei';
@@ -104,7 +110,7 @@ export function filterHistoryRecords<T extends HistoryRecordItem>(records: T[], 
             return false;
         }
 
-        if (filter.activeEngine === 'liuyao') {
+        if (filter.activeEngine === 'liuyao' || filter.activeEngine === 'meihua') {
             if (activeCategory === 'favorite' && !record.isFavorite) {
                 return false;
             }
