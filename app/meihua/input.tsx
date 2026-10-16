@@ -89,7 +89,7 @@ export default function MeihuaInputPage() {
         return (
             <View style={styles.trigramCell}>
                 <View>
-                    <WuXingIcon element={trigram.wuxing} size={16} style={[styles.hangIcon, { top: 7 }]} />
+                    <WuXingIcon element={trigram.wuxing} size={16} style={[styles.hangIcon, { left: -20, top: 7 }]} />
                     <Text style={[styles.trigramText, { color: palette.element[trigram.wuxing] }]}>{trigram.name}</Text>
                 </View>
             </View>
@@ -103,7 +103,7 @@ export default function MeihuaInputPage() {
         return (
             <View key={key} style={styles.trigramCell}>
                 <View>
-                    <WuXingIcon element={element} size={14} style={[styles.hangIcon, { top: 5 }]} />
+                    <WuXingIcon element={element} size={14} style={[styles.hangIcon, { left: -18, top: 5 }]} />
                     <Text style={[styles.sourceText, { color: palette.element[element] }]}>{source}</Text>
                 </View>
             </View>
@@ -387,8 +387,8 @@ function makeStyles(palette: ResultPalette, Colors: any) {
         cellText: { flex: 1, textAlign: 'center', fontSize: 14, lineHeight: 24, color: palette.body },
         bigValue: { flex: 1, textAlign: 'center', fontSize: 22, lineHeight: 30, fontWeight: '700' },
         trigramCell: { flex: 1, alignItems: 'center' },
-        // 图标挂在字左侧，字本身居中，和表头、算式对齐
-        hangIcon: { position: 'absolute', right: '100%', marginRight: 4 },
+        // 图标挂在字左侧（左移 图标宽+4），字本身居中，和表头、算式对齐；不用百分比，Android 上会按列宽算
+        hangIcon: { position: 'absolute' },
         trigramText: { fontSize: 22, lineHeight: 30, fontWeight: '700' },
         sourceText: { fontSize: 14, lineHeight: 24, fontWeight: '600' },
         formula: { flex: 1, textAlign: 'center', fontSize: 11.5, lineHeight: 16, color: palette.muted, fontVariant: ['tabular-nums'] },
