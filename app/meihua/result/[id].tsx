@@ -16,7 +16,7 @@ import {
 import { useTheme } from '../../../src/theme/ThemeContext';
 import { buildResultPalette, type ResultPalette } from '../../../src/theme/result-palette';
 import { Spacing } from '../../../src/theme/colors';
-import { deleteRecord, getAllRecords, getRecord, toggleFavorite } from '../../../src/db/database';
+import { deleteRecord, getRecord, toggleFavorite } from '../../../src/db/database';
 import { clearAIAnalysisJob } from '../../../src/services/ai-analysis-jobs';
 import { isAIConfigured } from '../../../src/services/settings';
 import { shareMeihuaResultMarkdown } from '../../../src/services/share';
@@ -65,7 +65,7 @@ export default function MeihuaResultPage() {
         let cancelled = false;
         (async () => {
             if (!id) return;
-            const [detail, summaries] = await Promise.all([getRecord(id), getAllRecords()]);
+            const detail = await getRecord(id);
             if (cancelled) return;
             if (!detail) {
                 setScreenState('missing');
@@ -76,7 +76,7 @@ export default function MeihuaResultPage() {
                 return;
             }
             setResult(detail.result);
-            setIsFavorite(Boolean(summaries.find((item) => item.id === id)?.isFavorite));
+            setIsFavorite(detail.isFavorite);
             setScreenState('ready');
             const configured = await isAIConfigured();
             if (!cancelled) setAiConfigured(configured);

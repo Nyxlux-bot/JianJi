@@ -28,9 +28,9 @@ interface HexagramDisplayProps {
 
 function YaoLine({ yang, width, color }: { yang: boolean; width: number; color: string }) {
     return yang
-        ? <View style={{ width, height: 7, borderRadius: 1, backgroundColor: color }} />
+        ? <View style={{ flex: 1, maxWidth: width, height: 7, borderRadius: 1, backgroundColor: color }} />
         : (
-            <View style={{ width, height: 7, flexDirection: 'row', gap: Math.round(width * 0.16) }}>
+            <View style={{ flex: 1, maxWidth: width, height: 7, flexDirection: 'row', columnGap: '16%' }}>
                 <View style={{ flex: 1, borderRadius: 1, backgroundColor: color }} />
                 <View style={{ flex: 1, borderRadius: 1, backgroundColor: color }} />
             </View>
@@ -225,7 +225,7 @@ export default React.memo(HexagramDisplayComponent);
 function makeStyles(palette: ResultPalette) {
     return StyleSheet.create({
         card: { padding: 12, paddingBottom: 10, borderRadius: 12, borderWidth: 1, borderColor: palette.cardBorder, backgroundColor: palette.card },
-        cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+        cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
         diamond: { width: 6, height: 6, backgroundColor: palette.vermilion, transform: [{ rotate: '45deg' }] },
         cardTitle: { fontSize: 15, lineHeight: 22, fontWeight: '700', color: palette.heading },
         spacer: { flex: 1 },
@@ -259,12 +259,12 @@ function makeStyles(palette: ResultPalette) {
         headRow: { height: 22, alignItems: 'flex-end', paddingBottom: 4, borderBottomColor: palette.rule },
         colHead: { fontSize: 11, lineHeight: 15, color: palette.muted },
         center: { textAlign: 'center' },
-        c0: { width: 46 },
-        c1: { width: 32 },
-        c2: { width: 78 },
+        c0: { width: 42 },
+        c1: { width: 22 },
+        c2: { width: 76 },
         c3: { flex: 1 },
-        c4: { width: 28 },
-        c5: { width: 66 },
+        c4: { width: 22 },
+        c5: { width: 60 },
         rowHit: { backgroundColor: palette.dayTint },
         hitBar: { position: 'absolute', left: -12, top: 8, bottom: 8, width: 3, borderTopRightRadius: 2, borderBottomRightRadius: 2, backgroundColor: palette.gold },
         shen: { flexDirection: 'row', alignItems: 'center', gap: 2 },
