@@ -5,6 +5,7 @@ import {
     BackHandler,
     Easing,
     KeyboardAvoidingView,
+    Linking,
     Modal,
     Platform,
     Pressable,
@@ -30,7 +31,7 @@ import {
 } from '../../src/db/database';
 import StatusBarDecor from '../../src/components/StatusBarDecor';
 import { BorderRadius, FontSize, Spacing } from '../../src/theme/colors';
-import { ThemeType, useTheme } from '../../src/theme/ThemeContext';
+import { useTheme } from '../../src/theme/ThemeContext';
 import { validateImportRecords } from '../../src/db/import-validation';
 import ImportPreviewModal from '../../src/components/ImportPreviewModal';
 import {
@@ -46,14 +47,28 @@ import {
 } from '../../src/services/settings';
 import { exportDiagnosticLogFile, recordDiagnosticLog } from '../../src/services/diagnostics';
 import AIProviderSettings, { type AIProviderSettingsHandle, type SettingsSaveState } from '../../src/components/AIProviderSettings';
-import { CloseIcon, ChevronRightIcon } from '../../src/components/Icons';
+import { CloseIcon, ChevronRightIcon, LocationIcon, SparkleIcon } from '../../src/components/Icons';
+import { buildResultPalette, type ResultPalette } from '../../src/theme/result-palette';
+import { DIVINATION_ENGINE_LABEL, type DivinationEngine } from '../../src/db/record-types';
 import appConfig from '../../app.json';
 import { registerSettingsLeaveHandler } from '../../src/services/settings-leave-guard';
 import { useGanZhiRelationSettings } from '../../src/features/bazi/ganzhi-relation-settings';
 
-type SheetType = 'ai' | 'calendar' | 'data' | 'about' | null;
+type SheetType = 'ai' | 'calendar' | null;
 
 const APP_VERSION = appConfig.expo.version;
+const REPO_URL = 'https://github.com/Nyxlux-bot/JianJi';
+const THEME_SWATCHES = [
+    { key: 'yin', label: '玄黑', fill: '#121212' },
+    { key: 'yang', label: '宣白', fill: '#f6f1e7' },
+] as const;
+const RECORD_ENGINES: Array<{ engine: DivinationEngine; badge: string }> = [
+    { engine: 'liuyao', badge: '卦' },
+    { engine: 'meihua', badge: '梅' },
+    { engine: 'bazi', badge: '八' },
+    { engine: 'ziwei', badge: '紫' },
+    { engine: 'baziCompatibility', badge: '合' },
+];
 const HEXAGRAMS = Array.from({ length: 64 }, (_, index) => String.fromCharCode(0x4DC0 + index));
 
 function getHostLabel(value: string): string {
@@ -79,20 +94,21 @@ function areSettingsEqual(left: AISettings, right: AISettings): boolean {
 
 const SETTINGS_AUTOSAVE_DELAY_MS = 600;
 
+/** 太极与 64 卦环按 192 视框绘制，整体缩到设置页主题卡的尺寸 */
+const HUB_SIZE = 112;
+const TAIJI_SIZE = Math.round(124 * HUB_SIZE / 192);
+
 function TaijiHub({
-    theme,
     progress,
     Colors,
     onToggle,
 }: {
-    theme: ThemeType;
     progress: Animated.Value;
     Colors: any;
     onToggle: () => void;
 }) {
     const rotate = progress.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] });
     const ringRotate = progress.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '22.5deg'] });
-    const title = theme === 'yang' ? '太阳宣白' : '太阴玄黑';
     const yinColor = '#111111';
     const yangColor = '#f7f1e4';
     const ringColor = Colors.accent.gold;
@@ -101,9 +117,9 @@ function TaijiHub({
 
     return (
         <View style={hubStyles.wrap}>
-            <Pressable onPress={onToggle} style={({ pressed }) => [hubStyles.pressArea, pressed && { opacity: 0.9 }]}>
+            <Pressable onPress={onToggle} style={({ pressed }) => [hubStyles.pressArea, pressed && { opacity: 0.9 }]} accessibilityRole="button" accessibilityLabel="点按太极切换阴阳">
                 <Animated.View style={{ transform: [{ rotate: ringRotate }] }}>
-                    <Svg width={192} height={192} viewBox="0 0 192 192">
+                    <Svg width={HUB_SIZE} height={HUB_SIZE} viewBox="0 0 192 192">
                         <Circle cx={center} cy={center} r={88} fill="none" stroke={ringColor} strokeWidth="1" opacity="0.5" />
                         <Circle cx={center} cy={center} r={68} fill="none" stroke={ringColor} strokeWidth="1" opacity="0.28" />
                         {HEXAGRAMS.map((hexagram, index) => {
@@ -129,7 +145,7 @@ function TaijiHub({
                     </Svg>
                 </Animated.View>
                 <Animated.View style={[hubStyles.taijiLayer, { transform: [{ rotate }] }]}>
-                    <Svg width={124} height={124} viewBox="0 0 132 132">
+                    <Svg width={TAIJI_SIZE} height={TAIJI_SIZE} viewBox="0 0 132 132">
                         <Circle cx="66" cy="66" r="61" fill={yangColor} stroke={ringColor} strokeWidth="2" />
                         <Path
                             d="M66 5a61 61 0 0 1 0 122 30.5 30.5 0 0 1 0-61 30.5 30.5 0 0 0 0-61z"
@@ -142,8 +158,6 @@ function TaijiHub({
                     </Svg>
                 </Animated.View>
             </Pressable>
-            <Text style={[hubStyles.themeName, { color: Colors.text.heading }]}>{title}</Text>
-            <Text style={[hubStyles.themeAction, { color: Colors.accent.gold }]}>点按太极切换阴阳</Text>
         </View>
     );
 }
@@ -152,6 +166,10 @@ export default function SettingsPage() {
     const { Colors, theme, setTheme, saveTheme } = useTheme();
     const navigation = useNavigation();
     const styles = makeStyles(Colors);
+    const insets = useSafeAreaInsets();
+    const palette = React.useMemo(() => buildResultPalette(Colors), [Colors]);
+    const layout = React.useMemo(() => makeLayoutStyles(palette, Colors), [palette, Colors]);
+    const [recordCounts, setRecordCounts] = useState<{ total: number; byEngine: Partial<Record<DivinationEngine, number>> }>({ total: 0, byEngine: {} });
     const themeProgress = useRef(new Animated.Value(theme === 'yang' ? 1 : 0)).current;
     const [settings, setSettings] = useState<AISettings>(DEFAULT_SETTINGS);
     const [savedSettings, setSavedSettings] = useState<AISettings>(DEFAULT_SETTINGS);
@@ -267,6 +285,23 @@ export default function SettingsPage() {
         return Boolean(aiProviderSettingsRef.current?.hasPendingModel())
             || !areSettingsEqual(settingsRef.current, savedSettingsRef.current);
     }, []);
+
+    useFocusEffect(useCallback(() => {
+        let active = true;
+        getAllRecords().then((records) => {
+            if (!active) return;
+            const byEngine: Partial<Record<DivinationEngine, number>> = {};
+            records.forEach((record) => { byEngine[record.engineType] = (byEngine[record.engineType] ?? 0) + 1; });
+            setRecordCounts({ total: records.length, byEngine });
+        }).catch(() => undefined);
+        return () => { active = false; };
+    }, []));
+
+    const aiProvider = getActiveProvider(settings);
+    const aiModel = aiProvider ? getActiveModel(aiProvider) : undefined;
+    const aiStatus = !aiProvider
+        ? { label: '未配置', good: false }
+        : aiModel?.protocolVerified ? { label: '已连通', good: true } : { label: aiModel ? '未检测' : '待选模型', good: false };
 
     const handleToggleTheme = () => {
         const nextTheme = themeRef.current === 'yang' ? 'yin' : 'yang';
@@ -544,46 +579,109 @@ export default function SettingsPage() {
     return (
         <Animated.View style={styles.container}>
             <StatusBarDecor />
-            <View style={styles.header}>
-                <View style={styles.headerSide} />
-                <Text style={styles.headerTitle}>设置</Text>
-                <View style={styles.headerSide} />
-            </View>
-
-            <View style={styles.content}>
-                <TaijiHub theme={theme} progress={themeProgress} Colors={Colors} onToggle={handleToggleTheme} />
-
-                <View style={styles.cardGrid}>
-                    <SettingCard
-                        title="AI 中枢"
-                        value={getActiveModel(getActiveProvider(settings))?.model || '待选择模型'}
-                        meta={getAIHubMeta(settings)}
-                        Colors={Colors}
-                        onPress={() => setActiveSheet('ai')}
-                    />
-                    <SettingCard
-                        title="排盘与校时"
-                        value={settings.geocoderApiKey ? '位置 Key 已配置' : '未配置'}
-                        meta="时间口径随排盘选择"
-                        Colors={Colors}
-                        onPress={() => setActiveSheet('calendar')}
-                    />
-                    <SettingCard
-                        title="卷宗数据"
-                        value="导入 / 导出"
-                        meta="不导出接口密钥"
-                        Colors={Colors}
-                        onPress={() => setActiveSheet('data')}
-                    />
-                    <SettingCard
-                        title="关于与重置"
-                        value={`版本 ${APP_VERSION}`}
-                        meta={theme === 'yang' ? '太阳宣白' : '太阴玄黑'}
-                        Colors={Colors}
-                        onPress={() => setActiveSheet('about')}
-                    />
+            <ScrollView
+                contentContainerStyle={[layout.content, { paddingBottom: 64 + Math.max(insets.bottom, 16) + 16 }]}
+                showsVerticalScrollIndicator={false}
+            >
+                <View style={layout.header}>
+                    <View>
+                        <Text style={layout.brand}>设置</Text>
+                        <Text style={layout.brandSub}>主题 · AI · 卷宗</Text>
+                    </View>
+                    <Text style={layout.version}>见机 v{APP_VERSION}</Text>
                 </View>
-            </View>
+
+                <View style={[layout.card, layout.themeCard]}>
+                    <TaijiHub progress={themeProgress} Colors={Colors} onToggle={handleToggleTheme} />
+                    <View style={layout.flex}>
+                        <Text style={layout.themeName}>{theme === 'yang' ? '太阳宣白' : '太阴玄黑'}</Text>
+                        <Text style={layout.muted}>点按太极切换阴阳</Text>
+                        <View style={layout.swatchRow} accessibilityRole="radiogroup">
+                            {THEME_SWATCHES.map((item) => {
+                                const on = theme === item.key;
+                                return (
+                                    <Pressable
+                                        key={item.key}
+                                        onPress={() => { if (!on) handleToggleTheme(); }}
+                                        style={[layout.swatch, on && layout.swatchOn]}
+                                        accessibilityRole="radio"
+                                        accessibilityState={{ checked: on }}
+                                        accessibilityLabel={item.label}
+                                    >
+                                        <View style={[layout.swatchDot, { backgroundColor: item.fill }]} />
+                                        <Text style={[layout.swatchText, on && layout.swatchTextOn]}>{item.label}</Text>
+                                    </Pressable>
+                                );
+                            })}
+                        </View>
+                    </View>
+                </View>
+
+                <Text style={layout.sectionLabel}>AI 中枢</Text>
+                <Pressable style={({ pressed }) => [layout.card, layout.rowCard, pressed && styles.pressed]} onPress={() => setActiveSheet('ai')} accessibilityRole="button" accessibilityLabel="AI 中枢">
+                    <View style={[layout.iconTile, layout.iconTileGold]}><SparkleIcon size={18} color={palette.gold} /></View>
+                    <View style={layout.flex}>
+                        <View style={layout.titleRow}>
+                            <Text style={layout.rowTitle} numberOfLines={1}>{aiModel?.model || '待选择模型'}</Text>
+                            <Text style={[layout.badge, aiStatus.good ? layout.badgeGood : layout.badgeMuted]}>{aiStatus.label}</Text>
+                        </View>
+                        <Text style={layout.muted} numberOfLines={1}>{aiProvider ? getHostLabel(aiProvider.apiUrl.trim().replace(/#$/, '')) : '配置接口地址与 API Key 后可用 AI 解卦'}</Text>
+                    </View>
+                    <ChevronRightIcon size={16} color={palette.muted} />
+                </Pressable>
+
+                <Text style={layout.sectionLabel}>排盘与校时</Text>
+                <Pressable style={({ pressed }) => [layout.card, layout.rowCard, pressed && styles.pressed]} onPress={() => setActiveSheet('calendar')} accessibilityRole="button" accessibilityLabel="排盘与校时">
+                    <View style={layout.iconTile}><LocationIcon size={18} color={palette.vermilion} /></View>
+                    <View style={layout.flex}>
+                        <View style={layout.titleRow}>
+                            <Text style={layout.rowTitle} numberOfLines={1}>腾讯位置服务 Key</Text>
+                            <Text style={[layout.badge, settings.geocoderApiKey ? layout.badgeGood : layout.badgeMuted]}>{settings.geocoderApiKey ? '已配置' : '未配置'}</Text>
+                        </View>
+                        <Text style={layout.muted} numberOfLines={1}>按出生地、起卦地换算真太阳时</Text>
+                    </View>
+                    <ChevronRightIcon size={16} color={palette.muted} />
+                </Pressable>
+
+                <View style={layout.sectionHead}>
+                    <Text style={layout.sectionLabelInline}>卷宗数据</Text>
+                    <Text style={layout.sectionLabelInline}>共 {recordCounts.total} 份</Text>
+                </View>
+                <View style={[layout.card, layout.dataCard]}>
+                    <View style={layout.countRow}>
+                        {RECORD_ENGINES.map((item, index) => (
+                            <View key={item.engine} style={[layout.countCell, index > 0 && layout.countRule]}>
+                                <Text style={[layout.countBadge, { color: item.engine === 'meihua' ? palette.vermilion : palette.gold }]}>{item.badge}</Text>
+                                <Text style={layout.countValue}>{recordCounts.byEngine[item.engine] ?? 0}</Text>
+                                <Text style={layout.countLabel}>{DIVINATION_ENGINE_LABEL[item.engine]}</Text>
+                            </View>
+                        ))}
+                    </View>
+                    <View style={layout.dataActions}>
+                        <Pressable onPress={handleBackup} disabled={isBackingUp} style={({ pressed }) => [layout.pill, layout.pillPrimary, layout.pillWide, (pressed || isBackingUp) && styles.pressed]} accessibilityRole="button">
+                            <Text style={layout.pillPrimaryText}>{isBackingUp ? '导出中…' : '导出备份'}</Text>
+                        </Pressable>
+                        <Pressable onPress={handleRestore} disabled={isRestoring} style={({ pressed }) => [layout.pill, (pressed || isRestoring) && styles.pressed]} accessibilityRole="button">
+                            <Text style={layout.pillText}>导入档案</Text>
+                        </Pressable>
+                        <Pressable onPress={handleExportDiagnostics} disabled={isExportingDiagnostics} style={({ pressed }) => [layout.pill, (pressed || isExportingDiagnostics) && styles.pressed]} accessibilityRole="button">
+                            <Text style={layout.pillText}>{isExportingDiagnostics ? '导出中…' : '故障日志'}</Text>
+                        </Pressable>
+                    </View>
+                    <Text style={layout.note}>备份与日志都不含接口密钥。</Text>
+                </View>
+
+                <Text style={layout.sectionLabel}>关于</Text>
+                <View style={layout.card}>
+                    <Pressable onPress={() => { void Linking.openURL(REPO_URL); }} style={({ pressed }) => [layout.aboutRow, pressed && styles.pressed]} accessibilityRole="link">
+                        <Text style={layout.aboutLabel}>开源地址</Text>
+                        <Text style={layout.aboutLink} numberOfLines={1}>github.com/Nyxlux-bot/JianJi ↗</Text>
+                    </Pressable>
+                    <Pressable onPress={handleResetSettings} style={({ pressed }) => [layout.aboutRow, layout.aboutRule, pressed && styles.pressed]} accessibilityRole="button">
+                        <Text style={layout.danger}>恢复默认设置</Text>
+                    </Pressable>
+                </View>
+            </ScrollView>
 
             <SettingsSheet visible={activeSheet !== null} title={getSheetTitle(activeSheet)} Colors={Colors} onClose={requestCloseSheet} independentContent={activeSheet === 'ai'}>
                 {activeSheet === 'ai' && (
@@ -606,36 +704,6 @@ export default function SettingsPage() {
                             <Text style={styles.staticLabel}>时间换算口径</Text>
                             <Text style={styles.staticValue}>排盘页选择</Text>
                         </View>
-                    </View>
-                )}
-                {activeSheet === 'data' && (
-                    <View style={styles.sheetBlock}>
-                        <ActionButton label={isBackingUp ? '导出中...' : '导出备份'} Colors={Colors} onPress={handleBackup} disabled={isBackingUp} />
-                        <ActionButton label="导入档案" Colors={Colors} onPress={handleRestore} variant="secondary" />
-                        <ActionButton
-                            label={isExportingDiagnostics ? '导出中...' : '导出故障日志'}
-                            Colors={Colors}
-                            onPress={handleExportDiagnostics}
-                            disabled={isExportingDiagnostics}
-                            variant="secondary"
-                        />
-                    </View>
-                )}
-                {activeSheet === 'about' && (
-                    <View style={styles.sheetBlock}>
-                        <View style={styles.staticRow}>
-                            <Text style={styles.staticLabel}>当前版本</Text>
-                            <Text style={styles.staticValue}>{APP_VERSION}</Text>
-                        </View>
-                        <View style={styles.staticRow}>
-                            <Text style={styles.staticLabel}>当前主题</Text>
-                            <Text style={styles.staticValue}>{theme === 'yang' ? '太阳宣白' : '太阴玄黑'}</Text>
-                        </View>
-                        <View style={styles.staticColumn}>
-                            <Text style={styles.staticLabel}>开源地址</Text>
-                            <Text style={styles.linkValue}>https://github.com/Nyxlux-bot/JianJi</Text>
-                        </View>
-                        <ActionButton label="恢复默认设置" Colors={Colors} onPress={handleResetSettings} variant="danger" />
                     </View>
                 )}
             </SettingsSheet>
@@ -665,35 +733,8 @@ function getSheetTitle(sheet: SheetType): string {
     switch (sheet) {
         case 'ai': return 'AI 中枢';
         case 'calendar': return '排盘与校时';
-        case 'data': return '卷宗数据';
-        case 'about': return '关于与重置';
         default: return '';
     }
-}
-
-function SettingCard({
-    title,
-    value,
-    meta,
-    Colors,
-    onPress,
-}: {
-    title: string;
-    value: string;
-    meta: string;
-    Colors: any;
-    onPress: () => void;
-}) {
-    return (
-        <Pressable style={({ pressed }) => [cardStyles.card, { backgroundColor: Colors.bg.card, borderColor: Colors.border.subtle }, pressed && { opacity: 0.86 }]} onPress={onPress}>
-            <View style={cardStyles.chevronRow}>
-                <ChevronRightIcon size={16} color={Colors.text.tertiary} />
-            </View>
-            <Text style={[cardStyles.cardTitle, { color: Colors.text.heading }]} numberOfLines={1}>{title}</Text>
-            <Text style={[cardStyles.cardValue, { color: Colors.text.primary }]} numberOfLines={1}>{value}</Text>
-            <Text style={[cardStyles.cardMeta, { color: Colors.text.tertiary }]} numberOfLines={1}>{meta}</Text>
-        </Pressable>
-    );
 }
 
 function SettingsSheet({
@@ -778,60 +819,20 @@ function ActionButton({
 const hubStyles = StyleSheet.create({
     wrap: {
         alignItems: 'center',
-        height: 250,
         justifyContent: 'center',
     },
     pressArea: {
-        width: 192,
-        height: 192,
+        width: HUB_SIZE,
+        height: HUB_SIZE,
         alignItems: 'center',
         justifyContent: 'center',
     },
     taijiLayer: {
         position: 'absolute',
-        width: 124,
-        height: 124,
+        width: TAIJI_SIZE,
+        height: TAIJI_SIZE,
         alignItems: 'center',
         justifyContent: 'center',
-    },
-    themeName: {
-        marginTop: -4,
-        fontSize: 18,
-        fontWeight: '700',
-    },
-    themeAction: {
-        marginTop: 4,
-        fontSize: 12,
-        fontWeight: '600',
-    },
-});
-
-const cardStyles = StyleSheet.create({
-    card: {
-        width: '48%',
-        minHeight: 100,
-        borderRadius: 18,
-        borderWidth: 1,
-        padding: 14,
-    },
-    chevronRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'flex-end',
-        marginBottom: 6,
-    },
-    cardTitle: {
-        fontSize: 16,
-        fontWeight: '700',
-        marginBottom: 6,
-    },
-    cardValue: {
-        fontSize: 13,
-        fontWeight: '600',
-        marginBottom: 4,
-    },
-    cardMeta: {
-        fontSize: 11,
     },
 });
 
@@ -1121,4 +1122,53 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         color: Colors.accent.gold,
         fontWeight: '700',
     },
+});
+
+const makeLayoutStyles = (palette: ResultPalette, Colors: any) => StyleSheet.create({
+    content: { paddingTop: 20, paddingHorizontal: 16, gap: 12 },
+    flex: { flex: 1, minWidth: 0 },
+    header: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
+    brand: { fontFamily: Platform.select({ ios: 'Songti SC', android: 'serif', default: 'serif' }), fontSize: 28, lineHeight: 36, fontWeight: '500', letterSpacing: 6, color: palette.heading },
+    brandSub: { fontSize: 11, lineHeight: 16, letterSpacing: 2, color: palette.gold },
+    version: { fontSize: 11, lineHeight: 16, color: palette.muted },
+    card: { borderRadius: 16, borderWidth: 1, borderColor: palette.cardBorder, backgroundColor: palette.card },
+    themeCard: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 12, paddingLeft: 10, paddingRight: 14, borderRadius: 18 },
+    themeName: { fontFamily: Platform.select({ ios: 'Songti SC', android: 'serif', default: 'serif' }), fontSize: 21, lineHeight: 28, fontWeight: '700', color: palette.heading },
+    muted: { marginTop: 2, fontSize: 12, lineHeight: 17, color: palette.muted },
+    swatchRow: { marginTop: 12, flexDirection: 'row', gap: 8 },
+    swatch: { height: 32, flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 6, paddingRight: 10, borderRadius: 16, borderWidth: 1, borderColor: palette.cardBorder, backgroundColor: palette.segTrack },
+    swatchOn: { borderColor: palette.gold },
+    swatchDot: { width: 20, height: 20, borderRadius: 10, borderWidth: 1, borderColor: palette.cardBorder },
+    swatchText: { fontSize: 12.5, fontWeight: '600', color: palette.muted },
+    swatchTextOn: { color: palette.heading },
+    sectionLabel: { fontSize: 12, lineHeight: 16, color: palette.muted, marginBottom: -4 },
+    sectionHead: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: -4 },
+    sectionLabelInline: { fontSize: 12, lineHeight: 16, color: palette.muted },
+    rowCard: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
+    iconTile: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.segTrack },
+    iconTileGold: { backgroundColor: palette.goldSoft },
+    titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    rowTitle: { flexShrink: 1, fontSize: 15, lineHeight: 21, fontWeight: '700', color: palette.heading },
+    badge: { paddingHorizontal: 6, borderRadius: 4, overflow: 'hidden', fontSize: 11, lineHeight: 16, fontWeight: '600' },
+    badgeGood: { color: Colors.bazi.statePositive, backgroundColor: palette.isLight ? 'rgba(47,138,99,0.12)' : 'rgba(84,183,142,0.14)' },
+    badgeMuted: { color: palette.muted, backgroundColor: palette.segTrack },
+    dataCard: { paddingVertical: 12, paddingHorizontal: 14 },
+    countRow: { flexDirection: 'row' },
+    countCell: { flex: 1, alignItems: 'center' },
+    countRule: { borderLeftWidth: 1, borderLeftColor: palette.cardBorder },
+    countBadge: { fontFamily: Platform.select({ ios: 'Songti SC', android: 'serif', default: 'serif' }), fontSize: 13, lineHeight: 18, fontWeight: '700' },
+    countValue: { fontSize: 18, lineHeight: 24, fontWeight: '700', color: palette.heading },
+    countLabel: { fontSize: 11, lineHeight: 15, color: palette.muted },
+    dataActions: { flexDirection: 'row', gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: palette.cardBorder },
+    pill: { flex: 1, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: palette.cardBorder, backgroundColor: palette.segTrack },
+    pillWide: { flex: 1.2 },
+    pillPrimary: { borderColor: palette.gold, backgroundColor: palette.gold },
+    pillText: { fontSize: 13, fontWeight: '600', color: palette.ink },
+    pillPrimaryText: { fontSize: 13, fontWeight: '700', color: Colors.text.inverse },
+    note: { marginTop: 8, fontSize: 11, lineHeight: 16, color: palette.muted },
+    aboutRow: { height: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 14 },
+    aboutRule: { borderTopWidth: 1, borderTopColor: palette.cardBorder },
+    aboutLabel: { fontSize: 14, color: palette.ink },
+    aboutLink: { flexShrink: 1, fontSize: 13, color: palette.gold },
+    danger: { fontSize: 14, color: palette.vermilion },
 });
