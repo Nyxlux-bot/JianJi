@@ -2,7 +2,7 @@
 import { getLinePositionName, getTiYong, getTrigram } from './engine';
 import { getTrigramImages, TRIGRAM_IMAGE_SOURCE } from './images';
 import { analyzeMeihua, RELATION_RULES, type MeihuaRelation, type MeihuaTrigramRelation } from './rules';
-import { getHexagramText, getLineText } from './texts';
+import { getHexagramText, getLineText } from '../../core/iching-texts';
 import { MEIHUA_METHOD_LABEL, type MeihuaHexagram, type MeihuaResult } from './types';
 
 const TONE_LABEL = { good: '吉', mixed: '平', bad: '凶' } as const;

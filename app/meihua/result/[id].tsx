@@ -23,7 +23,7 @@ import { shareMeihuaResultMarkdown } from '../../../src/services/share';
 import AIChatModal from '../../../src/components/AIChatModal';
 import { getLinePositionName, getTiYong, getTrigram } from '../../../src/features/meihua/engine';
 import { analyzeMeihua, type MeihuaRelation, type MeihuaTone, type MeihuaTrigramRelation } from '../../../src/features/meihua/rules';
-import { getHexagramText, getLineText } from '../../../src/features/meihua/texts';
+import { getHexagramText, getLineText } from '../../../src/core/iching-texts';
 import { getTrigramImages, TRIGRAM_IMAGE_SOURCE } from '../../../src/features/meihua/images';
 import type { MeihuaHexagram, MeihuaResult } from '../../../src/features/meihua/types';
 
