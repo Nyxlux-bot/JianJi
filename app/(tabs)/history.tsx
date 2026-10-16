@@ -1,29 +1,26 @@
 /**
- * 历史记录页面
- * 展示所有排盘记录，支持查看、收藏、删除与分舱筛选
+ * 历史记录（卷宗）页面
+ * 按引擎分舱、按日期分组展示排盘记录，支持搜索、筛选、收藏，左滑或长按删除
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
-import React, { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
-import {
-    FlatList,
-    GestureResponderEvent,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
-} from 'react-native';
+import React, { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { Platform, Pressable, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
+// 滑动区内用手势库的 Pressable：左滑开始后点按会被取消，不会误开记录
+import { Pressable as GesturePressable } from 'react-native-gesture-handler';
+import Svg, { Circle, Path } from 'react-native-svg';
 import ConfirmModal from '../../src/components/ConfirmModal';
 import StatusBarDecor from '../../src/components/StatusBarDecor';
-import { StarIcon, TrashIcon } from '../../src/components/Icons';
+import HexagramLines from '../../src/components/result/HexagramLines';
+import { StarIcon } from '../../src/components/Icons';
 import { deleteRecord, getAllRecords, RecordSummary, toggleFavorite } from '../../src/db/database';
+import { BA_GUA, GUA_64 } from '../../src/core/liuyao-data';
 import { getRecordRoute } from '../../src/utils/record-route';
-import { BorderRadius, FontSize, Spacing } from '../../src/theme/colors';
 import { useTheme } from '../../src/theme/ThemeContext';
+import { buildResultPalette, type ResultPalette } from '../../src/theme/result-palette';
 import { clearAIAnalysisJob } from '../../src/services/ai-analysis-jobs';
 import {
     BaziHistoryCategory,
@@ -40,13 +37,14 @@ import {
 } from '../../src/utils/history-filter';
 
 const HISTORY_FILTER_STORAGE_KEY = 'history_filter_state_v2';
+const SERIF = Platform.select({ ios: 'Songti SC', android: 'serif', default: 'serif' });
 
-const ENGINE_OPTIONS: Array<{ key: HistoryActiveEngine; label: string; description: string }> = [
-    { key: 'liuyao', label: '六爻', description: '硬币摇卦、手动起卦' },
-    { key: 'meihua', label: '梅花', description: '时间、数字起卦与体用断语' },
-    { key: 'bazi', label: '八字', description: '乾造、坤造与命盘收藏' },
-    { key: 'baziCompatibility', label: '合盘', description: '八字合盘与合盘详批' },
-    { key: 'ziwei', label: '紫微', description: '紫微斗数命盘与运限记录' },
+const ENGINE_OPTIONS: Array<{ key: HistoryActiveEngine; label: string; placeholder: string }> = [
+    { key: 'liuyao', label: '六爻', placeholder: '搜索卦名、占问' },
+    { key: 'meihua', label: '梅花', placeholder: '搜索卦名、占问' },
+    { key: 'bazi', label: '八字', placeholder: '搜索姓名、出生地' },
+    { key: 'baziCompatibility', label: '合盘', placeholder: '搜索双方姓名' },
+    { key: 'ziwei', label: '紫微', placeholder: '搜索姓名、出生地' },
 ];
 
 const LIUYAO_CATEGORY_OPTIONS: Array<{ key: LiuyaoHistoryCategory; label: string }> = [
@@ -65,15 +63,15 @@ const MEIHUA_CATEGORY_OPTIONS: Array<{ key: MeihuaHistoryCategory; label: string
 
 const BAZI_CATEGORY_OPTIONS: Array<{ key: BaziHistoryCategory; label: string }> = [
     { key: 'all', label: '全部' },
-    { key: 'kunzao', label: '坤造' },
     { key: 'qianzao', label: '乾造' },
+    { key: 'kunzao', label: '坤造' },
     { key: 'favorite', label: '收藏' },
 ];
 
 const ZIWEI_CATEGORY_OPTIONS: Array<{ key: ZiweiHistoryCategory; label: string }> = [
     { key: 'all', label: '全部' },
-    { key: 'female', label: '坤造' },
     { key: 'male', label: '乾造' },
+    { key: 'female', label: '坤造' },
     { key: 'favorite', label: '收藏' },
 ];
 
@@ -98,118 +96,67 @@ const META_LABELS: Record<string, string> = {
     baziCompatibility: '合盘',
 };
 
-type HistoryStyles = ReturnType<typeof makeStyles>;
+const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
 
-interface HistoryRecordRowProps {
-    id: string;
-    title: string;
-    question: string;
-    createdAtLabel: string;
-    metaLabel: string;
-    metaLabelKey: string;
-    engineType: RecordSummary['engineType'];
-    isFavorite: boolean;
-    favoriteColor: string;
-    tertiaryColor: string;
-    styles: HistoryStyles;
-    onOpenRecord: (id: string, engineType: RecordSummary['engineType']) => void;
-    onToggleFavorite: (id: string) => Promise<void>;
-    onRequestDelete: (id: string, title: string, engineType: RecordSummary['engineType']) => void;
+/** 卦名 → 卦画（初爻→上爻），给六爻、梅花记录画缩略卦 */
+const LINES_BY_NAME = new Map(Object.values(GUA_64).map((gua) => [gua.fullName, [...BA_GUA[gua.lower].yao, ...BA_GUA[gua.upper].yao]]));
+
+function pad(value: number): string {
+    return String(value).padStart(2, '0');
 }
 
-const HistoryRecordRow = memo(function HistoryRecordRow({
-    id,
-    title,
-    question,
-    createdAtLabel,
-    metaLabel,
-    metaLabelKey,
-    engineType,
-    isFavorite,
-    favoriteColor,
-    tertiaryColor,
-    styles,
-    onOpenRecord,
-    onToggleFavorite,
-    onRequestDelete,
-}: HistoryRecordRowProps) {
-    const handleOpen = useCallback(() => {
-        onOpenRecord(id, engineType);
-    }, [engineType, id, onOpenRecord]);
+function dayKey(date: Date): string {
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
 
-    const handleToggleFavoritePress = useCallback((event: GestureResponderEvent) => {
-        event.stopPropagation();
-        void onToggleFavorite(id);
-    }, [id, onToggleFavorite]);
+interface HistorySection {
+    key: string;
+    label: string;
+    meta: string;
+    data: RecordSummary[];
+}
 
-    const handleDeletePress = useCallback((event: GestureResponderEvent) => {
-        event.stopPropagation();
-        onRequestDelete(id, title, engineType);
-    }, [engineType, id, onRequestDelete, title]);
+/** 按自然日分组：今天、昨天，其余写月日。 */
+function groupByDay(records: RecordSummary[], now: Date): HistorySection[] {
+    const today = dayKey(now);
+    const yesterday = dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
+    const sections: HistorySection[] = [];
+    records.forEach((record) => {
+        const date = new Date(record.createdAt);
+        const key = Number.isNaN(date.getTime()) ? 'unknown' : dayKey(date);
+        let section = sections[sections.length - 1];
+        if (!section || section.key !== key) {
+            const sameYear = date.getFullYear() === now.getFullYear();
+            const dateText = `${sameYear ? '' : `${date.getFullYear()}年`}${date.getMonth() + 1}月${date.getDate()}日`;
+            const label = key === today ? '今天' : key === yesterday ? '昨天' : key === 'unknown' ? '更早' : dateText;
+            const meta = key === 'unknown' ? '' : `${label === dateText ? '' : `${dateText} `}周${WEEKDAYS[date.getDay()]}`;
+            section = { key, label, meta, data: [] };
+            sections.push(section);
+        }
+        section.data.push(record);
+    });
+    return sections;
+}
 
-    return (
-        <Pressable
-            style={({ pressed }) => [styles.recordCard, pressed && styles.recordCardPressed]}
-            onPress={handleOpen}
-        >
-            <View style={styles.recordMain}>
-                <Text style={styles.recordTitle} numberOfLines={1}>{title}</Text>
-                <View style={styles.recordMetaRow}>
-                    <View
-                        style={[
-                            styles.recordMetaBadge,
-                            metaLabelKey === 'qianzao' || metaLabelKey === 'male'
-                                ? styles.recordMetaBadgeMale
-                                : metaLabelKey === 'kunzao' || metaLabelKey === 'female'
-                                    ? styles.recordMetaBadgeFemale
-                                    : engineType === 'bazi' || engineType === 'baziCompatibility'
-                                ? styles.recordMetaBadgeBazi
-                                : engineType === 'ziwei'
-                                    ? styles.recordMetaBadgeZiwei
-                                    : styles.recordMetaBadgeLiuyao,
-                        ]}
-                    >
-                        <Text
-                            style={[
-                                styles.recordMetaBadgeText,
-                                (metaLabelKey === 'qianzao' || metaLabelKey === 'male') && styles.recordMetaBadgeTextMale,
-                                (metaLabelKey === 'kunzao' || metaLabelKey === 'female') && styles.recordMetaBadgeTextFemale,
-                            ]}
-                        >
-                            {metaLabel}
-                        </Text>
-                    </View>
-                    <Text style={styles.recordMeta}>{createdAtLabel}</Text>
-                </View>
-                {question ? (
-                    <Text style={styles.recordQuestion} numberOfLines={1}>
-                        {question}
-                    </Text>
-                ) : null}
-            </View>
-            <View style={styles.recordActions}>
-                <Pressable
-                    style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
-                    onPress={handleToggleFavoritePress}
-                    hitSlop={10}
-                >
-                    <StarIcon
-                        size={17}
-                        color={isFavorite ? favoriteColor : tertiaryColor}
-                        filled={isFavorite}
-                    />
-                </Pressable>
-                <Pressable
-                    style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
-                    onPress={handleDeletePress}
-                    hitSlop={10}
-                >
-                    <TrashIcon size={16} color={tertiaryColor} />
-                </Pressable>
-            </View>
-        </Pressable>
-    );
-});
+/** 列表行的标题与副行。梅花摘要副标题形如「变 巽为风 · 时间起卦」。 */
+function describeRecord(record: RecordSummary): { title: string; sub: string; hasQuestion: boolean } {
+    const question = record.question?.trim() || '';
+    if (record.engineType === 'liuyao') {
+        return { title: record.subtitle ? `${record.title} 之 ${record.subtitle}` : record.title, sub: question || '未填写占问', hasQuestion: Boolean(question) };
+    }
+    if (record.engineType === 'meihua') {
+        const bian = /^变 (\S+)/.exec(record.subtitle || '')?.[1];
+        return { title: bian ? `${record.title} 之 ${bian}` : record.title, sub: question || '未填写占问', hasQuestion: Boolean(question) };
+    }
+    return { title: record.title, sub: record.subtitle || question, hasQuestion: true };
+}
+
+function sealOf(record: RecordSummary, metaKey: string): string {
+    if (record.engineType === 'baziCompatibility') return '合';
+    if (metaKey === 'kunzao' || metaKey === 'female') return '坤';
+    if (metaKey === 'qianzao' || metaKey === 'male') return '乾';
+    return record.engineType === 'ziwei' ? '紫' : '八';
+}
 
 function normalizeStoredFilters(raw: unknown): HistoryFilterState {
     if (!raw || typeof raw !== 'object') {
@@ -217,58 +164,122 @@ function normalizeStoredFilters(raw: unknown): HistoryFilterState {
     }
 
     const parsed = raw as Partial<HistoryFilterState>;
-    const activeEngine = parsed.activeEngine === 'bazi'
-        || parsed.activeEngine === 'ziwei'
-        || parsed.activeEngine === 'baziCompatibility'
-        || parsed.activeEngine === 'meihua'
-        ? parsed.activeEngine
+    const activeEngine = ENGINE_OPTIONS.some((item) => item.key === parsed.activeEngine)
+        ? parsed.activeEngine as HistoryActiveEngine
         : 'liuyao';
-    const liuyaoCategory = LIUYAO_CATEGORY_OPTIONS.some((item) => item.key === parsed.liuyaoCategory)
-        ? parsed.liuyaoCategory as LiuyaoHistoryCategory
-        : DEFAULT_HISTORY_FILTER.liuyaoCategory;
-    const baziCategory = BAZI_CATEGORY_OPTIONS.some((item) => item.key === parsed.baziCategory)
-        ? parsed.baziCategory as BaziHistoryCategory
-        : DEFAULT_HISTORY_FILTER.baziCategory;
-    const ziweiCategory = ZIWEI_CATEGORY_OPTIONS.some((item) => item.key === parsed.ziweiCategory)
-        ? parsed.ziweiCategory as ZiweiHistoryCategory
-        : DEFAULT_HISTORY_FILTER.ziweiCategory;
-    const baziCompatibilityCategory = BAZI_COMPATIBILITY_CATEGORY_OPTIONS.some((item) => item.key === parsed.baziCompatibilityCategory)
-        ? parsed.baziCompatibilityCategory as BaziCompatibilityHistoryCategory
-        : DEFAULT_HISTORY_FILTER.baziCompatibilityCategory;
-    const meihuaCategory = MEIHUA_CATEGORY_OPTIONS.some((item) => item.key === parsed.meihuaCategory)
-        ? parsed.meihuaCategory as MeihuaHistoryCategory
-        : DEFAULT_HISTORY_FILTER.meihuaCategory;
+    const pick = <T extends string>(options: Array<{ key: T }>, value: unknown, fallback: T): T => (
+        options.some((item) => item.key === value) ? value as T : fallback
+    );
 
     return {
         keyword: typeof parsed.keyword === 'string' ? parsed.keyword : DEFAULT_HISTORY_FILTER.keyword,
         activeEngine,
-        liuyaoCategory,
-        baziCategory,
-        ziweiCategory,
-        baziCompatibilityCategory,
-        meihuaCategory,
+        liuyaoCategory: pick(LIUYAO_CATEGORY_OPTIONS, parsed.liuyaoCategory, DEFAULT_HISTORY_FILTER.liuyaoCategory),
+        meihuaCategory: pick(MEIHUA_CATEGORY_OPTIONS, parsed.meihuaCategory, DEFAULT_HISTORY_FILTER.meihuaCategory),
+        baziCategory: pick(BAZI_CATEGORY_OPTIONS, parsed.baziCategory, DEFAULT_HISTORY_FILTER.baziCategory),
+        ziweiCategory: pick(ZIWEI_CATEGORY_OPTIONS, parsed.ziweiCategory, DEFAULT_HISTORY_FILTER.ziweiCategory),
+        baziCompatibilityCategory: pick(BAZI_COMPATIBILITY_CATEGORY_OPTIONS, parsed.baziCompatibilityCategory, DEFAULT_HISTORY_FILTER.baziCompatibilityCategory),
     };
 }
 
-function buildPersistedFilters(filter: HistoryFilterState): Pick<HistoryFilterState, 'activeEngine' | 'liuyaoCategory' | 'baziCategory' | 'ziweiCategory' | 'baziCompatibilityCategory' | 'meihuaCategory'> {
-    return {
-        activeEngine: filter.activeEngine,
-        liuyaoCategory: filter.liuyaoCategory,
-        baziCategory: filter.baziCategory,
-        ziweiCategory: filter.ziweiCategory,
-        baziCompatibilityCategory: filter.baziCompatibilityCategory,
-        meihuaCategory: filter.meihuaCategory,
-    };
+function buildPersistedFilters(filter: HistoryFilterState): Omit<HistoryFilterState, 'keyword'> {
+    const { keyword: _keyword, ...rest } = filter;
+    return rest;
 }
+
+type HistoryStyles = ReturnType<typeof makeStyles>;
+
+interface HistoryRowProps {
+    record: RecordSummary;
+    first: boolean;
+    last: boolean;
+    palette: ResultPalette;
+    styles: HistoryStyles;
+    onOpen: (record: RecordSummary) => void;
+    onToggleFavorite: (id: string) => void;
+    onRequestDelete: (record: RecordSummary) => void;
+}
+
+const HistoryRow = memo(function HistoryRow({ record, first, last, palette, styles, onOpen, onToggleFavorite, onRequestDelete }: HistoryRowProps) {
+    const swipeRef = useRef<SwipeableMethods>(null);
+    const metaKey = getHistoryMetaLabel(record);
+    const { title, sub, hasQuestion } = describeRecord(record);
+    const lines = record.engineType === 'liuyao' || record.engineType === 'meihua' ? LINES_BY_NAME.get(record.title) : undefined;
+    const seal = sealOf(record, metaKey);
+    const date = new Date(record.createdAt);
+    const time = Number.isNaN(date.getTime()) ? '' : `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    const corner = [first && styles.rowFirst, last && styles.rowLast];
+
+    return (
+        <View style={[styles.rowShell, corner, !first && styles.rowRule]}>
+            <ReanimatedSwipeable
+                ref={swipeRef}
+                friction={2}
+                rightThreshold={36}
+                overshootRight={false}
+                renderRightActions={() => (
+                    <Pressable
+                        style={styles.deleteAction}
+                        onPress={() => {
+                            swipeRef.current?.close();
+                            onRequestDelete(record);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`删除 ${title}`}
+                    >
+                        <Text style={styles.deleteText}>删除</Text>
+                    </Pressable>
+                )}
+            >
+                <View style={styles.row}>
+                <GesturePressable
+                    style={({ pressed }) => [styles.rowBody, pressed && styles.pressed]}
+                    onPress={() => onOpen(record)}
+                    onLongPress={() => onRequestDelete(record)}
+                    accessibilityRole="button"
+                    accessibilityLabel={title}
+                    accessibilityHint="长按或左滑可删除"
+                >
+                    <View style={styles.thumb}>
+                        {lines ? (
+                            <HexagramLines lines={lines} width={20} barHeight={2.6} gap={2} trigramGap={2} color={palette.gold} movingColor={palette.gold} />
+                        ) : (
+                            <Text style={[styles.seal, { color: seal === '坤' ? palette.vermilion : seal === '乾' ? palette.element.水 : palette.gold }]}>{seal}</Text>
+                        )}
+                    </View>
+                    <View style={styles.rowMain}>
+                        <Text style={styles.rowTitle} numberOfLines={1}>{title}</Text>
+                        <Text style={[styles.rowSub, !hasQuestion && styles.rowSubMuted]} numberOfLines={1}>{sub}</Text>
+                    </View>
+                    <View style={styles.rowSide}>
+                        <Text style={styles.rowTime}>{time}</Text>
+                        <Text style={styles.rowTag}>{META_LABELS[metaKey] || ''}</Text>
+                    </View>
+                </GesturePressable>
+                    <GesturePressable
+                        onPress={() => onToggleFavorite(record.id)}
+                        style={styles.star}
+                        hitSlop={6}
+                        accessibilityRole="button"
+                        accessibilityLabel={record.isFavorite ? '取消收藏' : '收藏'}
+                    >
+                        <StarIcon size={18} color={record.isFavorite ? palette.gold : palette.muted} filled={record.isFavorite} />
+                    </GesturePressable>
+                </View>
+            </ReanimatedSwipeable>
+        </View>
+    );
+});
 
 export default function HistoryPage() {
     const { Colors } = useTheme();
-    const styles = useMemo(() => makeStyles(Colors), [Colors]);
+    const insets = useSafeAreaInsets();
+    const palette = useMemo(() => buildResultPalette(Colors), [Colors]);
+    const styles = useMemo(() => makeStyles(palette), [palette]);
     const [records, setRecords] = useState<RecordSummary[]>([]);
     const [filters, setFilters] = useState<HistoryFilterState>(DEFAULT_HISTORY_FILTER);
     const [filtersReady, setFiltersReady] = useState(false);
-    const [deleteModalVisible, setDeleteModalVisible] = useState(false);
-    const [deletingRecord, setDeletingRecord] = useState<{ id: string; name: string; engineType: RecordSummary['engineType'] } | null>(null);
+    const [deletingRecord, setDeletingRecord] = useState<RecordSummary | null>(null);
     const deferredKeyword = useDeferredValue(filters.keyword);
 
     useEffect(() => {
@@ -293,12 +304,13 @@ export default function HistoryPage() {
         };
     }, []);
 
+    const persisted = JSON.stringify(buildPersistedFilters(filters));
     useEffect(() => {
         if (!filtersReady) {
             return;
         }
-        void AsyncStorage.setItem(HISTORY_FILTER_STORAGE_KEY, JSON.stringify(buildPersistedFilters(filters)));
-    }, [filters.activeEngine, filters.baziCategory, filters.baziCompatibilityCategory, filters.liuyaoCategory, filters.meihuaCategory, filters.ziweiCategory, filtersReady]);
+        void AsyncStorage.setItem(HISTORY_FILTER_STORAGE_KEY, persisted);
+    }, [persisted, filtersReady]);
 
     const loadRecords = useCallback(async () => {
         const data = await getAllRecords();
@@ -312,416 +324,221 @@ export default function HistoryPage() {
     );
 
     const confirmDelete = async () => {
-        if (!deletingRecord?.id) {
+        if (!deletingRecord) {
             return;
         }
         await clearAIAnalysisJob(deletingRecord.engineType, deletingRecord.id);
         await deleteRecord(deletingRecord.id);
-        setDeleteModalVisible(false);
         setDeletingRecord(null);
         await loadRecords();
     };
 
-    const handleRequestDelete = useCallback((id: string, name: string, engineType: RecordSummary['engineType']) => {
-        setDeletingRecord({ id, name, engineType });
-        setDeleteModalVisible(true);
-    }, []);
-
-    const handleToggleFavorite = useCallback(async (id: string) => {
-        await toggleFavorite(id);
-        await loadRecords();
+    const handleToggleFavorite = useCallback((id: string) => {
+        void toggleFavorite(id).then(loadRecords);
     }, [loadRecords]);
 
-    const handleOpenRecord = useCallback((id: string, engineType: RecordSummary['engineType']) => {
-        router.push(getRecordRoute(engineType, id));
+    const handleOpen = useCallback((record: RecordSummary) => {
+        router.push(getRecordRoute(record.engineType, record.id));
     }, []);
 
-    const filteredRecords = useMemo(
-        () => filterHistoryRecords(records, {
-            ...filters,
-            keyword: deferredKeyword,
-        }),
+    const sections = useMemo(
+        () => groupByDay(filterHistoryRecords(records, { ...filters, keyword: deferredKeyword }), new Date()),
         [deferredKeyword, filters, records],
     );
-    const currentEngineOption = ENGINE_OPTIONS.find((item) => item.key === filters.activeEngine) || ENGINE_OPTIONS[0];
-    const currentCategoryOptions: Array<{ key: string; label: string }> = filters.activeEngine === 'liuyao'
+    const engineCounts = useMemo(() => {
+        const counts: Partial<Record<HistoryActiveEngine, number>> = {};
+        records.forEach((record) => { counts[record.engineType] = (counts[record.engineType] ?? 0) + 1; });
+        return counts;
+    }, [records]);
+    const favoriteCount = records.filter((record) => record.isFavorite).length;
+    const currentEngine = ENGINE_OPTIONS.find((item) => item.key === filters.activeEngine) || ENGINE_OPTIONS[0];
+    const categoryOptions: Array<{ key: string; label: string }> = filters.activeEngine === 'liuyao'
         ? LIUYAO_CATEGORY_OPTIONS
         : filters.activeEngine === 'meihua'
             ? MEIHUA_CATEGORY_OPTIONS
             : filters.activeEngine === 'bazi'
-            ? BAZI_CATEGORY_OPTIONS
-            : filters.activeEngine === 'baziCompatibility'
-                ? BAZI_COMPATIBILITY_CATEGORY_OPTIONS
-                : ZIWEI_CATEGORY_OPTIONS;
+                ? BAZI_CATEGORY_OPTIONS
+                : filters.activeEngine === 'baziCompatibility'
+                    ? BAZI_COMPATIBILITY_CATEGORY_OPTIONS
+                    : ZIWEI_CATEGORY_OPTIONS;
+    const activeCategory = getActiveHistoryCategory(filters);
 
-    const formatDate = useCallback((iso: string) => {
-        const d = new Date(iso);
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
-        const hh = String(d.getHours()).padStart(2, '0');
-        const mi = String(d.getMinutes()).padStart(2, '0');
-        return `${d.getFullYear()}-${mm}-${dd} ${hh}:${mi}`;
-    }, []);
+    const handleCategoryChange = (category: string) => {
+        setFilters((prev) => {
+            if (prev.activeEngine === 'liuyao') return { ...prev, liuyaoCategory: category as LiuyaoHistoryCategory };
+            if (prev.activeEngine === 'meihua') return { ...prev, meihuaCategory: category as MeihuaHistoryCategory };
+            if (prev.activeEngine === 'bazi') return { ...prev, baziCategory: category as BaziHistoryCategory };
+            if (prev.activeEngine === 'baziCompatibility') return { ...prev, baziCompatibilityCategory: category as BaziCompatibilityHistoryCategory };
+            return { ...prev, ziweiCategory: category as ZiweiHistoryCategory };
+        });
+    };
 
-    const handleEngineChange = useCallback((engine: HistoryActiveEngine) => {
-        setFilters((prev) => ({
-            ...prev,
-            activeEngine: engine,
-        }));
-    }, []);
-
-    const handleCategoryChange = useCallback((category: string) => {
-        setFilters((prev) => (
-            prev.activeEngine === 'liuyao'
-                ? { ...prev, liuyaoCategory: category as LiuyaoHistoryCategory }
-                : prev.activeEngine === 'meihua'
-                    ? { ...prev, meihuaCategory: category as MeihuaHistoryCategory }
-                    : prev.activeEngine === 'bazi'
-                    ? { ...prev, baziCategory: category as BaziHistoryCategory }
-                    : prev.activeEngine === 'baziCompatibility'
-                        ? { ...prev, baziCompatibilityCategory: category as BaziCompatibilityHistoryCategory }
-                        : { ...prev, ziweiCategory: category as ZiweiHistoryCategory }
-        ));
-    }, []);
-
-    const keyExtractor = useCallback((item: RecordSummary) => item.id, []);
-
-    const renderItem = useCallback(({ item }: { item: RecordSummary }) => {
-        const metaLabelKey = getHistoryMetaLabel(item);
-        const metaLabel = META_LABELS[metaLabelKey] || item.engineType;
-
-        return (
-            <HistoryRecordRow
-                id={item.id}
-                title={item.title}
-                question={item.question}
-                createdAtLabel={formatDate(item.createdAt)}
-                metaLabel={metaLabel}
-                metaLabelKey={metaLabelKey}
-                engineType={item.engineType}
-                isFavorite={item.isFavorite}
-                favoriteColor={Colors.accent.gold}
-                tertiaryColor={Colors.text.tertiary}
-                styles={styles}
-                onOpenRecord={handleOpenRecord}
-                onToggleFavorite={handleToggleFavorite}
-                onRequestDelete={handleRequestDelete}
-            />
-        );
-    }, [
-        Colors.accent.gold,
-        Colors.text.tertiary,
-        formatDate,
-        handleOpenRecord,
-        handleRequestDelete,
-        handleToggleFavorite,
-        styles,
-    ]);
+    const hasEngineRecords = (engineCounts[filters.activeEngine] ?? 0) > 0;
 
     return (
         <View style={styles.container}>
             <StatusBarDecor />
             <View style={styles.header}>
-                <View style={styles.backBtn} />
-                <Text style={styles.headerTitle}>历史记录</Text>
-                <View style={styles.backBtn} />
+                <View>
+                    <Text style={styles.brand}>卷宗</Text>
+                    <Text style={styles.brandSub}>起卦与命盘的历史记录</Text>
+                </View>
+                <Text style={styles.headerMeta}>共 {records.length} 份 · 收藏 {favoriteCount}</Text>
+            </View>
+
+            <View style={styles.tabs} accessibilityRole="tablist">
+                {ENGINE_OPTIONS.map((option) => {
+                    const active = filters.activeEngine === option.key;
+                    return (
+                        <Pressable
+                            key={option.key}
+                            style={styles.tab}
+                            onPress={() => setFilters((prev) => ({ ...prev, activeEngine: option.key }))}
+                            accessibilityRole="tab"
+                            accessibilityLabel={`${option.label} ${engineCounts[option.key] ?? 0} 份`}
+                            accessibilityState={{ selected: active }}
+                        >
+                            <Text style={[styles.tabText, active && styles.tabTextActive]}>
+                                {option.label}<Text style={styles.tabCount}> {engineCounts[option.key] ?? 0}</Text>
+                            </Text>
+                            {active ? <View style={styles.tabIndicator} /> : null}
+                        </Pressable>
+                    );
+                })}
             </View>
 
             <View style={styles.filterArea}>
-                <TextInput
-                    style={styles.searchInput}
-                    value={filters.keyword}
-                    onChangeText={(text) => setFilters((prev) => ({ ...prev, keyword: text }))}
-                    placeholder={`搜索当前${currentEngineOption.label}分舱的标题、副标题、占问`}
-                    placeholderTextColor={Colors.text.tertiary}
-                    clearButtonMode="while-editing"
-                />
-
-                <View style={styles.engineSegment}>
-                    {ENGINE_OPTIONS.map((option) => {
-                        const active = filters.activeEngine === option.key;
-                        return (
-                            <TouchableOpacity
-                                key={option.key}
-                                style={[styles.engineSegmentBtn, active && styles.engineSegmentBtnActive]}
-                                onPress={() => handleEngineChange(option.key)}
-                                activeOpacity={0.78}
-                            >
-                                <Text style={[styles.engineSegmentTitle, active && styles.engineSegmentTitleActive]}>
-                                    {option.label}
-                                </Text>
-                            </TouchableOpacity>
-                        );
-                    })}
+                <View style={styles.search}>
+                    <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                        <Circle cx={11} cy={11} r={6.5} stroke={palette.muted} strokeWidth={1.8} />
+                        <Path d="M16 16l4 4" stroke={palette.muted} strokeWidth={1.8} strokeLinecap="round" />
+                    </Svg>
+                    <TextInput
+                        style={styles.searchInput}
+                        value={filters.keyword}
+                        onChangeText={(text) => setFilters((prev) => ({ ...prev, keyword: text }))}
+                        placeholder={currentEngine.placeholder}
+                        placeholderTextColor={palette.muted}
+                        clearButtonMode="while-editing"
+                        accessibilityLabel="搜索记录"
+                    />
                 </View>
-
-                <View style={styles.categoryHeader}>
-                    <Text style={styles.categoryTitle}>{currentEngineOption.label}筛选</Text>
-                </View>
-                <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.categoryScrollContent}
-                >
-                    {currentCategoryOptions.map((option) => {
-                        const active = getActiveHistoryCategory(filters) === option.key;
+                <View style={styles.segment} accessibilityRole="radiogroup">
+                    {categoryOptions.map((option) => {
+                        const on = activeCategory === option.key;
                         return (
-                            <TouchableOpacity
+                            <Pressable
                                 key={option.key}
-                                style={[styles.filterChip, active && styles.filterChipActive]}
+                                style={[styles.segmentBtn, on && styles.segmentBtnOn]}
                                 onPress={() => handleCategoryChange(option.key)}
-                                activeOpacity={0.78}
+                                accessibilityRole="radio"
+                                accessibilityLabel={option.label}
+                                accessibilityState={{ checked: on }}
                             >
-                                <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
-                                    {option.label}
-                                </Text>
-                            </TouchableOpacity>
+                                <Text style={[styles.segmentText, on && styles.segmentTextOn]}>{option.label}</Text>
+                            </Pressable>
                         );
                     })}
-                </ScrollView>
+                </View>
             </View>
 
-            {records.length === 0 ? (
+            {sections.length === 0 ? (
                 <View style={styles.empty}>
-                    <Text style={styles.emptyText}>暂无排盘记录</Text>
-                    <Text style={styles.emptyHint}>起卦或排盘后的记录将保存在这里</Text>
-                </View>
-            ) : filteredRecords.length === 0 ? (
-                <View style={styles.empty}>
-                    <Text style={styles.emptyText}>未找到匹配记录</Text>
-                    <Text style={styles.emptyHint}>调整当前分舱的搜索词或筛选条件后重试</Text>
+                    <Text style={styles.emptyTitle}>{hasEngineRecords ? '没有匹配的记录' : `还没有${currentEngine.label}记录`}</Text>
+                    <Text style={styles.emptyHint}>{hasEngineRecords ? '换个关键词或筛选条件试试' : '起卦或排盘后的记录会保存在这里'}</Text>
                 </View>
             ) : (
-                <FlatList
-                    data={filteredRecords}
-                    keyExtractor={keyExtractor}
-                    renderItem={renderItem}
-                    contentContainerStyle={styles.listContent}
+                <SectionList
+                    sections={sections}
+                    keyExtractor={(item) => item.id}
+                    stickySectionHeadersEnabled={false}
+                    contentContainerStyle={[styles.listContent, { paddingBottom: 64 + Math.max(insets.bottom, 16) + 24 }]}
                     showsVerticalScrollIndicator={false}
-                    initialNumToRender={12}
+                    initialNumToRender={14}
                     windowSize={8}
+                    renderSectionHeader={({ section }) => (
+                        <View style={styles.sectionHead}>
+                            <Text style={styles.sectionLabel}>{section.label}</Text>
+                            <Text style={styles.sectionMeta}>{section.meta}</Text>
+                        </View>
+                    )}
+                    renderItem={({ item, index, section }) => (
+                        <HistoryRow
+                            record={item}
+                            first={index === 0}
+                            last={index === section.data.length - 1}
+                            palette={palette}
+                            styles={styles}
+                            onOpen={handleOpen}
+                            onToggleFavorite={handleToggleFavorite}
+                            onRequestDelete={setDeletingRecord}
+                        />
+                    )}
+                    ListFooterComponent={<Text style={styles.footer}>左滑或长按记录可删除</Text>}
                 />
             )}
 
             <ConfirmModal
-                visible={deleteModalVisible}
+                visible={deletingRecord !== null}
                 title="删除记录"
-                message={`确定要删除"${deletingRecord?.name}"吗？删除后将无法恢复。`}
+                message={`确定要删除"${deletingRecord?.title ?? ''}"吗？删除后将无法恢复。`}
                 confirmText="删除"
                 destructive
                 onConfirm={confirmDelete}
-                onCancel={() => setDeleteModalVisible(false)}
+                onCancel={() => setDeletingRecord(null)}
             />
         </View>
     );
 }
 
-const makeStyles = (Colors: any) => StyleSheet.create({
-    container: { flex: 1, backgroundColor: Colors.bg.primary },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: Spacing.lg,
-        paddingVertical: Spacing.md,
+const makeStyles = (palette: ResultPalette) => StyleSheet.create({
+    container: { flex: 1, backgroundColor: palette.page },
+    header: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', paddingTop: 20, paddingHorizontal: 16 },
+    brand: { fontFamily: SERIF, fontSize: 28, lineHeight: 36, fontWeight: '500', letterSpacing: 6, color: palette.heading },
+    brandSub: { fontSize: 11, lineHeight: 16, letterSpacing: 2, color: palette.gold },
+    headerMeta: { fontSize: 12, lineHeight: 16, color: palette.muted },
+    tabs: { flexDirection: 'row', gap: 20, marginTop: 8, paddingHorizontal: 18, borderBottomWidth: 1, borderBottomColor: palette.cardBorder },
+    tab: { height: 42, justifyContent: 'center', paddingHorizontal: 2 },
+    tabText: { fontSize: 15, fontWeight: '500', color: palette.muted },
+    tabTextActive: { fontWeight: '700', color: palette.heading },
+    tabCount: { fontSize: 10, fontWeight: '500', color: palette.muted },
+    tabIndicator: { position: 'absolute', left: '50%', bottom: -1, width: 18, height: 2, marginLeft: -9, borderRadius: 1, backgroundColor: palette.vermilion },
+    filterArea: { paddingTop: 12, paddingHorizontal: 16, gap: 10 },
+    search: {
+        height: 40, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12,
+        borderRadius: 12, borderWidth: 1, borderColor: palette.cardBorder, backgroundColor: palette.segTrack,
     },
-    backBtn: { width: 40, height: 40, justifyContent: 'center' },
-    headerTitle: { fontSize: FontSize.lg, color: Colors.text.heading, fontWeight: '400' },
-    filterArea: {
-        paddingHorizontal: Spacing.md,
-        paddingBottom: Spacing.md,
-        gap: Spacing.sm,
-    },
-    searchInput: {
-        minHeight: 46,
-        borderRadius: BorderRadius.md,
-        borderWidth: 1,
-        borderColor: Colors.border.subtle,
-        backgroundColor: Colors.bg.card,
-        color: Colors.text.primary,
-        paddingHorizontal: Spacing.md,
-        fontSize: FontSize.md,
-    },
-    engineSegment: {
-        flexDirection: 'row',
-        gap: Spacing.sm,
-    },
-    engineSegmentBtn: {
-        flex: 1,
-        minHeight: 46,
-        borderRadius: BorderRadius.lg,
-        borderWidth: 1,
-        borderColor: Colors.border.subtle,
-        backgroundColor: Colors.bg.elevated,
-        paddingHorizontal: Spacing.md,
-        paddingVertical: Spacing.sm,
-        justifyContent: 'center',
-        alignItems: 'center',
-        gap: 4,
-    },
-    engineSegmentBtnActive: {
-        borderColor: Colors.accent.gold,
-        backgroundColor: Colors.bg.card,
-    },
-    engineSegmentTitle: {
-        fontSize: FontSize.md,
-        color: Colors.text.heading,
-        fontWeight: '700',
-    },
-    engineSegmentTitleActive: {
-        color: Colors.accent.gold,
-    },
-    categoryHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginTop: Spacing.xs,
-    },
-    categoryTitle: {
-        fontSize: FontSize.sm,
-        color: Colors.text.secondary,
-        fontWeight: '600',
-    },
-    categoryScrollContent: {
-        gap: Spacing.sm,
-        paddingRight: Spacing.md,
-    },
-    filterChip: {
-        minHeight: 44,
-        paddingHorizontal: Spacing.md,
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor: Colors.border.subtle,
-        backgroundColor: Colors.bg.elevated,
-        justifyContent: 'center',
-    },
-    filterChipActive: {
-        borderColor: Colors.accent.gold,
-        backgroundColor: Colors.bg.card,
-    },
-    filterChipText: {
-        fontSize: FontSize.sm,
-        color: Colors.text.secondary,
-        fontWeight: '500',
-    },
-    filterChipTextActive: {
-        color: Colors.accent.gold,
-        fontWeight: '700',
-    },
-    listContent: {
-        paddingHorizontal: Spacing.md,
-        paddingBottom: 40,
-    },
-    recordCard: {
-        backgroundColor: Colors.bg.card,
-        borderRadius: BorderRadius.lg,
-        padding: Spacing.lg,
-        marginBottom: Spacing.sm,
-        borderWidth: 0.5,
-        borderColor: Colors.border.subtle,
-        gap: Spacing.sm,
-    },
-    recordCardPressed: {
-        opacity: 0.82,
-    },
-    recordMain: {
-        flex: 1,
-        gap: Spacing.xs,
-    },
-    recordTitle: {
-        fontSize: FontSize.lg,
-        color: Colors.text.heading,
-        fontWeight: '500',
-    },
-    recordMetaRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: Spacing.sm,
-    },
-    recordMetaBadge: {
-        minWidth: 54,
-        minHeight: 24,
-        paddingHorizontal: Spacing.sm,
-        borderRadius: 999,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    recordMetaBadgeLiuyao: {
-        backgroundColor: Colors.bg.elevated,
-        borderWidth: 1,
-        borderColor: Colors.border.subtle,
-    },
-    recordMetaBadgeBazi: {
-        backgroundColor: Colors.bg.elevated,
-        borderWidth: 1,
-        borderColor: Colors.accent.gold,
-    },
-    recordMetaBadgeMale: {
-        backgroundColor: Colors.bg.elevated,
-        borderWidth: 1,
-        borderColor: '#5F8ED8',
-    },
-    recordMetaBadgeFemale: {
-        backgroundColor: Colors.bg.elevated,
-        borderWidth: 1,
-        borderColor: '#D98A8A',
-    },
-    recordMetaBadgeZiwei: {
-        backgroundColor: Colors.bg.elevated,
-        borderWidth: 1,
-        borderColor: '#6fa4ff',
-    },
-    recordMetaBadgeText: {
-        fontSize: FontSize.xs,
-        color: Colors.text.secondary,
-        fontWeight: '700',
-    },
-    recordMetaBadgeTextMale: {
-        color: '#5F8ED8',
-    },
-    recordMetaBadgeTextFemale: {
-        color: '#D98A8A',
-    },
-    recordMeta: {
-        fontSize: FontSize.xs,
-        color: Colors.text.tertiary,
-    },
-    recordQuestion: {
-        fontSize: FontSize.sm,
-        color: Colors.text.secondary,
-    },
-    recordActions: {
-        flexDirection: 'row',
-        justifyContent: 'flex-end',
-        gap: Spacing.xs,
-    },
-    actionBtn: {
-        width: 36,
-        height: 36,
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderRadius: 18,
-        backgroundColor: Colors.bg.elevated,
-    },
-    actionBtnPressed: {
-        opacity: 0.72,
-    },
-    empty: {
-        flex: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingHorizontal: Spacing.xl,
-    },
-    emptyText: {
-        fontSize: FontSize.lg,
-        color: Colors.text.heading,
-        fontWeight: '500',
-    },
-    emptyHint: {
-        marginTop: Spacing.sm,
-        fontSize: FontSize.sm,
-        color: Colors.text.tertiary,
-        textAlign: 'center',
-        lineHeight: 22,
-    },
+    searchInput: { flex: 1, height: '100%', fontSize: 14, color: palette.heading, paddingVertical: 0 },
+    segment: { alignSelf: 'flex-start', flexDirection: 'row', gap: 2, padding: 2, borderRadius: 15, borderWidth: 1, borderColor: palette.segBorder, backgroundColor: palette.segTrack },
+    segmentBtn: { height: 26, paddingHorizontal: 12, borderRadius: 13, borderWidth: 1, borderColor: 'transparent', justifyContent: 'center' },
+    segmentBtnOn: { borderColor: palette.segBorder, backgroundColor: palette.segOn },
+    segmentText: { fontSize: 12.5, fontWeight: '600', color: palette.muted },
+    segmentTextOn: { color: palette.ink },
+    listContent: { paddingHorizontal: 16, paddingTop: 6 },
+    sectionHead: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 10, marginBottom: 6 },
+    sectionLabel: { fontSize: 12, lineHeight: 16, color: palette.muted },
+    sectionMeta: { fontSize: 11, lineHeight: 16, color: palette.muted, opacity: 0.8 },
+    rowShell: { overflow: 'hidden', borderLeftWidth: 1, borderRightWidth: 1, borderColor: palette.cardBorder, backgroundColor: palette.card },
+    rowFirst: { borderTopWidth: 1, borderTopLeftRadius: 16, borderTopRightRadius: 16 },
+    rowLast: { borderBottomWidth: 1, borderBottomLeftRadius: 16, borderBottomRightRadius: 16 },
+    rowRule: { borderTopWidth: 1, borderTopColor: palette.cardBorder },
+    row: { flexDirection: 'row', alignItems: 'center', paddingRight: 6, backgroundColor: palette.card },
+    rowBody: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, paddingLeft: 12 },
+    pressed: { opacity: 0.75 },
+    thumb: { width: 38, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.segTrack },
+    seal: { fontFamily: SERIF, fontSize: 16, fontWeight: '700' },
+    rowMain: { flex: 1, minWidth: 0 },
+    rowTitle: { fontSize: 15, lineHeight: 21, fontWeight: '700', color: palette.heading },
+    rowSub: { fontSize: 12.5, lineHeight: 18, color: palette.body },
+    rowSubMuted: { color: palette.muted },
+    rowSide: { alignItems: 'flex-end', gap: 3 },
+    rowTime: { fontSize: 12, lineHeight: 16, color: palette.muted, fontVariant: ['tabular-nums'] },
+    rowTag: { paddingHorizontal: 5, borderRadius: 4, overflow: 'hidden', fontSize: 10.5, lineHeight: 15, color: palette.chipInk, backgroundColor: palette.chipBg },
+    star: { width: 32, height: 40, alignItems: 'center', justifyContent: 'center' },
+    deleteAction: { width: 72, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.vermilion },
+    deleteText: { fontSize: 13, fontWeight: '700', color: palette.sealText },
+    empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6, paddingBottom: 120 },
+    emptyTitle: { fontSize: 15, fontWeight: '600', color: palette.heading },
+    emptyHint: { fontSize: 13, color: palette.muted },
+    footer: { marginTop: 12, textAlign: 'center', fontSize: 11, lineHeight: 16, color: palette.muted },
 });
