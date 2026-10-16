@@ -27,7 +27,7 @@ import { analyzeLiuyaoStatus, type LiuyaoMark } from '../../src/core/liuyao-stat
 import { getHexagramText, getLineText } from '../../src/core/iching-texts';
 import { getMonthGeneralByJieqi, getMoonPhase } from '../../src/core/time-signs';
 import { getGanZhiElement } from '../../src/features/bazi/wuxing';
-import { getRecord, deleteRecord, getAllRecords, toggleFavorite } from '../../src/db/database';
+import { getRecord, deleteRecord, toggleFavorite } from '../../src/db/database';
 import { isAIConfigured } from '../../src/services/settings';
 import { shareResultMarkdown } from '../../src/services/share';
 import { clearAIAnalysisJob } from '../../src/services/ai-analysis-jobs';
@@ -87,7 +87,7 @@ export default function ResultPage() {
         let cancelled = false;
         const load = async () => {
             if (id) {
-                const [detail, summaries] = await Promise.all([getRecord(id), getAllRecords()]);
+                const detail = await getRecord(id);
                 if (!cancelled) {
                     if (!detail) {
                         setScreenState('missing');
@@ -107,7 +107,7 @@ export default function ResultPage() {
                         router.replace(`/bazi/result/${id}`);
                         return;
                     }
-                    setIsFavorite(Boolean(summaries.find(item => item.id === id)?.isFavorite));
+                    setIsFavorite(detail?.isFavorite ?? false);
                 }
             }
             const configured = await isAIConfigured();

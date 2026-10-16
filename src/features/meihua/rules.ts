@@ -12,8 +12,11 @@ export type MeihuaRelation = '比和' | '生体' | '克体' | '体生' | '体克
 export type MeihuaTone = 'good' | 'mixed' | 'bad';
 export type MeihuaSeasonState = '旺' | '相' | '休' | '囚' | '死';
 
-const SOURCE_TIYONG = '《梅花易数》卷二「体用总诀」';
-const SOURCE_SEASON = '《梅花易数》卷二「衰旺论」';
+export const SOURCE_TIYONG = '《梅花易数》卷二「体用总诀」';
+export const SOURCE_SEASON = '《梅花易数》卷二「衰旺论」';
+export const QUOTE_SEASON = '凡占卜，体卦宜盛旺。';
+export const QUOTE_HU = '互乃中间之应。';
+export const QUOTE_BIAN = '变乃末后之期；用吉变凶者，先吉后凶；用凶变吉者，先凶后吉。';
 
 export const RELATION_RULES: Record<MeihuaRelation, { tone: MeihuaTone; quote: string }> = {
     比和: { tone: 'good', quote: '体用比和，则百事顺遂。' },
@@ -140,7 +143,7 @@ function seasonJudgement(analysis: Pick<MeihuaAnalysis, 'ti' | 'yong' | 'tiState
         tone = RELATION_RULES[yong.relation as MeihuaRelation].tone === 'good' ? 'mixed' : 'bad';
         text = `${head}，体弱${isStrong(yongState) ? '用强' : ''}，成事费力，宜缓图。`;
     }
-    return { key: 'season', label: '旺衰', text, tone, tag: tone === 'mixed' ? '需缓' : TONE_TAG[tone], source: `${SOURCE_SEASON}：凡占卜，体卦宜盛旺。` };
+    return { key: 'season', label: '旺衰', text, tone, tag: tone === 'mixed' ? '需缓' : TONE_TAG[tone], source: `${SOURCE_SEASON}：${QUOTE_SEASON}` };
 }
 
 export function analyzeMeihua(result: MeihuaResult): MeihuaAnalysis {
@@ -184,13 +187,13 @@ export function analyzeMeihua(result: MeihuaResult): MeihuaAnalysis {
             key: 'process', label: '过程',
             text: `互卦${huParts.map((item) => `${item.name}${item.wuxing}${PROCESS_PHRASE[item.relation as MeihuaRelation]}`).join('；')}。`,
             tone: processTone, tag: processTone === 'mixed' ? '参半' : TONE_TAG[processTone],
-            source: `${SOURCE_TIYONG}：互乃中间之应。`,
+            source: `${SOURCE_TIYONG}：${QUOTE_HU}`,
         },
         {
             key: 'outcome', label: '结果',
             text: `用卦变${bianYong.name}${bianYong.wuxing}，${OUTCOME_PHRASE[bianYong.relation as MeihuaRelation]}${turn}。`,
             tone: bianYong.tone, tag: TONE_TAG[bianYong.tone],
-            source: `${SOURCE_TIYONG}：变乃末后之期；用吉变凶者，先吉后凶；用凶变吉者，先凶后吉。`,
+            source: `${SOURCE_TIYONG}：${QUOTE_BIAN}`,
         },
     ];
 

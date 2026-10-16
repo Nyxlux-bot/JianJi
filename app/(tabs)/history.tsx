@@ -280,7 +280,7 @@ export default function HistoryPage() {
     const [filters, setFilters] = useState<HistoryFilterState>(DEFAULT_HISTORY_FILTER);
     const [filtersReady, setFiltersReady] = useState(false);
     const [deletingRecord, setDeletingRecord] = useState<RecordSummary | null>(null);
-    const deferredKeyword = useDeferredValue(filters.keyword);
+    const deferredFilters = useDeferredValue(filters);
 
     useEffect(() => {
         let active = true;
@@ -342,8 +342,8 @@ export default function HistoryPage() {
     }, []);
 
     const sections = useMemo(
-        () => groupByDay(filterHistoryRecords(records, { ...filters, keyword: deferredKeyword }), new Date()),
-        [deferredKeyword, filters, records],
+        () => groupByDay(filterHistoryRecords(records, deferredFilters), new Date()),
+        [deferredFilters, records],
     );
     const engineCounts = useMemo(() => {
         const counts: Partial<Record<HistoryActiveEngine, number>> = {};
