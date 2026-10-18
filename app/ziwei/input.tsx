@@ -406,7 +406,7 @@ export default function ZiweiInputPage() {
 const makeStyles = (Colors: any) => StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: Colors.bg.primary,
+        backgroundColor: 'transparent',
     },
     header: {
         flexDirection: 'row',

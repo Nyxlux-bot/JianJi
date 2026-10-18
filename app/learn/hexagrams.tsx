@@ -164,7 +164,7 @@ export default function HexagramsPage() {
 }
 
 const makeStyles = (palette: ResultPalette) => StyleSheet.create({
-    container: { flex: 1, backgroundColor: palette.page },
+    container: { flex: 1, backgroundColor: 'transparent' },
     flex: { flex: 1, minWidth: 0 },
     pressed: { opacity: 0.7 },
     topBar: {

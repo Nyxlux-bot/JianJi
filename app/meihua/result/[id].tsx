@@ -367,7 +367,7 @@ const ROW = { head: 40, name: 30, lines: 70, trigram: 36, note: 44 };
 
 function makeStyles(palette: ResultPalette) {
     return StyleSheet.create({
-        container: { flex: 1, backgroundColor: palette.page },
+        container: { flex: 1, backgroundColor: 'transparent' },
         center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
         muted: { fontSize: 12, lineHeight: 16, color: palette.muted },
         mutedText: { color: palette.muted },

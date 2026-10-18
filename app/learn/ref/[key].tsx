@@ -151,7 +151,7 @@ export default function LearnRefPage() {
 }
 
 const makeStyles = (palette: ResultPalette) => StyleSheet.create({
-    container: { flex: 1, backgroundColor: palette.page },
+    container: { flex: 1, backgroundColor: 'transparent' },
     flex: { flex: 1, minWidth: 0 },
     title: { fontFamily: SERIF, fontSize: 17, fontWeight: '700', letterSpacing: 2, color: palette.heading },
     body: { padding: 12, gap: 10 },

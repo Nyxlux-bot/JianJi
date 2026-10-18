@@ -720,7 +720,7 @@ const RelationModeSwitch: React.FC<{
 );
 
 const makeStyles = (Colors: any) => StyleSheet.create({
-    container: { flex: 1, backgroundColor: Colors.bg.primary },
+    container: { flex: 1, backgroundColor: 'transparent' },
     centerState: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.lg },
     stateText: { color: Colors.text.tertiary, fontSize: FontSize.md },
     missingTitle: { color: Colors.text.primary, fontSize: FontSize.lg, fontWeight: '600' },
@@ -786,7 +786,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     pageSurface: {
         alignSelf: 'center',
         paddingTop: Spacing.sm,
-        backgroundColor: Colors.bg.primary,
+        backgroundColor: 'transparent',
     },
     flowPageSurface: {
         flex: 1,

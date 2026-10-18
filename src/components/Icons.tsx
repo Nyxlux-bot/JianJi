@@ -57,6 +57,17 @@ export const ClockIcon: React.FC<IconProps> = ({ size = 24, color }) => {
     );
 };
 
+export const RingsIcon: React.FC<IconProps> = ({ size = 24, color }) => {
+    const { Colors } = useTheme();
+    const c = color || Colors.accent.gold;
+    return (
+        <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+            <Circle cx="9" cy="12" r="5.5" stroke={c} strokeWidth="1.5" />
+            <Circle cx="15" cy="12" r="5.5" stroke={c} strokeWidth="1.5" />
+        </Svg>
+    );
+};
+
 export const CoinIcon: React.FC<IconProps> = ({ size = 24, color }) => {
     const { Colors } = useTheme();
     const c = color || Colors.accent.gold;

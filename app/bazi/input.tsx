@@ -441,7 +441,7 @@ export default function BaziInputPage() {
 }
 
 const makeStyles = (Colors: any) => StyleSheet.create({
-    container: { flex: 1, backgroundColor: Colors.bg.primary },
+    container: { flex: 1, backgroundColor: 'transparent' },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
