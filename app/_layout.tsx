@@ -4,7 +4,7 @@
 
 import '../src/polyfills/intl';
 import React, { useEffect, useRef } from 'react';
-import { Stack } from 'expo-router';
+import { Stack, DarkTheme, DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Animated } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -12,6 +12,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SplashScreen from 'expo-splash-screen';
 import { ThemeProvider, useTheme } from "../src/theme/ThemeContext";
 import CustomAlertProvider from '../src/components/CustomAlertProvider';
+import PageBackground from '../src/components/PageBackground';
 import { GanZhiRelationSettingsProvider } from '../src/features/bazi/ganzhi-relation-settings';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
@@ -21,6 +22,7 @@ function RootApp() {
     const { Colors, theme } = useTheme();
     const styles = makeStyles(Colors);
     const fadeAnim = useRef(new Animated.Value(0)).current;
+    const navigationTheme = theme === 'yang' ? DefaultTheme : DarkTheme;
 
     useEffect(() => {
         const prepareApp = async () => {
@@ -46,14 +48,17 @@ function RootApp() {
         <GestureHandlerRootView style={styles.container}>
             <SafeAreaProvider>
                 <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
+                    <PageBackground />
                     <StatusBar style={theme === 'yang' ? 'dark' : 'light'} />
-                    <Stack
-                        screenOptions={{
-                            headerShown: false,
-                            contentStyle: { backgroundColor: Colors.bg.primary },
-                            animation: 'fade',
-                        }}
-                    />
+                    <NavigationThemeProvider value={{ ...navigationTheme, colors: { ...navigationTheme.colors, background: 'transparent' } }}>
+                        <Stack
+                            screenOptions={{
+                                headerShown: false,
+                                contentStyle: { backgroundColor: 'transparent' },
+                                animation: 'fade',
+                            }}
+                        />
+                    </NavigationThemeProvider>
                     <CustomAlertProvider />
                 </Animated.View>
             </SafeAreaProvider>

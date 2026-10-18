@@ -26,7 +26,7 @@ export const makeAIMarkdownStyles = (Colors: any) => ({
 });
 
 export const makeAIPageStyles = (Colors: any) => StyleSheet.create({
-    container: { flex: 1, backgroundColor: Colors.bg.primary },
+    container: { flex: 1, backgroundColor: 'transparent' },
     flex: { flex: 1 },
 
     header: { paddingHorizontal: Spacing.sm, paddingTop: Spacing.xs, borderBottomWidth: 1, borderBottomColor: Colors.border.subtle, backgroundColor: Colors.bg.primary },

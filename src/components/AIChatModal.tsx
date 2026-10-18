@@ -97,6 +97,7 @@ import {
     FailureBanner, formatRunLabel, MutagenChips, ProgressBlock, ZiweiChartSummary,
 } from './ai/AIPageParts';
 import { makeAIMarkdownStyles, makeAIPageStyles } from './ai/ai-page-styles';
+import PageBackground from './PageBackground';
 import OverflowMenu, { OverflowMenuItem } from './OverflowMenu';
 
 interface AIChatModalProps {
@@ -1569,6 +1570,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         <Modal visible={visible} animationType="slide" onRequestClose={handleClose} onShow={handleModalShow}>
             <GestureHandlerRootView style={pageStyles.flex}>
                 <SafeAreaProvider style={pageStyles.container}>
+                    <PageBackground />
                     <SafeAreaView style={pageStyles.container}>
                         <View style={pageStyles.header} onLayout={({ nativeEvent: { layout } }) => setHeaderBottom(layout.y + layout.height)}>
                             <View style={pageStyles.headerRow}>

@@ -492,7 +492,7 @@ export default function HistoryPage() {
 }
 
 const makeStyles = (palette: ResultPalette) => StyleSheet.create({
-    container: { flex: 1, backgroundColor: palette.page },
+    container: { flex: 1, backgroundColor: 'transparent' },
     header: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', paddingTop: 20, paddingHorizontal: 16 },
     brand: { fontFamily: SERIF, fontSize: 28, lineHeight: 36, fontWeight: '500', letterSpacing: 6, color: palette.heading },
     brandSub: { fontSize: 11, lineHeight: 16, letterSpacing: 2, color: palette.gold },

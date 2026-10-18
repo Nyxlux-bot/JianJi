@@ -1850,7 +1850,7 @@ const makeStyles = (Colors: any, palette: Palette, viewportWidth: number = 862) 
     const tabular = ['tabular-nums'] as Array<'tabular-nums'>;
 
     return StyleSheet.create({
-        container: { flex: 1, backgroundColor: palette.page },
+        container: { flex: 1, backgroundColor: 'transparent' },
         shell: {
             position: 'relative',
             flex: 1,
@@ -1858,7 +1858,7 @@ const makeStyles = (Colors: any, palette: Palette, viewportWidth: number = 862) 
             maxWidth: 862,
             alignSelf: 'center',
             overflow: 'hidden',
-            backgroundColor: palette.page,
+            backgroundColor: 'transparent',
             borderLeftWidth: viewportWidth > 862 ? StyleSheet.hairlineWidth : 0,
             borderRightWidth: viewportWidth > 862 ? StyleSheet.hairlineWidth : 0,
             borderColor: Colors.bazi.divider,
@@ -1979,7 +1979,7 @@ const makeStyles = (Colors: any, palette: Palette, viewportWidth: number = 862) 
 
         content: { flex: 1 },
         contentContainer: { width: '100%', alignItems: 'center', paddingBottom: 28 },
-        pageSurface: { width: '100%', maxWidth: 862, backgroundColor: palette.page },
+        pageSurface: { width: '100%', maxWidth: 862, backgroundColor: 'transparent' },
 
         /* 头部：宣纸底 + 右侧剪纸生肖 */
         hero: {

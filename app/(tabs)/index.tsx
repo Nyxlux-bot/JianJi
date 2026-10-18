@@ -1,10 +1,10 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import StatusBarDecor from '../../src/components/StatusBarDecor';
-import YongleCoin from '../../src/components/YongleCoin';
-import { BaGuaIcon, ChevronRightIcon, ClockIcon, CoinIcon, HandIcon, NumberIcon, StarIcon } from '../../src/components/Icons';
+import EntryDeck from '../../src/features/home/EntryDeck';
+import { ChevronRightIcon } from '../../src/components/Icons';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { buildResultPalette, type ResultPalette } from '../../src/theme/result-palette';
 import { getCurrentJieqi, solarToLunar } from '../../src/core/lunar';
@@ -15,7 +15,6 @@ import { getAllRecords } from '../../src/db/database';
 import { DIVINATION_ENGINE_LABEL, type RecordSummary } from '../../src/db/record-types';
 import { getRecordRoute } from '../../src/utils/record-route';
 
-const PLUM_BRANCH = require('../../assets/meihua/ui/plum-branch.png');
 const SERIF = Platform.select({ ios: 'Songti SC', android: 'serif', default: 'serif' });
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
 const LIUYAO_METHOD_LABEL: Record<string, string> = { coin: '摇卦', manual: '手动', time: '时间', number: '数字' };
@@ -118,73 +117,11 @@ export default function HomePage() {
                     ))}
                 </View>
 
-                <Text style={styles.sectionLabel}>起卦</Text>
-                <View style={styles.castCard}>
-                    <View style={styles.castBody}>
-                        <View style={styles.castTitleRow}>
-                            <Text style={styles.castTitle}>六爻</Text>
-                            <Text style={styles.castSub}>纳甲 · 六亲 · 世应</Text>
-                        </View>
-                        <Text style={styles.castDesc}>三枚铜钱，六次摇掷成卦</Text>
-                        <View style={[styles.capsule, styles.capsuleGold]}>
-                            <Pressable onPress={() => router.push('/divination/coin')} style={({ pressed }) => [styles.capsuleBtn, styles.capsulePrimary, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="摇卦">
-                                <CoinIcon size={16} color={Colors.text.inverse} />
-                                <Text style={styles.capsulePrimaryText}>摇卦</Text>
-                            </Pressable>
-                            <Pressable onPress={() => router.push('/divination/manual')} style={({ pressed }) => [styles.capsuleBtn, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="手动录入">
-                                <HandIcon size={16} color={Colors.accent.goldLight} />
-                                <Text style={styles.capsuleText}>手动</Text>
-                            </Pressable>
-                        </View>
-                    </View>
-                    <View style={styles.coins} pointerEvents="none">
-                        <YongleCoin face="front" size={60} style={[styles.coin, { left: 0, top: 30, transform: [{ rotate: '-14deg' }] }]} />
-                        <YongleCoin face="back" size={60} style={[styles.coin, { left: 38, top: 0, transform: [{ rotate: '8deg' }] }]} />
-                        <YongleCoin face="front" size={60} style={[styles.coin, { left: 66, top: 40, transform: [{ rotate: '22deg' }] }]} />
-                    </View>
-                </View>
-
-                <View style={styles.castCard}>
-                    <Image source={PLUM_BRANCH} style={styles.plum} resizeMode="contain" accessibilityIgnoresInvertColors />
-                    <View style={styles.castBody}>
-                        <View style={styles.castTitleRow}>
-                            <Text style={styles.castTitle}>梅花易数</Text>
-                            <Text style={styles.castSub}>先天数 · 体用</Text>
-                        </View>
-                        <Text style={styles.castDesc}>
-                            此刻起卦得 <Text style={styles.castDescStrong}>{today.meihua.ben.fullName}</Text>
-                            {' · '}<Text style={{ color: palette.vermilion }}>{getLinePositionName(today.meihua.movingLine)}动</Text>
-                        </Text>
-                        <View style={[styles.capsule, styles.capsulePlain]}>
-                            <Pressable onPress={() => router.push('/meihua/input?mode=time')} style={({ pressed }) => [styles.capsuleBtn, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="时间起卦">
-                                <ClockIcon size={16} color={Colors.accent.goldLight} />
-                                <Text style={styles.capsuleText}>时间</Text>
-                            </Pressable>
-                            <View style={styles.capsuleDivider} />
-                            <Pressable onPress={() => router.push('/meihua/input?mode=number')} style={({ pressed }) => [styles.capsuleBtn, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="数字起卦">
-                                <NumberIcon size={16} color={Colors.accent.goldLight} />
-                                <Text style={styles.capsuleText}>数字</Text>
-                            </Pressable>
-                        </View>
-                    </View>
-                </View>
-
-                <Text style={styles.sectionLabel}>命盘</Text>
-                <View style={styles.tileRow}>
-                    <Pressable onPress={() => router.push('/bazi/input')} style={({ pressed }) => [styles.tile, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="八字命理">
-                        <BaGuaIcon size={28} color={palette.gold} />
-                        <Text style={styles.tileTitle}>八字命理</Text>
-                        <Text style={styles.tileDesc}>四柱十神 · 大运流年</Text>
-                    </Pressable>
-                    <Pressable onPress={() => router.push('/bazi/match')} style={({ pressed }) => [styles.matchBtn, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="八字合盘">
-                        <Text style={styles.matchText}>合盘</Text>
-                    </Pressable>
-                    <Pressable onPress={() => router.push('/ziwei/input')} style={({ pressed }) => [styles.tile, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="紫微斗数">
-                        <StarIcon size={28} color={palette.gold} />
-                        <Text style={styles.tileTitle}>紫微斗数</Text>
-                        <Text style={styles.tileDesc}>十二宫 · 四化运限</Text>
-                    </Pressable>
-                </View>
+                <EntryDeck
+                    liuyaoMeta={`今日${today.lunar.dayGanZhi}日 · 旬空${today.xunKong.join('')}`}
+                    meihuaDescription={<>此刻起卦得 <Text style={{ fontWeight: '700' }}>{today.meihua.ben.fullName}</Text>{' · '}<Text style={{ color: palette.isLight ? '#9E3F35' : '#F08A7C' }}>{getLinePositionName(today.meihua.movingLine)}动</Text></>}
+                    meihuaMeta={`${today.lunar.yearGanZhi}年 ${today.lunar.lunarMonthCN}${today.lunar.lunarDayCN} ${today.lunar.hourGanZhi[1]}时`}
+                />
 
                 <View style={styles.recentHead}>
                     <Text style={styles.sectionLabelInline}>最近</Text>
@@ -223,7 +160,7 @@ export default function HomePage() {
 function makeStyles(palette: ResultPalette, Colors: any) {
     const surface = Colors.bg.secondary as string;
     return StyleSheet.create({
-        container: { flex: 1, backgroundColor: palette.page },
+        container: { flex: 1, backgroundColor: 'transparent' },
         content: { paddingTop: 20, paddingHorizontal: 16, gap: 12 },
         header: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
         brand: { fontFamily: SERIF, fontSize: 30, lineHeight: 38, fontWeight: '500', letterSpacing: 6, color: palette.heading },
@@ -243,65 +180,7 @@ function makeStyles(palette: ResultPalette, Colors: any) {
         todayDivider: { borderLeftWidth: 1, borderLeftColor: palette.cardBorder },
         todayLabel: { fontSize: 11, lineHeight: 15, color: palette.muted },
         todayValue: { fontSize: 14, lineHeight: 20, fontWeight: '600' },
-        sectionLabel: { fontSize: 12, lineHeight: 16, color: palette.muted, marginBottom: -4 },
         sectionLabelInline: { fontSize: 12, lineHeight: 16, color: palette.muted },
-        castCard: {
-            position: 'relative',
-            overflow: 'hidden',
-            flexDirection: 'row',
-            alignItems: 'center',
-            paddingVertical: 16,
-            paddingLeft: 16,
-            paddingRight: 12,
-            borderRadius: 18,
-            borderWidth: 1,
-            borderColor: palette.cardBorder,
-            backgroundColor: palette.card,
-        },
-        castBody: { flex: 1, minWidth: 0 },
-        castTitleRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
-        castTitle: { fontFamily: SERIF, fontSize: 21, lineHeight: 28, fontWeight: '700', color: palette.heading },
-        castSub: { fontSize: 12, lineHeight: 16, color: palette.muted },
-        castDesc: { marginTop: 4, fontSize: 12.5, lineHeight: 18, color: palette.muted },
-        castDescStrong: { fontWeight: '700', color: palette.heading },
-        capsule: { marginTop: 14, alignSelf: 'flex-start', flexDirection: 'row', height: 40, borderRadius: 20, overflow: 'hidden', borderWidth: 1 },
-        capsuleGold: { borderColor: palette.gold },
-        capsulePlain: { borderColor: palette.segBorder, backgroundColor: palette.segTrack },
-        capsuleBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 15 },
-        capsulePrimary: { backgroundColor: palette.gold },
-        capsulePrimaryText: { fontSize: 14, fontWeight: '700', color: Colors.text.inverse },
-        capsuleText: { fontSize: 14, fontWeight: '600', color: Colors.accent.goldLight },
-        capsuleDivider: { width: 1, marginVertical: 10, backgroundColor: palette.segBorder },
-        coins: { width: 128, height: 104 },
-        coin: { position: 'absolute' },
-        plum: { position: 'absolute', right: -22, bottom: -34, width: 172, height: 172 },
-        tileRow: { flexDirection: 'row', gap: 8 },
-        tile: {
-            flex: 1,
-            paddingVertical: 12,
-            paddingHorizontal: 14,
-            borderRadius: 16,
-            borderWidth: 1,
-            borderColor: palette.cardBorder,
-            backgroundColor: palette.card,
-        },
-        tileTitle: { marginTop: 8, fontSize: 15, lineHeight: 21, fontWeight: '700', color: palette.heading },
-        tileDesc: { fontSize: 12, lineHeight: 17, color: palette.muted },
-        matchBtn: {
-            position: 'absolute',
-            top: 10,
-            left: '50%',
-            marginLeft: -60,
-            height: 26,
-            paddingHorizontal: 10,
-            borderRadius: 13,
-            justifyContent: 'center',
-            borderWidth: 1,
-            borderColor: palette.segBorder,
-            backgroundColor: palette.segTrack,
-            zIndex: 1,
-        },
-        matchText: { fontSize: 12, color: Colors.accent.goldLight },
         recentHead: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: -4 },
         recentAll: { fontSize: 12, lineHeight: 16, color: palette.gold },
         recentList: { borderRadius: 16, borderWidth: 1, borderColor: palette.cardBorder, backgroundColor: surface },

@@ -241,7 +241,7 @@ const BOOK_META: Record<string, string> = {
 };
 
 const makeStyles = (palette: ResultPalette) => StyleSheet.create({
-    container: { flex: 1, backgroundColor: palette.page },
+    container: { flex: 1, backgroundColor: 'transparent' },
     flex: { flex: 1 },
     pressed: { opacity: 0.7 },
     hidden: { opacity: 0 },

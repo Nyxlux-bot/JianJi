@@ -117,14 +117,12 @@ function CustomTabBar({ state, descriptors, navigation }: any) {
 }
 
 export default function TabLayout() {
-    const { Colors } = useTheme();
-
     return (
         <Tabs
             tabBar={(props) => <CustomTabBar {...props} />}
             screenOptions={{
                 headerShown: false,
-                sceneStyle: { backgroundColor: Colors?.bg?.primary || '#fff' },
+                sceneStyle: { backgroundColor: 'transparent' },
             }}
         >
             <Tabs.Screen

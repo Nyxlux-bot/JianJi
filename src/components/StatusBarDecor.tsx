@@ -23,6 +23,6 @@ export default StatusBarDecor;
 const makeStyles = (Colors: any) => StyleSheet.create({
     container: {
         width: '100%',
-        backgroundColor: Colors.bg.primary,
+        backgroundColor: 'transparent',
     },
 });

@@ -226,7 +226,7 @@ export default function LearnPage() {
 }
 
 const makeStyles = (palette: ResultPalette) => StyleSheet.create({
-    container: { flex: 1, backgroundColor: palette.page },
+    container: { flex: 1, backgroundColor: 'transparent' },
     flex: { flex: 1, minWidth: 0 },
     pressed: { opacity: 0.7 },
     header: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', paddingTop: 20, paddingHorizontal: 16 },

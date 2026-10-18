@@ -1186,7 +1186,7 @@ export default function ZiweiResultPage() {
 function makeStyles(Colors: any, palette: ReturnType<typeof buildZiweiPalette>) {
     const base = { includeFontPadding: false } as const;
     return StyleSheet.create({
-        container: { flex: 1, backgroundColor: palette.page },
+        container: { flex: 1, backgroundColor: 'transparent' },
         stage: { flex: 1 },
         boardWrap: { marginTop: ZIWEI_STAGE.boardTop, paddingHorizontal: ZIWEI_STAGE.sidePadding, alignItems: 'center' },
         axisWrap: { marginTop: ZIWEI_STAGE.axisTop, paddingHorizontal: ZIWEI_STAGE.sidePadding },

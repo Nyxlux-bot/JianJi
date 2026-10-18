@@ -455,7 +455,7 @@ export default function ResultPage() {
 
 function makeStyles(palette: ResultPalette) {
     return StyleSheet.create({
-        container: { flex: 1, backgroundColor: palette.page },
+        container: { flex: 1, backgroundColor: 'transparent' },
         center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
         muted: { fontSize: 13, color: palette.muted },
         missingActions: { flexDirection: 'row', gap: 16 },

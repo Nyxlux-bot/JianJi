@@ -294,7 +294,7 @@ export default function MeihuaInputPage() {
 
 function makeStyles(palette: ResultPalette, Colors: any) {
     return StyleSheet.create({
-        container: { flex: 1, backgroundColor: palette.page },
+        container: { flex: 1, backgroundColor: 'transparent' },
         header: { height: 50, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 4 },
         headerBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
         headerTitle: { fontSize: 17, fontWeight: '700', color: palette.heading },
