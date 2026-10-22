@@ -1,4 +1,4 @@
-import { COMPAT_CONTRACT, FIVE_YEAR_CONTRACT, VERIFICATION_CONTRACT, type ChapterFieldContract } from '../output-contracts';
+import { COMPAT_SECTION_TITLES, FIVE_YEAR_CONTRACT, VERIFICATION_CONTRACT, type ChapterFieldContract } from '../output-contracts';
 
 /**
  * Reads structure out of a finished (or streaming) chapter. Never rejects:
@@ -53,7 +53,7 @@ function isBoldTitle(title: string): boolean {
     return YEAR_START.test(title)
         || GAN_ZHI_THEN_YEAR.test(title)
         || title.includes(FIVE_YEAR_CONTRACT.strategyTitle)
-        || COMPAT_CONTRACT.sections.some((section) => title.includes(section));
+        || COMPAT_SECTION_TITLES.some((section) => title.includes(section));
 }
 
 /** Split into blocks at level 2-4 headings (or whole-line bold titles), skipping fenced code. */
@@ -198,7 +198,7 @@ function toSegments(kind: ChapterLayoutKind, block: RawBlock, open: boolean): Ch
         return [{ type: 'year', raw, open, year: parsed.year, ganZhi: parsed.ganZhi, tag: parsed.rest.join(' · '), body }];
     }
 
-    const title = COMPAT_CONTRACT.sections.find((section) => block.title.includes(section));
+    const title = COMPAT_SECTION_TITLES.find((section) => block.title.includes(section));
     if (!title) return [markdown(raw)];
     return [{ type: 'section', raw, open, title, ...firstSentence(body) }];
 }

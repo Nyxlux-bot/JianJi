@@ -219,7 +219,7 @@ export default function BaziMatchResultPage() {
                 tabs={tabs}
                 active={hasScore ? view : 'overview'}
                 onTab={setView}
-                aiLabel={isLove ? 'AI 合盘' : ''}
+                aiLabel={hasScore ? 'AI 合盘' : ''}
                 aiDisabled={!aiConfigured}
                 onAI={handleAI}
                 onMore={() => setMenuVisible((prev) => !prev)}
