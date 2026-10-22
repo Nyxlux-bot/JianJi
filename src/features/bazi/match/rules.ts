@@ -725,13 +725,14 @@ function buildMarriageYears(
     male: BaziMatchProfile,
     female: BaziMatchProfile,
     timing: BaziMarriageTimingResult,
+    fromYear: number,
 ): BaziMarriageYearCandidate[] {
     const allYears: BaziMarriageYearCandidate[] = [];
     const femaleByYear = new Map(timing.female.candidates.map((item) => [item.year, item]));
 
     timing.male.candidates.forEach((maleCandidate) => {
         const femaleCandidate = femaleByYear.get(maleCandidate.year);
-        if (!femaleCandidate) {
+        if (!femaleCandidate || maleCandidate.year < fromYear) {
             return;
         }
         if (!isDisplayMarriageAge(maleCandidate.age) || !isDisplayMarriageAge(femaleCandidate.age)) {
@@ -773,6 +774,7 @@ function buildMarriageTiming(
     femaleResult: BaziResult,
     maleProfile: BaziMatchProfile,
     femaleProfile: BaziMatchProfile,
+    fromYear: number,
 ): BaziMarriageTimingResult {
     const male = buildMarriageTimingProfile(maleResult, maleProfile);
     const female = buildMarriageTimingProfile(femaleResult, femaleProfile);
@@ -780,7 +782,7 @@ function buildMarriageTiming(
     const sharedYears = male.candidates
         .filter((item) => {
             const femaleCandidate = femaleByYear.get(item.year);
-            return Boolean(femaleCandidate && isDisplayMarriageAge(item.age) && isDisplayMarriageAge(femaleCandidate.age));
+            return Boolean(femaleCandidate && item.year >= fromYear && isDisplayMarriageAge(item.age) && isDisplayMarriageAge(femaleCandidate.age));
         })
         .map((item) => item.year)
         .sort((left, right) => left - right);
@@ -1080,8 +1082,9 @@ export function calculateBaziMatch(male: BaziResult, female: BaziResult, referen
         scoreOffspring(maleProfile, femaleProfile),
         scoreLifecycle(maleProfile, femaleProfile),
     ];
-    const marriageTiming = buildMarriageTiming(male, female, maleProfile, femaleProfile);
-    const marriageYears = buildMarriageYears(maleProfile, femaleProfile, marriageTiming);
+    const fromYear = referenceDate.getFullYear();
+    const marriageTiming = buildMarriageTiming(male, female, maleProfile, femaleProfile, fromYear);
+    const marriageYears = buildMarriageYears(maleProfile, femaleProfile, marriageTiming, fromYear);
     const evidenceMatrix = buildBaziMatchEvidenceMatrix({
         maleProfile,
         femaleProfile,

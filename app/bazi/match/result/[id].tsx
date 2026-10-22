@@ -204,7 +204,7 @@ export default function BaziMatchResultPage() {
     const dayBranchLink = links.find((link) => link.layer === 'branch' && link.me === 2 && link.ta === 2);
     const spec = getPairSpec(relation.key);
     const timing = isLove
-        ? { title: '婚期', meta: '两盘同年应期 · 仅作参考', tags: ['主应期', '备选'], empty: '两盘近年未见同年应期，暂不定具体婚年。' }
+        ? { title: '婚期', meta: '两盘同年应期 · 仅作参考', tags: ['主应期', '备选'], empty: result.marriageYears.length > 0 ? '这条记录存的婚期都已过去，重新合一次可看往后的应期。' : '两盘近年未见同年应期，暂不定具体婚年。' }
         : spec && { title: spec.timing.title, meta: spec.timing.meta, tags: ['最顺', '次之'], empty: '近十二年的流年少有补到两人所需的。' };
     const heroLine = review
         ? `${formatCanProceed(review.canProceed)}。${review.mainConflict}`

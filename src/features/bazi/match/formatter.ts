@@ -1,7 +1,7 @@
 import { BaziCompatibilityResult, BaziMarriageYearCandidate, BaziMatchMatrixEntry, BaziMatchProfile, BaziMatchReview } from './types';
 import { getBaziMatchClassicRefs, getBaziMatchDimensionReferenceFallbackIds } from './classic-references';
 import { buildBaziMatchEvidenceMatrix, buildBaziMatchReview } from './rules';
-import { buildMutualView, buildPairLinks, getMatchDirectionLabel, getMatchRelation, getMatchSides } from './pair';
+import { buildMutualView, buildPairLinks, getDisplayDimensions, getMatchDirectionLabel, getMatchRelation, getMatchSides } from './pair';
 import { getPairSpec } from './relations';
 
 const DISPLAY_MARRIAGE_MIN_AGE = 18;
@@ -49,10 +49,15 @@ export function formatCanProceed(value: BaziMatchReview['canProceed']): string {
 export function getDisplayMarriageYears(result: BaziCompatibilityResult): BaziMarriageYearCandidate[] {
     // 其余关系的顺年不带年龄
     if ((result.relation ?? 'love') !== 'love') return result.marriageYears.slice(0, DISPLAY_MARRIAGE_LIMIT);
+    // 旧记录可能存了合盘那年之前的婚期，过去的年份不再当应期
+    const fromYear = new Date(result.calculatedAt).getFullYear();
     return result.marriageYears
-        .filter((item) => hasDisplayMarriageAge(item))
+        .filter((item) => hasDisplayMarriageAge(item) && !(item.year < fromYear))
         .slice(0, DISPLAY_MARRIAGE_LIMIT);
 }
+
+// 展示里旺夫、帮妻合成「扶持」，总断与证据里带出的维度名跟着改
+const asSupport = (text: string) => text.replace(/(旺夫|帮妻)：/g, '扶持：');
 
 /** 旧记录没有存总断与证据矩阵时，按同一套规则补算。 */
 export function getBaziMatchReview(result: BaziCompatibilityResult): { review: BaziMatchReview; evidenceMatrix: BaziMatchMatrixEntry[] } {
@@ -63,7 +68,11 @@ export function getBaziMatchReview(result: BaziCompatibilityResult): { review: B
         marriageYears: getDisplayMarriageYears(result),
         marriageTiming: result.marriageTiming,
     });
-    return { review: result.review || buildBaziMatchReview(result.totalScore, result.grade, evidenceMatrix), evidenceMatrix };
+    const review = result.review || buildBaziMatchReview(result.totalScore, result.grade, evidenceMatrix);
+    return {
+        review: { ...review, bestFit: asSupport(review.bestFit), mainConflict: asSupport(review.mainConflict), priorities: review.priorities.map(asSupport) },
+        evidenceMatrix: evidenceMatrix.map((item) => ({ ...item, detail: asSupport(item.detail) })),
+    };
 }
 
 /** 合作、朋友、同事、亲子、手足：两盘关系、互看十神、五维与顺年 */
@@ -134,7 +143,7 @@ export function formatBaziMatchForAI(result: BaziCompatibilityResult): string {
         lines.push(`- ${item.title}：${direction} / ${strength}。${item.detail}${refs ? `（取法依据：${refs}）` : ''}`);
     });
     lines.push('【五维分数参考】');
-    result.dimensions.forEach((dimension) => {
+    getDisplayDimensions(result).forEach((dimension) => {
         const refs = formatReferenceNames(getBaziMatchDimensionReferenceFallbackIds(dimension.key));
         lines.push(`- ${dimension.title}：${dimension.score}（${dimension.grade}，参考依据：${refs}）`);
         dimension.evidence.slice(0, 2).forEach((item) => {
