@@ -475,7 +475,7 @@ export interface KinSpot {
 
 export interface KinSatellite extends KinSpot {
     primary: string;
-    rest: string;
+    rest: string[];
 }
 
 export interface KinRow {
@@ -527,8 +527,8 @@ export function buildKinReading(pillars: GanZhiVisualPillar[], gender: BaziGende
     const sex = gender === 1 ? 'male' : 'female';
     const spots = buildKinSpots(pillars);
     const satellites: KinSatellite[] = spots.map((spot) => {
-        const labels = getGanZhiRelationLabels(spot.star, gender, mode).slice(0, 3);
-        return { ...spot, primary: labels[0] ?? '—', rest: labels.slice(1).join(' · ') };
+        const labels = getGanZhiRelationLabels(spot.star, gender, mode);
+        return { ...spot, primary: labels[0] ?? '—', rest: labels.slice(1) };
     });
     const spotsOf = (stars: string[]) => spots.filter((spot) => stars.includes(spot.star));
     const countOf = (star: string) => spotsOf([star]).length;
@@ -567,7 +567,7 @@ export function buildKinReading(pillars: GanZhiVisualPillar[], gender: BaziGende
 
     const rows: KinRow[] = STAR_ORDER.map((star) => ({
         key: star,
-        who: SOCIAL_RELATIONS[star].slice(0, 2).join(' · '),
+        who: SOCIAL_RELATIONS[star].join(' · '),
         stars: star,
         at: spotsOf([star]),
     }));

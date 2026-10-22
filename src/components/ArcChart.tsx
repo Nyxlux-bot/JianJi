@@ -18,8 +18,10 @@ export interface ArcColumn {
     /** 干支上方的小字行：柱名、十神 */
     header?: string[];
     headerTone?: 'yun' | 'day';
-    /** 地支下方的金色小字：截脚、盖头 */
-    status?: string;
+    /** 地支下方的小字行：地支十神（灰）、自合盖头截脚（金） */
+    under?: Array<{ text: string; gold?: boolean }>;
+    /** 点选了别的关系时压暗下方金字 */
+    underDimmed?: boolean;
     /** 下方弧线之外的小字：宫位、年份 */
     footer?: string;
     footerStrong?: boolean;
@@ -34,6 +36,8 @@ export interface ArcLink {
     tone: ArcTone;
     label: string;
     arrowTo?: number;
+    /** 合、助两头都画箭头 */
+    both?: boolean;
     dimmed?: boolean;
 }
 
@@ -152,13 +156,13 @@ const ArcChart: React.FC<Props> = ({
         const above = layoutSide(valid.filter((link) => link.side === 'above'), xOf);
         const below = layoutSide(valid.filter((link) => link.side === 'below'), xOf);
         const headerRows = Math.max(0, ...columns.map((column) => column.header?.length ?? 0));
-        const hasStatus = columns.some((column) => column.status);
+        const underRows = Math.max(0, ...columns.map((column) => column.under?.length ?? 0));
         const hasFooter = columns.some((column) => column.footer);
         const baseAbove = above.extent;
         const headerTop = baseAbove + 2;
         const stemTop = headerTop + headerRows * ROW_H + 2;
         const branchTop = stemTop + lineH + (verticals.length ? 36 : 4);
-        const blockBottom = branchTop + lineH + (hasStatus ? ROW_H + 2 : 2);
+        const blockBottom = branchTop + lineH + (underRows ? underRows * ROW_H + 2 : 2);
         const baseBelow = blockBottom + 2;
         const footerTop = baseBelow + below.extent + 4;
         const spansTop = footerTop + (hasFooter ? ROW_H + 4 : 0);
@@ -192,22 +196,24 @@ const ArcChart: React.FC<Props> = ({
         }
         // 有箭头时让路径终点落在箭头那一列
         const [first, second] = link.arrowTo === link.cols[0] ? [link.cols[1], link.cols[0]] : [link.cols[0], link.cols[1]];
-        const arrow = link.arrowTo !== undefined;
         const xa = x(first);
         const xb = x(second);
+        const tips = link.both ? [xa, xb] : link.arrowTo !== undefined ? [xb] : [];
         const k = h / 0.75;
-        const endY = base + sign * (arrow ? ARROW : 0);
-        const d = `M${xa} ${base} C${xa} ${base + sign * k} ${xb} ${base + sign * k} ${xb} ${endY}`;
+        const startY = base + sign * (link.both ? ARROW : 0);
+        const endY = base + sign * (tips.length ? ARROW : 0);
+        const d = `M${xa} ${startY} C${xa} ${base + sign * k} ${xb} ${base + sign * k} ${xb} ${endY}`;
         return (
             <React.Fragment key={link.key}>
                 <Path d={d} opacity={opacity} {...common} />
-                {arrow ? (
+                {tips.map((tip) => (
                     <Polygon
-                        points={`${xb},${base} ${xb - 4},${base + sign * (ARROW + 1)} ${xb + 4},${base + sign * (ARROW + 1)}`}
+                        key={tip}
+                        points={`${tip},${base} ${tip - 4},${base + sign * (ARROW + 1)} ${tip + 4},${base + sign * (ARROW + 1)}`}
                         fill={color}
                         opacity={opacity}
                     />
-                ) : null}
+                ))}
             </React.Fragment>
         );
     });
@@ -265,11 +271,20 @@ const ArcChart: React.FC<Props> = ({
                     <View style={[styles.cell, { left: xOf(index) - colW / 2, width: colW, top: branchTop, height: lineH }]}>
                         <Glyph char={column.branch} size={glyphSize} lineH={lineH} icon={icon} palette={palette} />
                     </View>
-                    {column.status ? (
-                        <Text style={[styles.small, styles.status, { left: xOf(index) - colW / 2, width: colW, top: branchTop + lineH + 1, color: palette.gold }]}>
-                            {column.status}
+                    {(column.under ?? []).map((item, row) => (
+                        <Text
+                            key={`u-${row}`}
+                            style={[
+                                styles.small,
+                                { left: xOf(index) - colW / 2, width: colW, top: branchTop + lineH + 1 + row * ROW_H, color: item.gold ? palette.gold : palette.muted },
+                                item.gold && styles.status,
+                                item.gold && column.underDimmed && styles.dimmed,
+                            ]}
+                            numberOfLines={1}
+                        >
+                            {item.text}
                         </Text>
-                    ) : null}
+                    ))}
                     {column.footer ? (
                         <Text
                             style={[styles.small, { left: xOf(index) - colW / 2, width: colW, top: footerTop, color: column.footerStrong ? palette.heading : palette.muted }, column.footerStrong && styles.strong]}

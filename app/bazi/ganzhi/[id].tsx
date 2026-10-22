@@ -327,7 +327,7 @@ const HangGlyph: React.FC<{ char: string; size: number; palette: ResultPalette; 
     );
 };
 
-const LegendLine: React.FC<{ color: string; label: string; dash?: string; styles: Styles }> = ({ color, label, dash, styles }) => (
+const LegendLine: React.FC<{ color: string; label: React.ReactNode; dash?: string; styles: Styles }> = ({ color, label, dash, styles }) => (
     <View style={styles.legendItem}>
         <Svg width={16} height={4}>
             <Line x1={1} y1={2} x2={15} y2={2} stroke={color} strokeWidth={2} strokeLinecap="round" strokeDasharray={dash} />
@@ -361,6 +361,16 @@ const GanZhiTab: React.FC<TabProps> = ({ viewModel, context, width, palette, chr
     });
     const colOf = (order: number) => nodes.findIndex((node) => node.order === order);
     const lastYun = nodes.reduce((acc, node, index) => (node.scope === 'suiyun' ? index : acc), -1);
+    // 同柱的自合、盖头、截脚：图上每柱都标，列表只列这一档自己的柱
+    const statusOf = (order: number) => diagram.pillarRelations
+        .filter((relation) => relation.leftOrder === order && relation.rightOrder === order)
+        .map((relation) => relation.text);
+    const ownNodes = scope === 'yuanju'
+        ? nodes.filter((node) => node.scope === 'yuanju')
+        : nodes.filter((node) => node.order === (scope === 'liunian' ? liuNianOrder : yunOrder));
+    const chips = ownNodes
+        .map((node) => ({ key: `st-${node.order}`, label: `${node.label} ${node.pillar}`, tags: statusOf(node.order) }))
+        .filter((chip) => chip.tags.length > 0);
 
     const columns: ArcColumn[] = nodes.map((node) => ({
         key: node.key,
@@ -368,6 +378,8 @@ const GanZhiTab: React.FC<TabProps> = ({ viewModel, context, width, palette, chr
         branch: node.zhi,
         header: [node.label],
         headerTone: node.scope === 'suiyun' ? 'yun' : node.key === 'day' ? 'day' : undefined,
+        under: statusOf(node.order).map((text) => ({ text, gold: true })),
+        underDimmed: focus !== null && focus !== `st-${node.order}`,
         highlight: node.key === 'day',
     }));
     const links: ArcLink[] = relations.map((relation) => ({
@@ -388,6 +400,7 @@ const GanZhiTab: React.FC<TabProps> = ({ viewModel, context, width, palette, chr
     const hasMid = relations.some((relation) => relation.tone === 'mid');
     const hasArrow = relations.some((relation) => relation.arrowToOrder !== undefined);
     const hasYun = diagram.nodes.some((node) => node.scope === 'suiyun');
+    const hasStatus = columns.some((column) => column.under?.length);
 
     return (
         <>
@@ -426,11 +439,12 @@ const GanZhiTab: React.FC<TabProps> = ({ viewModel, context, width, palette, chr
                     <LegendLine color={palette.negative} dash="4,3" label="冲 · 刑 · 克" styles={styles} />
                     {hasMid ? <LegendLine color={palette.gold} dash="0.1,4" label="伏吟" styles={styles} /> : null}
                     {hasArrow ? <Text style={styles.legendText}>箭头指向受克一方</Text> : null}
+                    {hasStatus ? <Text style={styles.legendText}><Text style={styles.legendGold}>金字</Text>为柱内：自合 · 盖头 · 截脚</Text> : null}
                 </View>
             </ResultCard>
 
             <ResultCard title="关系" meta={relations.length ? '点一条，图上只亮它' : undefined} styles={chrome} style={styles.card}>
-                {groups.length === 0 ? (
+                {groups.length === 0 && chips.length === 0 ? (
                     <Text style={styles.emptyText}>{scope === 'yuanju' ? '原局四柱之间无明显关系。' : `${scope === 'liunian' ? '流年' : context.yunLabel}与原局之间无明显关系。`}</Text>
                 ) : groups.map(([name, list]) => (
                     <View key={name}>
@@ -454,6 +468,29 @@ const GanZhiTab: React.FC<TabProps> = ({ viewModel, context, width, palette, chr
                         })}
                     </View>
                 ))}
+                {chips.length > 0 ? (
+                    <View>
+                        <Text style={styles.group}>柱内 · 干支上下自带</Text>
+                        <View style={styles.chips}>
+                            {chips.map((chip) => {
+                                const on = focus === chip.key;
+                                return (
+                                    <Pressable
+                                        key={chip.key}
+                                        onPress={() => setFocus(on ? null : chip.key)}
+                                        style={({ pressed }) => [styles.chip, on && styles.chipOn, pressed && styles.pressed]}
+                                        accessibilityRole="button"
+                                        accessibilityState={{ selected: on }}
+                                        accessibilityLabel={`${chip.label}${chip.tags.join('、')}`}
+                                    >
+                                        <Text style={styles.chipLabel}>{chip.label}</Text>
+                                        <Text style={styles.chipTag}>{chip.tags.join(' · ')}</Text>
+                                    </Pressable>
+                                );
+                            })}
+                        </View>
+                    </View>
+                ) : null}
             </ResultCard>
         </>
     );
@@ -486,7 +523,7 @@ const FlowTab: React.FC<TabProps> = ({ viewModel, context, width, palette, chrom
         branch: pillar.branch,
         header: [pillar.label, pillar.stemShiShen],
         headerTone: pillar.key === 'day' ? 'day' : undefined,
-        status: pillar.pillarStatus ?? undefined,
+        under: [{ text: pillar.branchShiShen }, ...(pillar.pillarStatus ? [{ text: pillar.pillarStatus, gold: true }] : [])],
         highlight: pillar.key === 'day',
     }));
     const links: ArcLink[] = flowLinks.filter((link) => link.axis === 'horizontal').map((link) => ({
@@ -496,6 +533,7 @@ const FlowTab: React.FC<TabProps> = ({ viewModel, context, width, palette, chrom
         tone: toneOf(link.tone),
         label: link.label,
         arrowTo: arrowTarget(link.label, link.direction, link.fromIndex, link.toIndex),
+        both: link.direction === 'bidirectional' && link.tone === 'supportive',
     }));
     const verticals: ArcVertical[] = flowLinks.filter((link) => link.axis === 'vertical').map((link) => ({
         col: link.fromIndex,
@@ -529,10 +567,11 @@ const FlowTab: React.FC<TabProps> = ({ viewModel, context, width, palette, chrom
                         accessibilityLabel={`流通：${reading.lede}`}
                     />
                 </View>
-                <View style={styles.legend}>
-                    <LegendLine color={palette.positive} label="生 · 合" styles={styles} />
-                    <LegendLine color={palette.negative} dash="4,3" label="冲 · 克" styles={styles} />
-                    <Text style={styles.legendText}>箭头指向受生、受克一方</Text>
+                <View style={styles.legendList}>
+                    <LegendLine color={palette.positive} label={<><Text style={styles.legendStrong}>流通</Text>  三合 · 五合 · 六合 · 相生 · 相助</>} styles={styles} />
+                    <LegendLine color={palette.negative} dash="4,3" label={<><Text style={styles.legendStrong}>阻塞</Text>  相冲 · 相刑 · 相克</>} styles={styles} />
+                    <Text style={styles.legendText}>箭头：生、克指向受方，合、助两头都通</Text>
+                    <Text style={styles.legendText}>柱下：灰字为地支十神，金字为柱内状态</Text>
                 </View>
             </ResultCard>
 
@@ -805,7 +844,7 @@ interface KinCell {
     char: string;
     star: string;
     primary: string;
-    rest: string;
+    rest: string[];
 }
 
 const KinTab: React.FC<TabProps & { result: BaziResult }> = ({ viewModel, result, context, palette, chrome, styles }) => {
@@ -819,8 +858,8 @@ const KinTab: React.FC<TabProps & { result: BaziResult }> = ({ viewModel, result
         const satellite = byKey.get(key);
         return satellite ? { key, char: satellite.char, star: satellite.star, primary: satellite.primary, rest: satellite.rest } : fallback;
     };
-    const stemCells = pillars.map((pillar) => cellOf(`${pillar.key}-stem`, { key: `${pillar.key}-stem`, char: pillar.stem, star: '日主', primary: '自己', rest: '' }));
-    const branchCells = pillars.map((pillar) => cellOf(`${pillar.key}-branch`, { key: `${pillar.key}-branch`, char: pillar.branch, star: pillar.branchShiShen, primary: '—', rest: '' }));
+    const stemCells = pillars.map((pillar) => cellOf(`${pillar.key}-stem`, { key: `${pillar.key}-stem`, char: pillar.stem, star: '日主', primary: '自己', rest: [] }));
+    const branchCells = pillars.map((pillar) => cellOf(`${pillar.key}-branch`, { key: `${pillar.key}-branch`, char: pillar.branch, star: pillar.branchShiShen, primary: '—', rest: [] }));
     const focusRow = reading.rows.find((row) => row.key === focus);
     const lit = focusRow ? new Set(focusRow.at.map((spot) => spot.key)) : null;
     const dayIndex = pillars.findIndex((pillar) => pillar.key === 'day');
@@ -833,7 +872,7 @@ const KinTab: React.FC<TabProps & { result: BaziResult }> = ({ viewModel, result
                 <HangGlyph char={cell.char} size={24} palette={palette} styles={styles} />
                 <Text style={styles.kinStar} numberOfLines={1}>{cell.star}</Text>
                 <Text style={styles.kinPrimary} numberOfLines={1}>{cell.primary}</Text>
-                {cell.rest ? <Text style={styles.kinRest} numberOfLines={2}>{cell.rest}</Text> : null}
+                {cell.rest.map((label) => <Text key={label} style={styles.kinRest} numberOfLines={1}>{label}</Text>)}
             </View>
         );
     };
@@ -881,7 +920,12 @@ const KinTab: React.FC<TabProps & { result: BaziResult }> = ({ viewModel, result
                                 accessibilityState={{ selected: on }}
                             >
                                 <View style={styles.kinWho}>
-                                    <Text style={styles.kinWhoText} numberOfLines={1}>{row.who}</Text>
+                                    {/* 一个类象一段，换行只落在「·」上，不把词拆开 */}
+                                    <View style={styles.kinWhoWrap}>
+                                        {row.who.split(' · ').map((part, index, parts) => (
+                                            <Text key={part} style={styles.kinWhoText}>{part}{index < parts.length - 1 ? ' · ' : ''}</Text>
+                                        ))}
+                                    </View>
                                     <Text style={styles.kinStars} numberOfLines={1}>{row.stars}</Text>
                                 </View>
                                 <View style={styles.kinAt}>
@@ -938,12 +982,20 @@ const makeStyles = (palette: ResultPalette) => StyleSheet.create({
     legend: { marginTop: 6, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', gap: 6, columnGap: 14 },
     legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     legendText: { fontSize: 11.5, lineHeight: 16, color: palette.muted },
+    legendList: { marginTop: 8, gap: 4 },
+    legendStrong: { fontWeight: '600', color: palette.ink },
+    legendGold: { fontWeight: '700', color: palette.gold },
 
     group: { marginTop: 10, marginBottom: 2, fontSize: 11.5, lineHeight: 16, color: palette.muted },
     relRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: -8, paddingHorizontal: 8, borderRadius: 8 },
     relRowOn: { backgroundColor: palette.goldSoft },
     relName: { flexShrink: 1, fontSize: 14, lineHeight: 20, fontWeight: '600', color: palette.heading },
     relPos: { marginLeft: 'auto', fontSize: 12, lineHeight: 20, color: palette.muted },
+    chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingTop: 4, paddingBottom: 2 },
+    chip: { height: 28, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, borderRadius: 4, borderWidth: 1, borderColor: 'transparent', backgroundColor: palette.goldSoft },
+    chipOn: { borderColor: palette.goldBorder },
+    chipLabel: { fontSize: 12, color: palette.muted },
+    chipTag: { fontSize: 12, fontWeight: '700', color: palette.gold },
 
     meter: { marginTop: 14, flexDirection: 'row', alignItems: 'center', gap: 10 },
     meterText: { fontSize: 12, color: palette.muted },
@@ -1019,10 +1071,11 @@ const makeStyles = (palette: ResultPalette) => StyleSheet.create({
     kinPrimary: { marginTop: 4, fontSize: 13, lineHeight: 18, fontWeight: '600', color: palette.heading },
     kinRest: { fontSize: 11, lineHeight: 15, color: palette.muted, textAlign: 'center' },
     kinRow: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: -8, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8 },
-    kinWho: { minWidth: 92, flexShrink: 1 },
+    kinWho: { minWidth: 92, flex: 1 },
+    kinWhoWrap: { flexDirection: 'row', flexWrap: 'wrap' },
     kinWhoText: { fontSize: 15, lineHeight: 21, fontWeight: '600', color: palette.heading },
     kinStars: { fontSize: 12, lineHeight: 16, color: palette.muted },
-    kinAt: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 6 },
+    kinAt: { flexShrink: 0, maxWidth: '55%', flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 6 },
     kinNone: { fontSize: 13, color: palette.muted },
     loc: { height: 26, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 7, borderRadius: 4, backgroundColor: palette.chipBg },
     locLabel: { fontSize: 12, color: palette.muted },
