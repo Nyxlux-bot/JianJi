@@ -47,6 +47,8 @@ const BAZI_MATCH_MATRIX_CATEGORIES = ['bestFit', 'mainConflict', 'spouseStarPala
 const BAZI_MATCH_MATRIX_DIRECTIONS = ['positive', 'negative', 'neutral'] as const;
 const BAZI_MATCH_MATRIX_STRENGTHS = ['high', 'medium', 'low'] as const;
 const BAZI_MATCH_REVIEW_CAN_PROCEED = ['strong', 'workable', 'cautious', 'difficult'] as const;
+const BAZI_MATCH_RELATIONS = ['love', 'biz', 'friend', 'work', 'kin', 'sib'] as const;
+const BAZI_MATCH_DIRECTIONS = ['superior', 'peer', 'subordinate', 'parent', 'child'] as const;
 
 export interface RecordSummary {
     id: string;
@@ -466,7 +468,10 @@ export function isBaziCompatibilityResult(value: unknown): value is BaziCompatib
         && (candidate.review === undefined || isBaziMatchReview(candidate.review))
         && (candidate.evidenceMatrix === undefined || (Array.isArray(candidate.evidenceMatrix) && candidate.evidenceMatrix.every((item) => isBaziMatchMatrixEntry(item))))
         && (candidate.aiAnalysis === undefined || typeof candidate.aiAnalysis === 'string')
-        && (candidate.aiChatHistory === undefined || isPersistedAIChatHistory(candidate.aiChatHistory));
+        && (candidate.aiChatHistory === undefined || isPersistedAIChatHistory(candidate.aiChatHistory))
+        && (candidate.relation === undefined || isOneOf(candidate.relation, BAZI_MATCH_RELATIONS))
+        && (candidate.direction === undefined || isOneOf(candidate.direction, BAZI_MATCH_DIRECTIONS))
+        && (candidate.self === undefined || candidate.self === 'male' || candidate.self === 'female');
 }
 
 export function isZiweiRecordResult(value: unknown): value is ZiweiRecordResult {
