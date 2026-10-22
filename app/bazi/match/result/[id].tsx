@@ -31,6 +31,7 @@ import {
     getMatchRelation,
     getMatchSides,
 } from '../../../../src/features/bazi/match/pair';
+import { getPairSpec } from '../../../../src/features/bazi/match/relations';
 import { getGanZhiElement, WUXING_ORDER, WuXingElement } from '../../../../src/features/bazi/wuxing';
 import { deleteRecord, getRecord, toggleFavorite } from '../../../../src/db/database';
 import { clearAIAnalysisJob } from '../../../../src/services/ai-analysis-jobs';
@@ -99,7 +100,8 @@ export default function BaziMatchResultPage() {
             links: buildPairLinks(me, ta),
             mutual: buildMutualView(me, ta),
             marriageYears: getDisplayMarriageYears(result),
-            review: result.dimensions.length ? getBaziMatchReview(result).review : null,
+            // 总断与证据矩阵是合婚规则的，只给婚恋
+            review: (result.relation ?? 'love') === 'love' && result.dimensions.length ? getBaziMatchReview(result).review : null,
             meIsMale: (result.self ?? 'male') === 'male',
         };
     }, [result]);
@@ -200,9 +202,15 @@ export default function BaziMatchResultPage() {
     const hasScore = dimensions.length > 0;
     const tabs = hasScore ? [OVERVIEW_TAB, DETAIL_TAB] : [OVERVIEW_TAB];
     const dayBranchLink = links.find((link) => link.layer === 'branch' && link.me === 2 && link.ta === 2);
+    const spec = getPairSpec(relation.key);
+    const timing = isLove
+        ? { title: '婚期', meta: '两盘同年应期 · 仅作参考', tags: ['主应期', '备选'], empty: '两盘近年未见同年应期，暂不定具体婚年。' }
+        : spec && { title: spec.timing.title, meta: spec.timing.meta, tags: ['最顺', '次之'], empty: '近十二年的流年少有补到两人所需的。' };
     const heroLine = review
         ? `${formatCanProceed(review.canProceed)}。${review.mainConflict}`
-        : `${mutual.link}：TA 是你的${mutual.taToMe}，你是 TA 的${mutual.meToTa}${dayBranchLink ? `；日支${dayBranchLink.name}` : ''}。`;
+        : hasScore
+            ? result.summary
+            : `${mutual.link}：TA 是你的${mutual.taToMe}，你是 TA 的${mutual.meToTa}${dayBranchLink ? `；日支${dayBranchLink.name}` : ''}。`;
 
     return (
         <View style={styles.container}>
@@ -288,10 +296,10 @@ export default function BaziMatchResultPage() {
                                 </Pressable>
                             ) : null}
 
-                            {isLove ? (
-                                <ResultCard title="婚期" meta="两盘同年应期 · 仅作参考" styles={chrome} style={styles.card}>
+                            {timing && hasScore ? (
+                                <ResultCard title={timing.title} meta={timing.meta} styles={chrome} style={styles.card}>
                                     {marriageYears.length === 0 ? (
-                                        <Text style={styles.emptyText}>两盘近年未见同年应期，暂不定具体婚年。</Text>
+                                        <Text style={styles.emptyText}>{timing.empty}</Text>
                                     ) : (
                                         <View style={styles.cardBody}>
                                             {marriageYears.map((item, index) => {
@@ -303,7 +311,7 @@ export default function BaziMatchResultPage() {
                                                             <Text style={styles.yearText}>{item.year}</Text>
                                                             <GanZhi text={item.ganZhi} palette={palette} styles={styles} />
                                                             <View style={[styles.tag, { backgroundColor: index === 0 ? palette.goldSoft : palette.chipBg }]}>
-                                                                <Text style={[styles.tagText, { color: index === 0 ? palette.gold : palette.chipInk }]}>{index === 0 ? '主应期' : '备选'}</Text>
+                                                                <Text style={[styles.tagText, { color: index === 0 ? palette.gold : palette.chipInk }]}>{timing.tags[index === 0 ? 0 : 1]}</Text>
                                                             </View>
                                                             {myAge && taAge ? <Text style={styles.yearAge}>我 {myAge} · TA {taAge}</Text> : null}
                                                         </View>
@@ -315,11 +323,11 @@ export default function BaziMatchResultPage() {
                                     )}
                                 </ResultCard>
                             ) : null}
-                            <Text style={styles.fine}>{hasScore ? '契合度与断语出自本地规则，只作参考' : `${relation.name}的评分与时机规则还在写，先看两盘与互看`}</Text>
+                            <Text style={styles.fine}>{hasScore ? '契合度与断语出自本地规则，只作参考' : '这条记录生成时还没有评分规则，重新合一次可看各维与时机'}</Text>
                         </>
                     ) : (
                         <>
-                            {review ? <Text style={styles.basis}>{review.scoreReview}</Text> : null}
+                            {review || spec ? <Text style={styles.basis}>{review?.scoreReview ?? spec?.basis}</Text> : null}
                             {dimensions.map((dimension) => (
                                 <DimensionDetail
                                     key={dimension.key}

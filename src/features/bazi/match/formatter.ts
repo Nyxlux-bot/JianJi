@@ -46,6 +46,8 @@ export function formatCanProceed(value: BaziMatchReview['canProceed']): string {
 }
 
 export function getDisplayMarriageYears(result: BaziCompatibilityResult): BaziMarriageYearCandidate[] {
+    // 其余关系的顺年不带年龄
+    if ((result.relation ?? 'love') !== 'love') return result.marriageYears.slice(0, DISPLAY_MARRIAGE_LIMIT);
     return result.marriageYears
         .filter((item) => hasDisplayMarriageAge(item))
         .slice(0, DISPLAY_MARRIAGE_LIMIT);

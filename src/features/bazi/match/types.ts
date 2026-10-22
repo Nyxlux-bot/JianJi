@@ -3,7 +3,15 @@ import { BaziResult, ShiShenName } from '../../../core/bazi-types';
 import { WuXing } from '../../../core/liuyao-data';
 import type { BaziMatchClassicReferenceId } from './classic-references';
 
-export type BaziMatchDimensionKey = 'harmony' | 'supportHusband' | 'supportWife' | 'offspring' | 'longevity';
+export type BaziMatchDimensionKey =
+    | 'harmony' | 'supportHusband' | 'supportWife' | 'offspring' | 'longevity'
+    /** 婚恋宫星，只在展示时补算 */
+    | 'palaceStar'
+    /** 合作、朋友、同事、亲子、手足 */
+    | 'complement' | 'division' | 'wealth' | 'trust' | 'rhythm'
+    | 'rapport' | 'temper' | 'contact' | 'lasting'
+    | 'cooperation' | 'hierarchy' | 'task'
+    | 'bond' | 'palace' | 'discipline' | 'getAlong' | 'help';
 /** 婚恋、合作、朋友、同事、亲子、手足 */
 export type BaziMatchRelation = 'love' | 'biz' | 'friend' | 'work' | 'kin' | 'sib';
 /** 同事、亲子的方向，从「我」看 */
@@ -133,6 +141,7 @@ export interface BaziCompatibilityResult {
     totalScore: number;
     grade: BaziMatchGrade;
     summary: string;
+    /** 婚恋为婚期；其余关系为两人同走喜用的顺年，不带年龄 */
     marriageYears: BaziMarriageYearCandidate[];
     marriageTiming?: BaziMarriageTimingResult;
     review?: BaziMatchReview;

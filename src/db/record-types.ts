@@ -41,7 +41,11 @@ export type DivinationResult = PanResult | BaziResult | ZiweiRecordResult | Bazi
 const LIUYAO_METHODS: readonly DivinationMethod[] = ['time', 'coin', 'number', 'manual'];
 const WUXING_VALUES = ['木', '火', '土', '金', '水'] as const;
 const BAZI_MATCH_GRADES = ['优', '良', '中', '差'] as const;
-const BAZI_MATCH_DIMENSION_KEYS = ['harmony', 'supportHusband', 'supportWife', 'offspring', 'longevity', 'mutualSupport', 'lifecycle'] as const;
+const BAZI_MATCH_DIMENSION_KEYS = [
+    'harmony', 'supportHusband', 'supportWife', 'offspring', 'longevity', 'mutualSupport', 'lifecycle', 'palaceStar',
+    'complement', 'division', 'wealth', 'trust', 'rhythm', 'rapport', 'temper', 'contact', 'lasting',
+    'cooperation', 'hierarchy', 'task', 'bond', 'palace', 'discipline', 'getAlong', 'help',
+] as const;
 const BAZI_MATCH_REFERENCE_IDS = ['HM-01', 'HM-02', 'FS-01', 'FS-02', 'PG-01', 'PG-02', 'CY-01', 'YY-01', 'YQ-01', 'EXP-01', 'LS-01'] as const;
 const BAZI_MATCH_MATRIX_CATEGORIES = ['bestFit', 'mainConflict', 'spouseStarPalace', 'elementComplement', 'relationImpact', 'fortuneTiming', 'marriageTiming', 'riskPriority'] as const;
 const BAZI_MATCH_MATRIX_DIRECTIONS = ['positive', 'negative', 'neutral'] as const;

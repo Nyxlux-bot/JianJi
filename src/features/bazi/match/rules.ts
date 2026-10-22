@@ -36,7 +36,7 @@ import type { BaziMatchClassicReferenceId } from './classic-references';
 
 const ELEMENTS: WuXing[] = ['木', '火', '土', '金', '水'];
 const STAR_NAMES: readonly ShiShenName[] = ['比肩', '劫财', '食神', '伤官', '偏财', '正财', '七杀', '正官', '偏印', '正印'];
-const DIMENSION_WEIGHTS: Record<BaziMatchDimensionScore['key'], number> = {
+const DIMENSION_WEIGHTS: Partial<Record<BaziMatchDimensionScore['key'], number>> = {
     harmony: 0.32,
     supportHusband: 0.22,
     supportWife: 0.22,
@@ -467,7 +467,7 @@ function scoreOffspring(male: BaziMatchProfile, female: BaziMatchProfile): BaziM
     return buildDimension('offspring', '子女', score, evidence);
 }
 
-function daYunComplementScore(left: BaziMatchProfile, right: BaziMatchProfile): number {
+export function daYunComplementScore(left: BaziMatchProfile, right: BaziMatchProfile): number {
     return left.futureDaYun.reduce((sum, item) => {
         let next = sum;
         if (right.neededElements.includes(item.stemElement)) next += 2;
@@ -854,7 +854,7 @@ function pickEvidence(
         .filter((item) => item.evidence.effect === direction)
         .sort((left, right) => (
             strengthValue(right.strength) - strengthValue(left.strength)
-            || DIMENSION_WEIGHTS[right.dimension.key] - DIMENSION_WEIGHTS[left.dimension.key]
+            || (DIMENSION_WEIGHTS[right.dimension.key] ?? 0) - (DIMENSION_WEIGHTS[left.dimension.key] ?? 0)
             || right.dimension.score - left.dimension.score
         ))[0];
 }
@@ -994,7 +994,7 @@ export function buildBaziMatchEvidenceMatrix(input: BaziMatchEvidenceMatrixInput
 }
 
 function calculateWeightedMatchScore(input: BaziMatchEvidenceMatrixInput, matrix: BaziMatchMatrixEntry[]): number {
-    const weightedScore = input.dimensions.reduce((sum, item) => sum + item.score * DIMENSION_WEIGHTS[item.key], 0);
+    const weightedScore = input.dimensions.reduce((sum, item) => sum + item.score * (DIMENSION_WEIGHTS[item.key] ?? 0), 0);
     const priorityRisks = matrix.filter((item) => item.category === 'riskPriority' && item.direction === 'negative');
     const highRisks = priorityRisks.filter((item) => item.strength === 'high');
     const mediumRisks = priorityRisks.filter((item) => item.strength === 'medium');

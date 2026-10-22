@@ -1,12 +1,13 @@
 /**
  * 任意两人合盘的通用部分：关系类型、「我 / TA」落槽、两盘之间的干支关系、互看十神。
- * 婚恋接原有合婚规则；其余关系的五维与时机另写。
+ * 婚恋接原有合婚规则；其余关系的五维与时机见 relations.ts。
  */
 import { HeavenStem } from 'tyme4ts';
 import { GAN_CHONG, GAN_HE, GENERATES, getDictPairEntry, getGanKeMeta, getPairKey } from '../../../core/bazi-relation-rules';
 import { BaziResult } from '../../../core/bazi-types';
 import { TIANGAN_WUXING } from '../../../core/liuyao-data';
 import { classifyBranchPair } from './cross-relations';
+import { scoreLovePalaceStar, scorePairRelation } from './relations';
 import { buildBaziMatchProfile, calculateBaziMatch } from './rules';
 import {
     BaziCompatibilityResult,
@@ -214,10 +215,11 @@ export function calculatePairMatch(
         const base = meIsFemale ? calculateBaziMatch(ta, me, referenceDate) : calculateBaziMatch(me, ta, referenceDate);
         return { ...base, relation, self: meIsFemale ? 'female' : 'male' };
     }
-    // shortcut: 合作、朋友、同事、亲子、手足的五维与时机规则还没写，先存两人与通用部分、五维留空；规则写好后在这里接上
+    // 其余关系不分男女，「我」固定在 male 槽
     const meProfile = buildBaziMatchProfile(me, referenceDate);
     const taProfile = buildBaziMatchProfile(ta, referenceDate);
     const mutual = buildMutualView(meProfile, taProfile);
+    const scored = scorePairRelation(relation, { me: meProfile, ta: taProfile, mutual, direction }, referenceDate.getFullYear());
     const nowIso = new Date().toISOString();
     return {
         id: `bazi-match-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -227,11 +229,11 @@ export function calculatePairMatch(
         female: ta,
         maleProfile: meProfile,
         femaleProfile: taProfile,
-        dimensions: [],
-        totalScore: 0,
-        grade: '中',
-        summary: `TA 是你的${mutual.taToMe}，你是 TA 的${mutual.meToTa}。`,
-        marriageYears: [],
+        dimensions: scored.dimensions,
+        totalScore: scored.totalScore,
+        grade: scored.grade,
+        summary: scored.summary,
+        marriageYears: scored.years,
         relation,
         direction,
         self: 'male',
@@ -239,7 +241,7 @@ export function calculatePairMatch(
 }
 
 /* ------------------------------------------------------------------ */
-/* 婚恋五维：旺夫、帮妻合为扶持，不再按男女分                              */
+/* 婚恋五维：旺夫、帮妻合为扶持，不再按男女分；另补宫星                    */
 /* ------------------------------------------------------------------ */
 
 function mergeEvidence(...lists: BaziMatchEvidence[][]): BaziMatchEvidence[] {
@@ -278,5 +280,6 @@ export function getDisplayDimensions(result: BaziCompatibilityResult): BaziMatch
         support,
         titled(find('offspring'), '子女'),
         titled(find('longevity', 'lifecycle'), '同寿'),
+        result.dimensions.length ? scoreLovePalaceStar(result.maleProfile, result.femaleProfile) : undefined,
     ].filter((item): item is BaziMatchDimensionScore => Boolean(item));
 }
