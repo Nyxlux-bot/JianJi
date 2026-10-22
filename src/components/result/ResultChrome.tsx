@@ -109,6 +109,7 @@ export function ResultTopBar<K extends string>({
     tabs: ResultTab<K>[];
     active: K;
     onTab: (key: K) => void;
+    /** 空串时不显示 AI 入口 */
     aiLabel: string;
     aiDisabled: boolean;
     onAI: () => void;
@@ -134,17 +135,19 @@ export function ResultTopBar<K extends string>({
                 })}
             </View>
             <View style={styles.spacer} />
-            <Pressable
-                onPress={onAI}
-                disabled={aiDisabled}
-                style={({ pressed }) => [styles.aiChip, aiDisabled && styles.disabled, pressed && styles.pressed]}
-                accessibilityRole="button"
-                accessibilityLabel={aiLabel}
-                hitSlop={{ top: 8, bottom: 8 }}
-            >
-                <SparkleIcon size={13} color={palette.gold} />
-                <Text style={styles.aiChipText}>{aiLabel}</Text>
-            </Pressable>
+            {aiLabel ? (
+                <Pressable
+                    onPress={onAI}
+                    disabled={aiDisabled}
+                    style={({ pressed }) => [styles.aiChip, aiDisabled && styles.disabled, pressed && styles.pressed]}
+                    accessibilityRole="button"
+                    accessibilityLabel={aiLabel}
+                    hitSlop={{ top: 8, bottom: 8 }}
+                >
+                    <SparkleIcon size={13} color={palette.gold} />
+                    <Text style={styles.aiChipText}>{aiLabel}</Text>
+                </Pressable>
+            ) : null}
             {extra}
             <Pressable onPress={onMore} style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="更多操作">
                 <MoreVerticalIcon size={20} color={palette.icon} />

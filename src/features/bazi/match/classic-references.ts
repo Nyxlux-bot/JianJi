@@ -179,6 +179,7 @@ export function getBaziMatchDimensionReferenceFallbackIds(key: string): BaziMatc
     if (key === 'supportWife') return ['HM-02', 'PG-02'];
     if (key === 'offspring') return ['CY-01', 'YY-01'];
     if (key === 'longevity') return ['LS-01', 'YQ-01'];
+    if (key === 'palaceStar') return ['FS-01', 'PG-01', 'EXP-01'];
     return ['HM-01'];
 }
 

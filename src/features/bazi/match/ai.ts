@@ -9,7 +9,7 @@ export function buildBaziMatchAIMessages(result: BaziCompatibilityResult): AICha
         { role: 'system', content: composeSkillInstructions('baziCompatibility', 'initial') },
         {
             role: 'user',
-            content: renderSkillRequest('baziCompatibility', 'initial', { outputFormat: renderCompatFormat(), evidence: formatBaziMatchForAI(result) }),
+            content: renderSkillRequest('baziCompatibility', 'initial', { outputFormat: renderCompatFormat((result.relation ?? 'love') === 'love'), evidence: formatBaziMatchForAI(result) }),
         },
     ];
 }

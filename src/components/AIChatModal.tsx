@@ -86,6 +86,8 @@ import {
 } from './ai-chat-actions';
 import { BackIcon, GuaArrowIcon, MoreVerticalIcon } from './Icons';
 import type { BaziCompatibilityResult } from '../features/bazi/match/types';
+import { buildBaziMatchSummaryTitle } from '../features/bazi/match/formatter';
+import { getMatchRelation } from '../features/bazi/match/pair';
 import { getZiweiNatalOverview, getZiweiYearOverviews } from '../features/ziwei/ai-overview';
 import { getBaziNatalEnergy, getBaziYearEnergy, getBaziYearInfo } from '../core/bazi-year-overview';
 import { setVerificationMark } from '../services/ai-verification-marks';
@@ -233,7 +235,7 @@ function withRewrittenLastUserMessage(messages: UIChatMessage[], rewrittenConten
 
 function buildHeaderMeta(result: AIPageResult): { title: string; subtitle: string } {
     if (isCompatResult(result)) {
-        return { title: '合盘详批', subtitle: `${result.maleProfile.name || '男方'} × ${result.femaleProfile.name || '女方'}` };
+        return { title: '合盘详批', subtitle: `${buildBaziMatchSummaryTitle(result)} · ${getMatchRelation(result).name}` };
     }
 
     if (isBaziResult(result)) {
