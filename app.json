@@ -25,11 +25,12 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/splash-icon.png",
+          "image": "./assets/splash-blank.png",
           "resizeMode": "contain",
           "backgroundColor": "#16110c"
         }
-      ]
+      ],
+      "expo-font"
     ],
     "scheme": "jianji",
     "extra": {

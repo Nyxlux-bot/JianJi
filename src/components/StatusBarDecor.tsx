@@ -5,7 +5,7 @@ import { useTheme } from "../theme/ThemeContext";
 
 const StatusBarDecor: React.FC<{ backgroundColor?: string }> = ({ backgroundColor }) => {
     const { Colors } = useTheme();
-    const styles = makeStyles(Colors);
+    const styles = React.useMemo(() => makeStyles(Colors), [Colors]);
     const insets = useSafeAreaInsets();
 
     const topHeight = Math.max(

@@ -1,45 +1,20 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { router, useFocusEffect } from 'expo-router';
+import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect } from 'expo-router';
+import { withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import StatusBarDecor from '../../src/components/StatusBarDecor';
+import { YunZhuanForeground, bannerLevel } from '../../src/components/YunZhuanBanners';
 import EntryDeck from '../../src/features/home/EntryDeck';
-import { ChevronRightIcon } from '../../src/components/Icons';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { buildResultPalette, type ResultPalette } from '../../src/theme/result-palette';
 import { getCurrentJieqi, solarToLunar } from '../../src/core/lunar';
 import { getXunKong } from '../../src/core/xun-kong';
 import { getGanZhiElement } from '../../src/features/bazi/wuxing';
 import { castMeihua, getLinePositionName } from '../../src/features/meihua/engine';
-import { getAllRecords } from '../../src/db/database';
-import { DIVINATION_ENGINE_LABEL, type RecordSummary } from '../../src/db/record-types';
-import { getRecordRoute } from '../../src/utils/record-route';
 
 const SERIF = Platform.select({ ios: 'Songti SC', android: 'serif', default: 'serif' });
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
-const LIUYAO_METHOD_LABEL: Record<string, string> = { coin: '摇卦', manual: '手动', time: '时间', number: '数字' };
-const RECENT_BADGE: Record<RecordSummary['engineType'], string> = { liuyao: '卦', meihua: '梅', bazi: '八', baziCompatibility: '合', ziwei: '紫' };
-
-function formatRecentTime(iso: string, now: Date): string {
-    const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) return '';
-    const pad = (value: number) => String(value).padStart(2, '0');
-    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    if (date.getTime() >= dayStart) return `今天 ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-    if (date.getTime() >= dayStart - 86400000) return '昨天';
-    return `${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
-
-function describeRecent(record: RecordSummary): { title: string; meta: string } {
-    const label = DIVINATION_ENGINE_LABEL[record.engineType];
-    if (record.engineType === 'liuyao') {
-        return {
-            title: record.subtitle ? `${record.title} 之 ${record.subtitle}` : record.title,
-            meta: [label, LIUYAO_METHOD_LABEL[record.method || '']].filter(Boolean).join(' · '),
-        };
-    }
-    return { title: record.title, meta: [label, record.subtitle].filter(Boolean).join(' · ') };
-}
 
 export default function HomePage() {
     const { Colors } = useTheme();
@@ -47,16 +22,13 @@ export default function HomePage() {
     const palette = useMemo(() => buildResultPalette(Colors), [Colors]);
     const styles = useMemo(() => makeStyles(palette, Colors), [palette, Colors]);
     const [now, setNow] = useState(() => new Date());
-    const [recents, setRecents] = useState<RecordSummary[]>([]);
 
+    // 经幡只在首页全亮，其他页退到六成
     useFocusEffect(useCallback(() => {
-        let cancelled = false;
         setNow(new Date());
-        getAllRecords().then((records) => {
-            if (!cancelled) setRecents(records.slice(0, 2));
-        }).catch(() => undefined);
+        bannerLevel.value = withTiming(1, { duration: 300 });
         return () => {
-            cancelled = true;
+            bannerLevel.value = withTiming(0.6, { duration: 300 });
         };
     }, []));
 
@@ -95,7 +67,7 @@ export default function HomePage() {
             >
                 <View style={styles.header}>
                     <View>
-                        <Text style={styles.brand}>见机</Text>
+                        <Text style={styles.brand} accessibilityRole="header">见机</Text>
                         <Text style={styles.brandSub}>六爻 · 梅花 · 八字 · 紫微</Text>
                     </View>
                     <View style={styles.headerRight}>
@@ -122,37 +94,8 @@ export default function HomePage() {
                     meihuaDescription={<>此刻起卦得 <Text style={{ fontWeight: '700' }}>{today.meihua.ben.fullName}</Text>{' · '}<Text style={{ color: palette.isLight ? '#9E3F35' : '#F08A7C' }}>{getLinePositionName(today.meihua.movingLine)}动</Text></>}
                     meihuaMeta={`${today.lunar.yearGanZhi}年 ${today.lunar.lunarMonthCN}${today.lunar.lunarDayCN} ${today.lunar.hourGanZhi[1]}时`}
                 />
-
-                <View style={styles.recentHead}>
-                    <Text style={styles.sectionLabelInline}>最近</Text>
-                    <Pressable onPress={() => router.push('/history')} accessibilityRole="link" hitSlop={8}>
-                        <Text style={styles.recentAll}>全部记录</Text>
-                    </Pressable>
-                </View>
-                <View style={styles.recentList}>
-                    {recents.length === 0 ? (
-                        <Text style={styles.recentEmpty}>还没有记录，起一卦试试</Text>
-                    ) : recents.map((record, index) => {
-                        const { title, meta } = describeRecent(record);
-                        return (
-                            <Pressable
-                                key={record.id}
-                                onPress={() => router.push(getRecordRoute(record.engineType, record.id))}
-                                style={({ pressed }) => [styles.recentRow, index > 0 && styles.recentDivider, pressed && styles.pressed]}
-                                accessibilityRole="button"
-                                accessibilityLabel={title}
-                            >
-                                <Text style={styles.recentBadge}>{RECENT_BADGE[record.engineType]}</Text>
-                                <View style={styles.recentMain}>
-                                    <Text style={styles.recentTitle} numberOfLines={1}>{title}</Text>
-                                    <Text style={styles.recentMeta} numberOfLines={1}>{[meta, formatRecentTime(record.createdAt, now)].filter(Boolean).join(' · ')}</Text>
-                                </View>
-                                <ChevronRightIcon size={14} color={palette.muted} />
-                            </Pressable>
-                        );
-                    })}
-                </View>
             </ScrollView>
+            <YunZhuanForeground />
         </View>
     );
 }
@@ -180,29 +123,5 @@ function makeStyles(palette: ResultPalette, Colors: any) {
         todayDivider: { borderLeftWidth: 1, borderLeftColor: palette.cardBorder },
         todayLabel: { fontSize: 11, lineHeight: 15, color: palette.muted },
         todayValue: { fontSize: 14, lineHeight: 20, fontWeight: '600' },
-        sectionLabelInline: { fontSize: 12, lineHeight: 16, color: palette.muted },
-        recentHead: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: -4 },
-        recentAll: { fontSize: 12, lineHeight: 16, color: palette.gold },
-        recentList: { borderRadius: 16, borderWidth: 1, borderColor: palette.cardBorder, backgroundColor: surface },
-        recentEmpty: { paddingVertical: 18, textAlign: 'center', fontSize: 13, color: palette.muted },
-        recentRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, paddingHorizontal: 14 },
-        recentDivider: { borderTopWidth: 1, borderTopColor: palette.cardBorder },
-        recentBadge: {
-            width: 32,
-            height: 32,
-            borderRadius: 10,
-            overflow: 'hidden',
-            textAlign: 'center',
-            lineHeight: 32,
-            fontFamily: SERIF,
-            fontSize: 15,
-            fontWeight: '700',
-            color: palette.gold,
-            backgroundColor: palette.chipBg,
-        },
-        recentMain: { flex: 1, minWidth: 0 },
-        recentTitle: { fontSize: 14, lineHeight: 20, color: palette.heading },
-        recentMeta: { fontSize: 11.5, lineHeight: 16, color: palette.muted },
-        pressed: { opacity: 0.75 },
     });
 }

@@ -18,6 +18,7 @@ export interface HomeEntry {
 export const HOME_ENTRIES: HomeEntry[] = [
     {
         id: 'liuyao', title: '六爻', subtitle: '纳甲 · 六亲 · 世应', group: '起卦',
+        image: require('../../../assets/home/ink-brush-v6/liuyao-yongle.webp'),
         description: '三枚铜钱，六次摇掷成卦', meta: '',
         actions: [
             { label: '摇卦', accessibilityLabel: '摇卦', route: '/divination/coin', Icon: CoinIcon },
@@ -26,7 +27,7 @@ export const HOME_ENTRIES: HomeEntry[] = [
     },
     {
         id: 'meihua', title: '梅花易数', subtitle: '先天数 · 体用', group: '起卦',
-        image: require('../../../assets/meihua/ui/plum-branch.png'), description: '', meta: '',
+        image: require('../../../assets/home/ink-brush-v6/meihua.webp'), description: '', meta: '',
         actions: [
             { label: '时间', accessibilityLabel: '时间起卦', route: '/meihua/input?mode=time', Icon: ClockIcon },
             { label: '数字', accessibilityLabel: '数字起卦', route: '/meihua/input?mode=number', Icon: NumberIcon },
@@ -34,7 +35,7 @@ export const HOME_ENTRIES: HomeEntry[] = [
     },
     {
         id: 'bazi', title: '八字命理', subtitle: '四柱 · 十神 · 大运', group: '命盘',
-        image: require('../../../assets/bazi/ui/taiji-clouds.webp'),
+        image: require('../../../assets/home/ink-brush-v6/bazi.webp'),
         description: '四柱十神，大运流年', meta: '两人可合盘，五维对照',
         actions: [
             { label: '排盘', accessibilityLabel: '八字排盘', route: '/bazi/input', Icon: BaGuaIcon },
@@ -43,7 +44,7 @@ export const HOME_ENTRIES: HomeEntry[] = [
     },
     {
         id: 'ziwei', title: '紫微斗数', subtitle: '十二宫 · 四化', group: '命盘',
-        image: require('../../../assets/ziwei/ui/star-chart.webp'),
+        image: require('../../../assets/home/ink-brush-v6/ziwei.webp'),
         description: '十二宫星曜，四化运限', meta: '命盘信息与全书格局',
         actions: [{ label: '排盘', accessibilityLabel: '紫微排盘', route: '/ziwei/input', Icon: StarIcon }],
     },
@@ -64,8 +65,11 @@ export const ENTRY_THEMES = {
             ziwei: { top: '#27262D', middle: '#322E3D', bottom: '#423B52', glow: '#A797B4' },
         },
         ink: '#F3EAD6', muted: '#B7AFA4', gold: '#E2C46E',
-        border: '#FFFFFF10', borderTop: '#FFFFFF27', borderBottom: '#0B090C6B',
-        shadow: '#08090C', shadowOpacity: 0.22,
+        shadow: '0 12px 28px -10px rgba(0, 0, 0, 0.28)',
+        shade: '#0A0806',
+        // 纸纹亮点、暗点的染色与浓度：两边相抵，卡面平均色不变
+        grain: { light: '#E8D4AB', lightOpacity: 0.1, dark: '#0A0806', darkOpacity: 0.3 },
+        dial: '#E2C46E', dialPeak: 0.9,
     },
     yang: {
         buttons: {
@@ -81,8 +85,10 @@ export const ENTRY_THEMES = {
             ziwei: { top: '#F9F6F8', middle: '#EDE7EE', bottom: '#D9CFDF', glow: '#95839F' },
         },
         ink: '#2F2A24', muted: '#655D52', gold: '#815B16',
-        border: '#6B53391C', borderTop: '#FFFFFFBF', borderBottom: '#7B645C38',
-        shadow: '#463214', shadowOpacity: 0.08,
+        shadow: '0 12px 28px -10px rgba(23, 24, 26, 0.28)',
+        shade: '#4A3218',
+        grain: { light: '#FFFFFF', lightOpacity: 0.55, dark: '#4A3218', darkOpacity: 0.09 },
+        dial: '#B23F2E', dialPeak: 0.85,
     },
 };
 
