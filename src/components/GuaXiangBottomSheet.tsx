@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, SafeAreaView } from 'react-native';
+import SheetModal from './SheetModal';
+import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { Spacing, FontSize, BorderRadius } from '../theme/colors';
 import HexagramDetailView, { HexagramData } from './HexagramDetailView';
@@ -19,7 +20,7 @@ type TabType = 'base' | 'hu' | 'cuo' | 'zong';
 
 export default function GuaXiangBottomSheet({ visible, onClose, baseHexagramArray }: GuaXiangBottomSheetProps) {
     const { Colors } = useTheme();
-    const styles = makeStyles(Colors);
+    const styles = React.useMemo(() => makeStyles(Colors), [Colors]);
 
     const [activeTab, setActiveTab] = useState<TabType>('base');
     const [hexagramsData, setHexagramsData] = useState<Record<TabType, HexagramData | null>>({
@@ -60,12 +61,7 @@ export default function GuaXiangBottomSheet({ visible, onClose, baseHexagramArra
     const currentData = hexagramsData[activeTab];
 
     return (
-        <Modal
-            visible={visible}
-            animationType="slide"
-            transparent={true}
-            onRequestClose={onClose}
-        >
+        <SheetModal visible={visible} onRequestClose={onClose}>
             <View style={styles.overlay}>
                 <View style={styles.sheetContainer}>
                     {/* 伪首栏作为底色延伸 */}
@@ -115,7 +111,7 @@ export default function GuaXiangBottomSheet({ visible, onClose, baseHexagramArra
                     </View>
                 </View>
             </View>
-        </Modal>
+        </SheetModal>
     );
 }
 
@@ -123,7 +119,6 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     overlay: {
         flex: 1,
         justifyContent: 'flex-end',
-        backgroundColor: 'rgba(0,0,0,0.6)', // 暗色蒙版
     },
     sheetContainer: {
         height: '92%', // 占屏幕较高比例的半屏

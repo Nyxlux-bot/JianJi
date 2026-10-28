@@ -33,7 +33,7 @@ interface HexagramDetailViewProps {
 
 export default function HexagramDetailView({ data }: HexagramDetailViewProps) {
     const { Colors } = useTheme();
-    const styles = makeStyles(Colors);
+    const styles = React.useMemo(() => makeStyles(Colors), [Colors]);
 
     const getTuan = (id: number) => TuanDict[`iching__${id}`] || null;
     const getDaXiang = (id: number) => XiangDict[`iching__${id}`] || null;

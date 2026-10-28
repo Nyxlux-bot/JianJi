@@ -25,7 +25,7 @@ export default function ConfirmModal({
     destructive = false,
 }: ConfirmModalProps) {
     const { Colors } = useTheme();
-        const styles = makeStyles(Colors);
+    const styles = React.useMemo(() => makeStyles(Colors), [Colors]);
     return (
         <Modal
             visible={visible}

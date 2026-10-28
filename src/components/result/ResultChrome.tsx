@@ -5,6 +5,8 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { router } from 'expo-router';
+import Animated from 'react-native-reanimated';
+import { useTabIndicator } from '../../hooks/useTabIndicator';
 import { BackIcon, MoreVerticalIcon, SparkleIcon } from '../Icons';
 import type { ResultPalette } from '../../theme/result-palette';
 
@@ -28,11 +30,10 @@ export function makeResultChromeStyles(palette: ResultPalette) {
         tabTextActive: { fontWeight: '700', color: palette.heading },
         tabIndicator: {
             position: 'absolute',
-            left: '50%',
+            left: 0,
             bottom: 6,
             width: 16,
             height: 2,
-            marginLeft: -8,
             borderRadius: 1,
             backgroundColor: palette.vermilion,
         },
@@ -118,6 +119,7 @@ export function ResultTopBar<K extends string>({
     styles: ResultChromeStyles;
     palette: ResultPalette;
 }) {
+    const indicator = useTabIndicator(active);
     return (
         <View style={styles.topBar}>
             <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.iconBtn, styles.backBtn, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="返回">
@@ -127,12 +129,12 @@ export function ResultTopBar<K extends string>({
                 {tabs.map((tab) => {
                     const on = tab.key === active;
                     return (
-                        <Pressable key={tab.key} onPress={() => onTab(tab.key)} style={({ pressed }) => [styles.tab, pressed && styles.pressed]} accessibilityRole="tab" accessibilityState={{ selected: on }}>
+                        <Pressable key={tab.key} onPress={() => onTab(tab.key)} onLayout={indicator.onTabLayout(tab.key)} style={({ pressed }) => [styles.tab, pressed && styles.pressed]} accessibilityRole="tab" accessibilityState={{ selected: on }}>
                             <Text style={[styles.tabText, on && styles.tabTextActive]}>{tab.label}</Text>
-                            {on ? <View style={styles.tabIndicator} /> : null}
                         </Pressable>
                     );
                 })}
+                <Animated.View pointerEvents="none" style={[styles.tabIndicator, indicator.style]} />
             </View>
             <View style={styles.spacer} />
             {aiLabel ? (

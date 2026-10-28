@@ -23,7 +23,7 @@ export const CustomAlert = {
 
 export default function CustomAlertProvider() {
     const { Colors } = useTheme();
-    const styles = makeStyles(Colors);
+    const styles = React.useMemo(() => makeStyles(Colors), [Colors]);
     const [visible, setVisible] = useState(false);
     const [config, setConfig] = useState<AlertOptions | null>(null);
 

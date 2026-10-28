@@ -34,7 +34,7 @@ const YAO_OPTIONS: { value: YaoValue; label: string; desc: string }[] = [
 
 export default function ManualDivination() {
     const { Colors } = useTheme();
-    const styles = makeStyles(Colors);
+    const styles = React.useMemo(() => makeStyles(Colors), [Colors]);
     const [yaoValues, setYaoValues] = useState<(YaoValue | null)[]>([null, null, null, null, null, null]);
     const [question, setQuestion] = useState('');
     const [subject, setSubject] = useState<LiuyaoSubject | null>(null);

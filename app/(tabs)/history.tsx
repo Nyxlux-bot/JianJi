@@ -12,6 +12,7 @@ import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture
 // 滑动区内用手势库的 Pressable：左滑开始后点按会被取消，不会误开记录
 import { Pressable as GesturePressable } from 'react-native-gesture-handler';
 import Svg, { Circle, Path } from 'react-native-svg';
+import Animated, { Keyframe, ReduceMotion } from 'react-native-reanimated';
 import ConfirmModal from '../../src/components/ConfirmModal';
 import StatusBarDecor from '../../src/components/StatusBarDecor';
 import HexagramLines from '../../src/components/result/HexagramLines';
@@ -21,6 +22,7 @@ import { BA_GUA, GUA_64 } from '../../src/core/liuyao-data';
 import { getRecordRoute } from '../../src/utils/record-route';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { buildResultPalette, type ResultPalette } from '../../src/theme/result-palette';
+import { riseIn, stampIn } from '../../src/theme/motion';
 import { clearAIAnalysisJob } from '../../src/services/ai-analysis-jobs';
 import {
     BaziHistoryCategory,
@@ -189,6 +191,14 @@ function buildPersistedFilters(filter: HistoryFilterState): Omit<HistoryFilterSt
 
 type HistoryStyles = ReturnType<typeof makeStyles>;
 
+/** 首屏前几行依次浮现，只在第一次进入时播 */
+const INTRO_ROWS = 8;
+/** 收藏落印时外圈的印泥晕开 */
+const inkRipple = new Keyframe({
+    0: { opacity: 0.5, transform: [{ scale: 0.7 }] },
+    100: { opacity: 0, transform: [{ scale: 1.7 }] },
+}).duration(420).delay(180).reduceMotion(ReduceMotion.System);
+
 interface HistoryRowProps {
     record: RecordSummary;
     first: boolean;
@@ -198,10 +208,18 @@ interface HistoryRowProps {
     onOpen: (record: RecordSummary) => void;
     onToggleFavorite: (id: string) => void;
     onRequestDelete: (record: RecordSummary) => void;
+    /** 首屏入场的次序，不播时为 undefined */
+    introOrder?: number;
 }
 
-const HistoryRow = memo(function HistoryRow({ record, first, last, palette, styles, onOpen, onToggleFavorite, onRequestDelete }: HistoryRowProps) {
+const HistoryRow = memo(function HistoryRow({ record, first, last, palette, styles, onOpen, onToggleFavorite, onRequestDelete, introOrder }: HistoryRowProps) {
     const swipeRef = useRef<SwipeableMethods>(null);
+    // 只有本次点亮的收藏才盖印，进页时已收藏的不播
+    const favoriteRef = useRef(record.isFavorite);
+    const stamped = record.isFavorite && !favoriteRef.current;
+    useEffect(() => {
+        favoriteRef.current = record.isFavorite;
+    }, [record.isFavorite]);
     const metaKey = getHistoryMetaLabel(record);
     const { title, sub, hasQuestion } = describeRecord(record);
     const lines = record.engineType === 'liuyao' || record.engineType === 'meihua' ? LINES_BY_NAME.get(record.title) : undefined;
@@ -211,7 +229,7 @@ const HistoryRow = memo(function HistoryRow({ record, first, last, palette, styl
     const corner = [first && styles.rowFirst, last && styles.rowLast];
 
     return (
-        <View style={[styles.rowShell, corner, !first && styles.rowRule]}>
+        <Animated.View entering={introOrder === undefined ? undefined : riseIn(introOrder * 30, 10, 360)} style={[styles.rowShell, corner, !first && styles.rowRule]}>
             <ReanimatedSwipeable
                 ref={swipeRef}
                 friction={2}
@@ -263,11 +281,14 @@ const HistoryRow = memo(function HistoryRow({ record, first, last, palette, styl
                         accessibilityRole="button"
                         accessibilityLabel={record.isFavorite ? '取消收藏' : '收藏'}
                     >
-                        <StarIcon size={18} color={record.isFavorite ? palette.gold : palette.muted} filled={record.isFavorite} />
+                        {stamped ? <Animated.View entering={inkRipple} style={styles.starRipple} /> : null}
+                        <Animated.View key={record.isFavorite ? 'on' : 'off'} entering={stamped ? stampIn() : undefined}>
+                            <StarIcon size={18} color={record.isFavorite ? palette.gold : palette.muted} filled={record.isFavorite} />
+                        </Animated.View>
                     </GesturePressable>
                 </View>
             </ReanimatedSwipeable>
-        </View>
+        </Animated.View>
     );
 });
 
@@ -281,6 +302,7 @@ export default function HistoryPage() {
     const [filtersReady, setFiltersReady] = useState(false);
     const [deletingRecord, setDeletingRecord] = useState<RecordSummary | null>(null);
     const deferredFilters = useDeferredValue(filters);
+    const [intro, setIntro] = useState(true);
 
     useEffect(() => {
         let active = true;
@@ -345,6 +367,22 @@ export default function HistoryPage() {
         () => groupByDay(filterHistoryRecords(records, deferredFilters), new Date()),
         [deferredFilters, records],
     );
+    const introOrder = useMemo(() => {
+        if (!intro) return null;
+        const order = new Map<string, number>();
+        for (const section of sections) {
+            for (const record of section.data) {
+                if (order.size >= INTRO_ROWS) return order;
+                order.set(record.id, order.size);
+            }
+        }
+        return order;
+    }, [intro, sections]);
+    useEffect(() => {
+        if (!intro || records.length === 0) return;
+        const timer = setTimeout(() => setIntro(false), 700);
+        return () => clearTimeout(timer);
+    }, [intro, records.length]);
     const engineCounts = useMemo(() => {
         const counts: Partial<Record<HistoryActiveEngine, number>> = {};
         records.forEach((record) => { counts[record.engineType] = (counts[record.engineType] ?? 0) + 1; });
@@ -472,6 +510,7 @@ export default function HistoryPage() {
                             onOpen={handleOpen}
                             onToggleFavorite={handleToggleFavorite}
                             onRequestDelete={setDeletingRecord}
+                            introOrder={introOrder?.get(item.id)}
                         />
                     )}
                     ListFooterComponent={<Text style={styles.footer}>左滑或长按记录可删除</Text>}
@@ -535,6 +574,8 @@ const makeStyles = (palette: ResultPalette) => StyleSheet.create({
     rowTime: { fontSize: 12, lineHeight: 16, color: palette.muted, fontVariant: ['tabular-nums'] },
     rowTag: { paddingHorizontal: 5, borderRadius: 4, overflow: 'hidden', fontSize: 10.5, lineHeight: 15, color: palette.chipInk, backgroundColor: palette.chipBg },
     star: { width: 32, height: 40, alignItems: 'center', justifyContent: 'center' },
+    // 入场关键帧结束后回到这里的样式，所以本身是透明的
+    starRipple: { position: 'absolute', width: 26, height: 26, borderRadius: 6, borderWidth: 1.5, borderColor: palette.vermilion, opacity: 0 },
     deleteAction: { width: 72, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.vermilion },
     deleteText: { fontSize: 13, fontWeight: '700', color: palette.sealText },
     empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6, paddingBottom: 120 },

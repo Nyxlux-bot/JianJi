@@ -28,7 +28,7 @@ export default function LocationBar({
     fallbackDetailText = '',
 }: LocationBarProps) {
     const { Colors } = useTheme();
-    const styles = makeStyles(Colors);
+    const styles = React.useMemo(() => makeStyles(Colors), [Colors]);
     return (
         <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.7}>
             <View style={styles.iconContainer}>

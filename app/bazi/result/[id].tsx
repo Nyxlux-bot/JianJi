@@ -20,7 +20,9 @@ import {
     MoreVerticalIcon,
     SparkleIcon,
 } from '../../../src/components/Icons';
+import Animated from 'react-native-reanimated';
 import AIChatModal from '../../../src/components/AIChatModal';
+import { useTabIndicator } from '../../../src/hooks/useTabIndicator';
 import ConfirmModal from '../../../src/components/ConfirmModal';
 import { CustomAlert } from '../../../src/components/CustomAlertProvider';
 import OverflowMenu, { OverflowMenuItem } from '../../../src/components/OverflowMenu';
@@ -214,6 +216,7 @@ export default function BaziResultPage() {
     const [menuVisible, setMenuVisible] = useState(false);
     const [deleteVisible, setDeleteVisible] = useState(false);
     const [activeSection, setActiveSection] = useState<BaziSectionKey>('overview');
+    const tabIndicator = useTabIndicator(activeSection);
     const [privacyEnabled, setPrivacyEnabled] = useState(false);
     const [panelMode, setPanelMode] = useState<BaziPanelMode>('fortune');
     const [energyMetric, setEnergyMetric] = useState<EnergyMetric>('energy');
@@ -549,8 +552,9 @@ export default function BaziResultPage() {
                     </Pressable>
 
                     <View style={styles.topTabs} accessibilityRole="tablist">
-                        <SectionTab label="命盘概览" active={activeSection === 'overview'} onPress={() => setActiveSection('overview')} styles={styles} />
-                        <SectionTab label="专业细盘" active={activeSection === 'proChart'} onPress={() => setActiveSection('proChart')} styles={styles} />
+                        <SectionTab label="命盘概览" active={activeSection === 'overview'} onPress={() => setActiveSection('overview')} onLayout={tabIndicator.onTabLayout('overview')} styles={styles} />
+                        <SectionTab label="专业细盘" active={activeSection === 'proChart'} onPress={() => setActiveSection('proChart')} onLayout={tabIndicator.onTabLayout('proChart')} styles={styles} />
+                        <Animated.View pointerEvents="none" style={[styles.topTabIndicator, tabIndicator.style]} />
                     </View>
 
                     <View style={styles.topBarSpacer} />
@@ -850,15 +854,15 @@ function buildPaiPanSummary(view: ReturnType<typeof buildBaziProChartViewModel>)
 /* 顶部与头部                                                           */
 /* ------------------------------------------------------------------ */
 
-const SectionTab: React.FC<{ label: string; active: boolean; onPress: () => void; styles: Styles }> = ({ label, active, onPress, styles }) => (
+const SectionTab: React.FC<{ label: string; active: boolean; onPress: () => void; onLayout: (event: LayoutChangeEvent) => void; styles: Styles }> = ({ label, active, onPress, onLayout, styles }) => (
     <Pressable
         style={({ pressed }) => [styles.topTab, pressed && styles.pressed]}
         onPress={onPress}
+        onLayout={onLayout}
         accessibilityRole="tab"
         accessibilityState={{ selected: active }}
     >
         <Text style={[styles.topTabText, active && styles.topTabTextActive]}>{label}</Text>
-        {active ? <View style={styles.topTabIndicator} /> : null}
     </Pressable>
 );
 
@@ -1933,11 +1937,10 @@ const makeStyles = (Colors: any, palette: Palette, viewportWidth: number = 862) 
         topTabTextActive: { fontWeight: '700', color: palette.heading },
         topTabIndicator: {
             position: 'absolute',
-            left: '50%',
+            left: 0,
             bottom: 6,
             width: 16,
             height: 2,
-            marginLeft: -8,
             borderRadius: 1,
             backgroundColor: palette.vermilion,
         },

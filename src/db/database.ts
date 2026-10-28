@@ -347,6 +347,12 @@ const webDb = {
         setWebRecords(filtered);
     },
 
+    async countByEngine(): Promise<Partial<Record<DivinationEngine, number>>> {
+        const counts: Partial<Record<DivinationEngine, number>> = {};
+        getWebRecords().forEach((record) => { counts[record.engineType] = (counts[record.engineType] ?? 0) + 1; });
+        return counts;
+    },
+
     async getAll(): Promise<RecordSummary[]> {
         return getWebRecords()
             .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -734,6 +740,20 @@ const nativeDb = {
         });
     },
 
+    async countByEngine(): Promise<Partial<Record<DivinationEngine, number>>> {
+        const database = await getNativeDatabase();
+        // 旧记录的 engine_type 可能为空，按 method 归一后再合计
+        const rows = await database.getAllAsync(
+            `SELECT engine_type, method, COUNT(*) AS count FROM records GROUP BY engine_type, method`
+        ) as Array<{ engine_type: string | null; method: string | null; count: number }>;
+        const counts: Partial<Record<DivinationEngine, number>> = {};
+        rows.forEach((row) => {
+            const engine = normalizeEngineType(row.engine_type, row.method, null);
+            counts[engine] = (counts[engine] ?? 0) + row.count;
+        });
+        return counts;
+    },
+
     async getAll(): Promise<RecordSummary[]> {
         const database = await getNativeDatabase();
         const rows = await database.getAllAsync(
@@ -927,6 +947,11 @@ export async function replaceRecord(oldId: string, payload: DivinationRecordEnve
 /** 获取所有记录（按时间降序） */
 export async function getAllRecords(): Promise<RecordSummary[]> {
     return storage.getAll();
+}
+
+/** 各引擎的记录数（设置页用） */
+export async function getRecordCounts(): Promise<Partial<Record<DivinationEngine, number>>> {
+    return storage.countByEngine();
 }
 
 /** 获取单条记录详情 */

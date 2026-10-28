@@ -19,7 +19,7 @@ interface LiuyaoSubjectSelectorProps {
  */
 export default function LiuyaoSubjectSelector({ value, onChange, style, labelStyle }: LiuyaoSubjectSelectorProps) {
     const { Colors } = useTheme();
-    const styles = makeStyles(Colors);
+    const styles = React.useMemo(() => makeStyles(Colors), [Colors]);
 
     return (
         <View style={[styles.section, style]}>

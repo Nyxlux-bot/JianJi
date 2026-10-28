@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import SheetModal from '../../../../src/components/SheetModal';
 import {
-    Modal,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -510,7 +510,7 @@ const ClassicReferenceSheet: React.FC<{
     const references = getBaziMatchClassicRefs(referenceIds);
 
     return (
-        <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+        <SheetModal visible={visible} onRequestClose={onClose}>
             <View style={styles.sheetRoot}>
                 <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="关闭" />
                 <View style={styles.sheet}>
@@ -546,7 +546,7 @@ const ClassicReferenceSheet: React.FC<{
                     </ScrollView>
                 </View>
             </View>
-        </Modal>
+        </SheetModal>
     );
 };
 
@@ -629,7 +629,7 @@ const makeStyles = (palette: ResultPalette, Colors: any) => StyleSheet.create({
     refLink: { alignSelf: 'flex-end', minHeight: 36, justifyContent: 'center', paddingHorizontal: 4, marginBottom: -8 },
     refLinkText: { fontSize: 12.5, fontWeight: '600', color: palette.gold },
 
-    sheetRoot: { flex: 1, justifyContent: 'flex-end', backgroundColor: Colors.bg.overlay },
+    sheetRoot: { flex: 1, justifyContent: 'flex-end' },
     sheet: { maxHeight: '76%', borderTopLeftRadius: 20, borderTopRightRadius: 20, backgroundColor: palette.card },
     sheetHandle: { alignSelf: 'center', width: 36, height: 4, marginTop: 8, borderRadius: 2, backgroundColor: palette.rule },
     sheetHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 20, paddingRight: 6, paddingTop: 4, paddingBottom: 8 },
