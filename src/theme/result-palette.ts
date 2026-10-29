@@ -39,6 +39,8 @@ export function buildResultPalette(Colors: any) {
         goldSoft: isLight ? '#f7eedb' : toRgba(gold, 0.1),
         goldBorder: isLight ? '#ead9b5' : toRgba(gold, 0.34),
         dayTint: isLight ? '#f7eedb' : toRgba(gold, 0.08),
+        // 与 dayTint 同色但不透明：要压住连线的高亮块用它
+        dayFill: isLight ? '#f7eedb' : mixHex(card, gold, 0.1),
         chipBg: isLight ? '#f3ead8' : '#333333',
         chipInk: isLight ? '#6f5b39' : '#C8C8C8',
         segTrack: isLight ? '#f1e8d6' : '#1A1A1A',
@@ -56,6 +58,17 @@ export function buildResultPalette(Colors: any) {
         timelineHollow: isLight ? '#b8a682' : '#6B6B6B',
         birthHalo: isLight ? '#f7e2dc' : toRgba(vermilion, 0.25),
         fadeFrom: toRgba(card, 0),
+        // 无描边分层：页面底 → surface（低一阶）→ raised（再高一阶）
+        surface: isLight ? card : '#1B1B1B',
+        raised: isLight ? '#f1e8d6' : card,
+        meta: isLight ? '#7d6d55' : '#949494',
+        positive: isLight ? '#2f7a52' : '#54b78e',
+        negative: isLight ? '#b9483e' : '#e16a5e',
+        positiveSoft: isLight ? '#e3f0e6' : 'rgba(84,183,142,0.16)',
+        negativeSoft: isLight ? '#f6e1dc' : 'rgba(225,106,94,0.16)',
+        dialBand: isLight ? '#f3e8d2' : '#1c1b19',
+        dialLine: toRgba(gold, isLight ? 0.38 : 0.32),
+        dialTick: toRgba(gold, isLight ? 0.45 : 0.4),
         element,
         elementSoft,
     };

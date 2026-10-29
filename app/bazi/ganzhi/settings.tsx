@@ -94,7 +94,7 @@ const GROUPS: Array<{ title: string; items: SettingItem[] }> = [
 
 export default function GanZhiRelationSettingsPage() {
     const { Colors } = useTheme();
-    const styles = makeStyles(Colors);
+    const styles = React.useMemo(() => makeStyles(Colors), [Colors]);
     const insets = useSafeAreaInsets();
     const { settings, setSetting, resetSettings } = useGanZhiRelationSettings();
 

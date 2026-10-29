@@ -7,6 +7,8 @@ import type { BaziResult } from '../../core/bazi-types';
 import { DIZHI_WUXING, TIANGAN_WUXING } from '../../core/liuyao-data';
 import type { BaziWuXingEnergySnapshot } from '../../core/bazi-wuxing-energy';
 import type { BaziCompatibilityResult } from '../../features/bazi/match/types';
+import { buildBaziMatchSummaryTitle } from '../../features/bazi/match/formatter';
+import { getDisplayDimensions, getMatchRelation } from '../../features/bazi/match/pair';
 import type { ZiweiMutagenPlacement, ZiweiNatalOverview } from '../../features/ziwei/ai-overview';
 import type { AIExecutionMeta } from '../../core/ai-execution-meta';
 import { useActiveAIModel } from '../../hooks/useActiveAIModel';
@@ -231,17 +233,18 @@ export function ZiweiChartSummary({ overview, subtitle, styles, Colors }: { over
 }
 
 export function CompatChartSummary({ result, styles }: { result: BaziCompatibilityResult; styles: AIPageStyles }) {
+    const relation = getMatchRelation(result);
     return (
         <View style={styles.chart}>
             <View style={styles.chartTop}>
-                <Text style={styles.chartTopText}>本地规则评分 · 参考，不是成婚概率</Text>
+                <Text style={styles.chartTopText}>{relation.name} · 本地规则评分 · 参考，不是{relation.key === 'love' ? '成婚' : '关系成败'}概率</Text>
             </View>
             <View style={styles.scoreRow}>
                 <Text style={styles.scoreBig}>{result.totalScore}</Text>
-                <Text style={styles.scoreGrade}>{result.grade} · {result.maleProfile.name || '男方'} × {result.femaleProfile.name || '女方'}</Text>
+                <Text style={styles.scoreGrade}>{result.grade} · {buildBaziMatchSummaryTitle(result)}</Text>
             </View>
             <View style={styles.scoreGrid}>
-                {result.dimensions.map((dimension) => (
+                {getDisplayDimensions(result).map((dimension) => (
                     <View key={dimension.key} style={styles.scoreCell}>
                         <Text style={styles.scoreCellLabel} numberOfLines={1}>{dimension.title}</Text>
                         <Text style={styles.scoreCellValue}>{dimension.score}</Text>

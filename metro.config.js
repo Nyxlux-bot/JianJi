@@ -122,6 +122,8 @@ const config = getDefaultConfig(__dirname);
 
 // Add 'wasm' to asset extensions to resolve SQLite for web
 config.resolver.assetExts.push('wasm');
+// 书阁典籍正文（JSON）按资源打包、打开时再读，不进 JS 包
+config.resolver.assetExts.push('book');
 config.resolver.sourceExts.push('md');
 config.transformer.babelTransformerPath = require.resolve('./scripts/markdown-transformer.cjs');
 

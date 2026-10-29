@@ -1,0 +1,15 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.jianji.liquidglass'
+version = '0.1.0'
+
+android {
+  namespace "expo.modules.liquidglass"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+}

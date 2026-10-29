@@ -4,9 +4,9 @@
  */
 
 import React, { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import SheetModal from './SheetModal';
 import {
     FlatList,
-    Modal,
     Pressable,
     StyleSheet,
     Text,
@@ -334,12 +334,7 @@ export default function CityPicker({
             : '请先在设置中填写腾讯位置服务 Key，或选择已缓存过的区县。');
 
     return (
-        <Modal
-            visible={visible}
-            animationType="slide"
-            transparent
-            onRequestClose={onClose}
-        >
+        <SheetModal visible={visible} onRequestClose={onClose}>
             <View style={styles.overlay}>
                 <View style={styles.container}>
                     <View style={styles.header}>
@@ -444,14 +439,13 @@ export default function CityPicker({
                     </View>
                 </View>
             </View>
-        </Modal>
+        </SheetModal>
     );
 }
 
 const makeStyles = (Colors: any) => StyleSheet.create({
     overlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.5)',
         justifyContent: 'flex-end',
     },
     container: {

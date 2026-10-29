@@ -52,7 +52,12 @@ export const FIVE_YEAR_CONTRACT = {
 
 export const COMPAT_CONTRACT = {
     sections: ['合婚总断', '最合之处', '最大冲突', '能不能成', '婚后相处', '婚期应期', '一句话取法'],
+    /** 合作、朋友、同事、亲子、手足 */
+    pairSections: ['合盘总断', '最合之处', '最大冲突', '关系走向', '相处之道', '顺年时机', '一句话取法'],
 } as const;
+
+/** 解析正文时两套小节都认，旧详批照常分节 */
+export const COMPAT_SECTION_TITLES: readonly string[] = [...new Set([...COMPAT_CONTRACT.sections, ...COMPAT_CONTRACT.pairSections])];
 
 const FIELD_HINTS: Record<ChapterContractEngine, Record<ChapterFieldContract['key'], string>> = {
     bazi: {
@@ -97,10 +102,10 @@ export function renderFiveYearFormat(engine: ChapterContractEngine, currentYear:
 }
 
 /** "输出格式" section for 合盘详批. */
-export function renderCompatFormat(): string {
+export function renderCompatFormat(isLove = true): string {
     return [
         '【输出格式】正文只用下面七个 ### 小节，顺序和标题原样照写：',
-        ...COMPAT_CONTRACT.sections.map((title) => `### ${title}`),
+        ...(isLove ? COMPAT_CONTRACT.sections : COMPAT_CONTRACT.pairSections).map((title) => `### ${title}`),
         '每节第一句是断语（一句话结论，以句号结束），然后写命理依据，必要时写取法；每节 1-2 段。',
     ].join('\n');
 }

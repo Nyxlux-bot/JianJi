@@ -51,7 +51,7 @@ export const AI_SKILLS: Record<AISkillEngine, AISkillDefinition> = {
         requests: { foundation: baziFoundation, kinship: baziKinship, verification: baziVerification, five_year: baziFiveYear, followup: baziFollowup, digest: baziDigest, quick_replies: baziQuick } },
     ziwei: { id: 'jianji-ziwei', version: 6, instructions: ziwei, system: ziweiSystem,
         requests: { foundation: ziweiFoundation, verification: ziweiVerification, five_year: ziweiFiveYear, followup: ziweiFollowup, digest: ziweiDigest, quick_replies: ziweiQuick } },
-    baziCompatibility: { id: 'jianji-bazi-compatibility', version: 4, instructions: compatibility, requests: { initial: compatibilityInitial } },
+    baziCompatibility: { id: 'jianji-bazi-compatibility', version: 5, instructions: compatibility, requests: { initial: compatibilityInitial } },
     meihua: { id: 'jianji-meihua', version: 2, instructions: meihua, requests: { initial: meihuaInitial, followup: meihuaFollowup, quick_replies: meihuaQuick } },
 };
 export const SKILL_REFERENCES = { liuyaoCompletion, meihuaCompletion, baziKinshipBoundary, baziKinshipMethods, baziEvidenceFormat, baziEvidenceMethods };

@@ -3,7 +3,19 @@ import { BaziResult, ShiShenName } from '../../../core/bazi-types';
 import { WuXing } from '../../../core/liuyao-data';
 import type { BaziMatchClassicReferenceId } from './classic-references';
 
-export type BaziMatchDimensionKey = 'harmony' | 'supportHusband' | 'supportWife' | 'offspring' | 'longevity';
+export type BaziMatchDimensionKey =
+    | 'harmony' | 'supportHusband' | 'supportWife' | 'offspring' | 'longevity'
+    /** 婚恋宫星，只在展示时补算 */
+    | 'palaceStar'
+    /** 合作、朋友、同事、亲子、手足 */
+    | 'complement' | 'division' | 'wealth' | 'trust' | 'rhythm'
+    | 'rapport' | 'temper' | 'contact' | 'lasting'
+    | 'cooperation' | 'hierarchy' | 'task'
+    | 'bond' | 'palace' | 'discipline' | 'getAlong' | 'help';
+/** 婚恋、合作、朋友、同事、亲子、手足 */
+export type BaziMatchRelation = 'love' | 'biz' | 'friend' | 'work' | 'kin' | 'sib';
+/** 同事、亲子的方向，从「我」看 */
+export type BaziMatchDirection = 'superior' | 'peer' | 'subordinate' | 'parent' | 'child';
 export type BaziMatchGrade = '优' | '良' | '中' | '差';
 export type BaziMarriageYearKind = 'trigger' | 'recommendation';
 
@@ -129,12 +141,21 @@ export interface BaziCompatibilityResult {
     totalScore: number;
     grade: BaziMatchGrade;
     summary: string;
+    /** 婚恋为婚期；其余关系为两人同走喜用的顺年，不带年龄 */
     marriageYears: BaziMarriageYearCandidate[];
     marriageTiming?: BaziMarriageTimingResult;
     review?: BaziMatchReview;
     evidenceMatrix?: BaziMatchMatrixEntry[];
     aiAnalysis?: string;
     aiChatHistory?: PersistedAIChatMessage[];
+    /** 关系类型；旧记录没有，按婚恋读 */
+    relation?: BaziMatchRelation;
+    direction?: BaziMatchDirection;
+    /**
+     * 「我」在 male 还是 female 槽位；旧记录没有，按 male 读。
+     * 婚恋按男女落槽；其余关系两个槽位只是两个人，「我」固定在 male 槽，不分男女。
+     */
+    self?: 'male' | 'female';
 }
 
 export function getBaziMatchGrade(score: number): BaziMatchGrade {

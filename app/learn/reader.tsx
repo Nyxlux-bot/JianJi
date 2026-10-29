@@ -1,14 +1,16 @@
 /**
- * 典籍阅读：宋体正文、字号三档、底部目录、上一篇 / 下一篇；读到的篇和位置存本机，书阁「继续阅读」接着读。
+ * 典籍阅读：宋体正文、字号三档、底部目录、上一篇 / 下一篇；读到的篇和位置存本机，再打开这部书时接着读。
+ * 目录随包内置，正文打开时才读入。
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import SheetModal from '../../src/components/SheetModal';
+import { FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path } from 'react-native-svg';
 import StatusBarDecor from '../../src/components/StatusBarDecor';
 import { BackIcon, ChevronRightIcon } from '../../src/components/Icons';
-import { getBaziClassicBook, getChapterLabel, getChapterParagraphs } from '../../src/data/bazi-classics';
+import { getClassicBookMeta, loadClassicChapters, type ClassicChapter } from '../../src/data/classics';
 import { loadReadingState, saveReadingState, type ReadingState } from '../../src/services/reading-progress';
 import { buildResultPalette, type ResultPalette } from '../../src/theme/result-palette';
 import { useTheme } from '../../src/theme/ThemeContext';
@@ -23,7 +25,9 @@ export default function ReaderPage() {
     const palette = useMemo(() => buildResultPalette(Colors), [Colors]);
     const styles = useMemo(() => makeStyles(palette), [palette]);
     const params = useLocalSearchParams<{ book?: string; chapter?: string }>();
-    const book = useMemo(() => getBaziClassicBook(params.book || ''), [params.book]);
+    const book = useMemo(() => getClassicBookMeta(params.book || ''), [params.book]);
+    const [texts, setTexts] = useState<ClassicChapter[] | null>(null);
+    const [loadFailed, setLoadFailed] = useState(false);
     const [chapterId, setChapterId] = useState<string | null>(null);
     const [fontSize, setFontSize] = useState(1);
     const [tocOpen, setTocOpen] = useState(false);
@@ -31,6 +35,17 @@ export default function ReaderPage() {
     const scrollRef = useRef<ScrollView>(null);
     const restoreRef = useRef(0);
     const viewHeight = useRef(0);
+
+    useEffect(() => {
+        if (!book) return;
+        let alive = true;
+        setTexts(null);
+        setLoadFailed(false);
+        loadClassicChapters(book.id)
+            .then((chapters) => { if (alive) setTexts(chapters); })
+            .catch(() => { if (alive) setLoadFailed(true); });
+        return () => { alive = false; };
+    }, [book]);
 
     // 读入进度：没指定篇就接着上次读到的篇，同一篇恢复到上次位置
     useEffect(() => {
@@ -46,8 +61,8 @@ export default function ReaderPage() {
     }, [book, params.chapter]);
 
     const index = book && chapterId ? book.chapters.findIndex((item) => item.id === chapterId) : -1;
-    const chapter = book && index >= 0 ? book.chapters[index] : undefined;
-    const paragraphs = useMemo(() => (chapter ? getChapterParagraphs(chapter) : []), [chapter]);
+    const chapter = index >= 0 ? texts?.[index] : undefined;
+    const paragraphs = useMemo(() => (chapter ? chapter.text.split('\n').filter(Boolean) : []), [chapter]);
     const progressRef = useRef(0);
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -124,17 +139,17 @@ export default function ReaderPage() {
                     <Pressable onPress={() => router.back()} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="返回">
                         <BackIcon size={22} color={palette.ink} />
                     </Pressable>
+                    {book ? <Text style={styles.bookTitle} numberOfLines={1}>{book.title}</Text> : null}
+                    {book ? <View style={styles.iconBtn} /> : null}
                 </View>
-                {!book ? <Text style={styles.missing}>没有找到这本书</Text> : null}
+                <Text style={styles.missing}>{!book ? '没有找到这本书' : loadFailed ? '这部书没能打开，返回后再试一次' : '正在展开…'}</Text>
             </View>
         );
     }
 
-    const label = getChapterLabel(chapter.title);
-    const prev = index > 0 ? getChapterLabel(book.chapters[index - 1].title).title : '';
-    const next = index < book.chapters.length - 1 ? getChapterLabel(book.chapters[index + 1].title).title : '';
+    const prev = index > 0 ? book.chapters[index - 1].title : '';
+    const next = index < book.chapters.length - 1 ? book.chapters[index + 1].title : '';
     const font = SIZES[fontSize] || SIZES[1];
-    const meta = BOOK_META[book.id];
 
     return (
         <View style={styles.container}>
@@ -169,8 +184,8 @@ export default function ReaderPage() {
                 onMomentumScrollEnd={onScrollEnd}
                 scrollEventThrottle={64}
             >
-                <Text style={styles.chapterMeta}>{meta ? `${meta} · ` : ''}第 {index + 1} 篇 / {book.chapters.length}{label.volume ? ` · ${label.volume}` : ''}</Text>
-                <Text style={styles.chapterTitle}>{label.title}</Text>
+                <Text style={styles.chapterMeta}>{book.dynasty} · {book.author} · 第 {index + 1} 篇 / {book.chapters.length}{chapter.volume ? ` · ${chapter.volume}` : ''}</Text>
+                <Text style={styles.chapterTitle}>{chapter.title}</Text>
                 <View style={styles.ornament}>
                     <View style={styles.ornamentLine} />
                     <View style={styles.ornamentDiamond} />
@@ -196,15 +211,16 @@ export default function ReaderPage() {
                 </Pressable>
             </View>
 
-            <Modal visible={tocOpen} transparent animationType="slide" onRequestClose={() => setTocOpen(false)}>
+            <SheetModal visible={tocOpen} onRequestClose={() => setTocOpen(false)}>
                 <View style={styles.sheetWrap}>
                     <Pressable style={styles.backdrop} onPress={() => setTocOpen(false)} accessibilityRole="button" accessibilityLabel="关闭目录" />
                     <View style={[styles.sheet, { paddingBottom: insets.bottom }]}>
                         <View style={styles.grabber} />
                         <View style={styles.sheetHead}>
                             <Text style={styles.sheetTitle}>目录</Text>
-                            <Text style={styles.sheetMeta}>{book.chapters.length} 篇 · 约 {(book.chapters.reduce((sum, item) => sum + item.text.length, 0) / 10000).toFixed(1)} 万字</Text>
+                            <Text style={styles.sheetMeta}>{book.chapters.length} 篇 · 约 {(book.charCount / 10000).toFixed(1)} 万字</Text>
                         </View>
+                        <Text style={styles.sheetSource}>底本：{book.source.kind}{book.source.note ? ` · ${book.source.note}` : ''}</Text>
                         <FlatList
                             data={book.chapters}
                             keyExtractor={(item) => item.id}
@@ -213,32 +229,23 @@ export default function ReaderPage() {
                             contentContainerStyle={styles.tocList}
                             renderItem={({ item, index: i }) => {
                                 const on = i === index;
-                                const itemLabel = getChapterLabel(item.title);
                                 return (
                                     <Pressable onPress={() => openChapter(i)} style={({ pressed }) => [styles.tocRow, on && styles.tocRowOn, pressed && styles.pressed]} accessibilityRole="button" accessibilityState={{ selected: on }}>
                                         <Text style={styles.tocNo}>{i + 1}</Text>
-                                        <Text style={[styles.tocTitle, on && styles.tocTitleOn]} numberOfLines={1}>{itemLabel.title}</Text>
-                                        {itemLabel.volume ? <Text style={styles.tocVolume}>{itemLabel.volume}</Text> : null}
+                                        <Text style={[styles.tocTitle, on && styles.tocTitleOn]} numberOfLines={1}>{item.title}</Text>
+                                        {item.volume ? <Text style={styles.tocVolume} numberOfLines={1}>{item.volume}</Text> : null}
                                         {on ? <View style={styles.tocTag}><Text style={styles.tocTagText}>在读</Text></View> : null}
-                                        <Text style={styles.tocChars}>{item.text.length} 字</Text>
+                                        <Text style={styles.tocChars}>{item.charCount} 字</Text>
                                     </Pressable>
                                 );
                             }}
                         />
                     </View>
                 </View>
-            </Modal>
+            </SheetModal>
         </View>
     );
 }
-
-/** 篇首小字：朝代与作者 */
-const BOOK_META: Record<string, string> = {
-    zipingzhenquan: '清 · 沈孝瞻',
-    ditiansuichanwei: '清 · 任铁樵',
-    yuanhaiziping: '宋 · 徐大升',
-    minglitanyuan: '民国 · 袁树珊',
-};
 
 const makeStyles = (palette: ResultPalette) => StyleSheet.create({
     container: { flex: 1, backgroundColor: 'transparent' },
@@ -275,12 +282,13 @@ const makeStyles = (palette: ResultPalette) => StyleSheet.create({
     bar: { alignSelf: 'stretch', height: 3, borderRadius: 2, backgroundColor: palette.barTrack, overflow: 'hidden' },
     barFill: { height: '100%', backgroundColor: palette.gold },
     sheetWrap: { flex: 1, justifyContent: 'flex-end' },
-    backdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(0,0,0,0.55)' },
+    backdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
     sheet: { height: '68%', borderTopLeftRadius: 20, borderTopRightRadius: 20, backgroundColor: palette.card, borderTopWidth: 1, borderColor: palette.cardBorder },
     grabber: { width: 36, height: 4, marginTop: 8, alignSelf: 'center', borderRadius: 2, backgroundColor: palette.rule },
     sheetHead: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: 18, paddingTop: 12, paddingBottom: 10 },
     sheetTitle: { fontFamily: SERIF, fontSize: 17, lineHeight: 24, fontWeight: '700', color: palette.heading },
     sheetMeta: { fontSize: 12, color: palette.muted },
+    sheetSource: { marginTop: -4, marginBottom: 8, paddingHorizontal: 18, fontSize: 11.5, lineHeight: 16, color: palette.muted },
     tocList: { paddingHorizontal: 12, paddingBottom: 24 },
     tocRow: { height: TOC_ROW, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 8, borderRadius: 10 },
     tocRowOn: { backgroundColor: palette.goldSoft },

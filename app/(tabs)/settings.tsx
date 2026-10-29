@@ -26,10 +26,12 @@ import {
     DivinationRecordEnvelope,
     exportAllRecords,
     getAllRecords,
+    getRecordCounts,
     importRecords,
     type ImportConflictPolicy,
 } from '../../src/db/database';
 import StatusBarDecor from '../../src/components/StatusBarDecor';
+import PressableScale from '../../src/components/PressableScale';
 import { BorderRadius, FontSize, Spacing } from '../../src/theme/colors';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { validateImportRecords } from '../../src/db/import-validation';
@@ -165,7 +167,7 @@ function TaijiHub({
 export default function SettingsPage() {
     const { Colors, theme, setTheme, saveTheme } = useTheme();
     const navigation = useNavigation();
-    const styles = makeStyles(Colors);
+    const styles = React.useMemo(() => makeStyles(Colors), [Colors]);
     const insets = useSafeAreaInsets();
     const palette = React.useMemo(() => buildResultPalette(Colors), [Colors]);
     const layout = React.useMemo(() => makeLayoutStyles(palette, Colors), [palette, Colors]);
@@ -240,7 +242,7 @@ export default function SettingsPage() {
             toValue: theme === 'yang' ? 1 : 0,
             duration: 520,
             easing: Easing.out(Easing.cubic),
-            useNativeDriver: false,
+            useNativeDriver: true,
         }).start();
     }, [theme, themeProgress]);
 
@@ -288,11 +290,10 @@ export default function SettingsPage() {
 
     useFocusEffect(useCallback(() => {
         let active = true;
-        getAllRecords().then((records) => {
+        getRecordCounts().then((byEngine) => {
             if (!active) return;
-            const byEngine: Partial<Record<DivinationEngine, number>> = {};
-            records.forEach((record) => { byEngine[record.engineType] = (byEngine[record.engineType] ?? 0) + 1; });
-            setRecordCounts({ total: records.length, byEngine });
+            const total = Object.values(byEngine).reduce((sum, count) => sum + (count ?? 0), 0);
+            setRecordCounts({ total, byEngine });
         }).catch(() => undefined);
         return () => { active = false; };
     }, []));
@@ -618,7 +619,7 @@ export default function SettingsPage() {
                 </View>
 
                 <Text style={layout.sectionLabel}>AI 中枢</Text>
-                <Pressable style={({ pressed }) => [layout.card, layout.rowCard, pressed && styles.pressed]} onPress={() => setActiveSheet('ai')} accessibilityRole="button" accessibilityLabel="AI 中枢">
+                <PressableScale style={[layout.card, layout.rowCard]} scaleTo={0.985} onPress={() => setActiveSheet('ai')} accessibilityRole="button" accessibilityLabel="AI 中枢">
                     <View style={[layout.iconTile, layout.iconTileGold]}><SparkleIcon size={18} color={palette.gold} /></View>
                     <View style={layout.flex}>
                         <View style={layout.titleRow}>
@@ -628,10 +629,10 @@ export default function SettingsPage() {
                         <Text style={layout.muted} numberOfLines={1}>{aiProvider ? getHostLabel(aiProvider.apiUrl.trim().replace(/#$/, '')) : '配置接口地址与 API Key 后可用 AI 解卦'}</Text>
                     </View>
                     <ChevronRightIcon size={16} color={palette.muted} />
-                </Pressable>
+                </PressableScale>
 
                 <Text style={layout.sectionLabel}>排盘与校时</Text>
-                <Pressable style={({ pressed }) => [layout.card, layout.rowCard, pressed && styles.pressed]} onPress={() => setActiveSheet('calendar')} accessibilityRole="button" accessibilityLabel="排盘与校时">
+                <PressableScale style={[layout.card, layout.rowCard]} scaleTo={0.985} onPress={() => setActiveSheet('calendar')} accessibilityRole="button" accessibilityLabel="排盘与校时">
                     <View style={layout.iconTile}><LocationIcon size={18} color={palette.vermilion} /></View>
                     <View style={layout.flex}>
                         <View style={layout.titleRow}>
@@ -641,7 +642,7 @@ export default function SettingsPage() {
                         <Text style={layout.muted} numberOfLines={1}>按出生地、起卦地换算真太阳时</Text>
                     </View>
                     <ChevronRightIcon size={16} color={palette.muted} />
-                </Pressable>
+                </PressableScale>
 
                 <View style={layout.sectionHead}>
                     <Text style={layout.sectionLabelInline}>卷宗数据</Text>
@@ -658,15 +659,15 @@ export default function SettingsPage() {
                         ))}
                     </View>
                     <View style={layout.dataActions}>
-                        <Pressable onPress={handleBackup} disabled={isBackingUp} style={({ pressed }) => [layout.pill, layout.pillPrimary, layout.pillWide, (pressed || isBackingUp) && styles.pressed]} accessibilityRole="button">
+                        <PressableScale onPress={handleBackup} disabled={isBackingUp} style={[layout.pill, layout.pillPrimary, layout.pillWide, isBackingUp && styles.pressed]} accessibilityRole="button">
                             <Text style={layout.pillPrimaryText}>{isBackingUp ? '导出中…' : '导出备份'}</Text>
-                        </Pressable>
-                        <Pressable onPress={handleRestore} disabled={isRestoring} style={({ pressed }) => [layout.pill, (pressed || isRestoring) && styles.pressed]} accessibilityRole="button">
+                        </PressableScale>
+                        <PressableScale onPress={handleRestore} disabled={isRestoring} style={[layout.pill, isRestoring && styles.pressed]} accessibilityRole="button">
                             <Text style={layout.pillText}>导入档案</Text>
-                        </Pressable>
-                        <Pressable onPress={handleExportDiagnostics} disabled={isExportingDiagnostics} style={({ pressed }) => [layout.pill, (pressed || isExportingDiagnostics) && styles.pressed]} accessibilityRole="button">
+                        </PressableScale>
+                        <PressableScale onPress={handleExportDiagnostics} disabled={isExportingDiagnostics} style={[layout.pill, isExportingDiagnostics && styles.pressed]} accessibilityRole="button">
                             <Text style={layout.pillText}>{isExportingDiagnostics ? '导出中…' : '故障日志'}</Text>
-                        </Pressable>
+                        </PressableScale>
                     </View>
                     <Text style={layout.note}>备份与日志都不含接口密钥。</Text>
                 </View>

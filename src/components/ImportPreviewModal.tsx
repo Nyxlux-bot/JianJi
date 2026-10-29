@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import SheetModal from './SheetModal';
 import {
-    Modal,
     View,
     Text,
     StyleSheet,
@@ -96,12 +96,7 @@ export default function ImportPreviewModal({
     };
 
     return (
-        <Modal
-            visible={visible}
-            animationType="slide"
-            transparent
-            onRequestClose={onCancel}
-        >
+        <SheetModal visible={visible} onRequestClose={onCancel}>
             <View style={styles.mask}>
                 <View style={styles.panel}>
                     <Text style={styles.title}>恢复预览</Text>
@@ -163,14 +158,13 @@ export default function ImportPreviewModal({
                     </View>
                 </View>
             </View>
-        </Modal>
+        </SheetModal>
     );
 }
 
 const makeStyles = (Colors: any) => StyleSheet.create({
     mask: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.45)',
         justifyContent: 'flex-end',
     },
     panel: {

@@ -174,7 +174,7 @@ function resetCoinMotion(motion: CoinMotionState) {
 
 export default function CoinDivination() {
     const { Colors, theme } = useTheme();
-    const styles = makeStyles(Colors);
+    const styles = React.useMemo(() => makeStyles(Colors), [Colors]);
     const [results, setResults] = useState<YaoValue[]>([]);
     const [shaking, setShaking] = useState(false);
     const [savingResult, setSavingResult] = useState(false);

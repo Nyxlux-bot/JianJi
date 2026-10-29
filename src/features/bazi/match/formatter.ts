@@ -1,6 +1,8 @@
 import { BaziCompatibilityResult, BaziMarriageYearCandidate, BaziMatchMatrixEntry, BaziMatchProfile, BaziMatchReview } from './types';
 import { getBaziMatchClassicRefs, getBaziMatchDimensionReferenceFallbackIds } from './classic-references';
 import { buildBaziMatchEvidenceMatrix, buildBaziMatchReview } from './rules';
+import { buildMutualView, buildPairLinks, getDisplayDimensions, getMatchDirectionLabel, getMatchRelation, getMatchSides } from './pair';
+import { getPairSpec } from './relations';
 
 const DISPLAY_MARRIAGE_MIN_AGE = 18;
 const DISPLAY_MARRIAGE_MAX_AGE = 45;
@@ -36,7 +38,7 @@ function hasDisplayMarriageAge(item: BaziMarriageYearCandidate): boolean {
         && item.femaleAge <= DISPLAY_MARRIAGE_MAX_AGE;
 }
 
-function formatCanProceed(value: BaziMatchReview['canProceed']): string {
+export function formatCanProceed(value: BaziMatchReview['canProceed']): string {
     if (value === 'strong') return '成局较稳';
     if (value === 'workable') return '可以成局';
     if (value === 'cautious') return '谨慎成局';
@@ -45,23 +47,81 @@ function formatCanProceed(value: BaziMatchReview['canProceed']): string {
 }
 
 export function getDisplayMarriageYears(result: BaziCompatibilityResult): BaziMarriageYearCandidate[] {
+    // 其余关系的顺年不带年龄
+    if ((result.relation ?? 'love') !== 'love') return result.marriageYears.slice(0, DISPLAY_MARRIAGE_LIMIT);
+    // 旧记录可能存了合盘那年之前的婚期，过去的年份不再当应期
+    const fromYear = new Date(result.calculatedAt).getFullYear();
     return result.marriageYears
-        .filter((item) => hasDisplayMarriageAge(item))
+        .filter((item) => hasDisplayMarriageAge(item) && !(item.year < fromYear))
         .slice(0, DISPLAY_MARRIAGE_LIMIT);
 }
 
-export function formatBaziMatchForAI(result: BaziCompatibilityResult): string {
-    const lines: string[] = [];
-    const displayMarriageYears = getDisplayMarriageYears(result);
+// 展示里旺夫、帮妻合成「扶持」，总断与证据里带出的维度名跟着改
+const asSupport = (text: string) => text.replace(/(旺夫|帮妻)：/g, '扶持：');
+
+/** 旧记录没有存总断与证据矩阵时，按同一套规则补算。 */
+export function getBaziMatchReview(result: BaziCompatibilityResult): { review: BaziMatchReview; evidenceMatrix: BaziMatchMatrixEntry[] } {
     const evidenceMatrix = result.evidenceMatrix || buildBaziMatchEvidenceMatrix({
         maleProfile: result.maleProfile,
         femaleProfile: result.femaleProfile,
         dimensions: result.dimensions,
-        marriageYears: displayMarriageYears,
+        marriageYears: getDisplayMarriageYears(result),
         marriageTiming: result.marriageTiming,
     });
     const review = result.review || buildBaziMatchReview(result.totalScore, result.grade, evidenceMatrix);
+    return {
+        review: { ...review, bestFit: asSupport(review.bestFit), mainConflict: asSupport(review.mainConflict), priorities: review.priorities.map(asSupport) },
+        evidenceMatrix: evidenceMatrix.map((item) => ({ ...item, detail: asSupport(item.detail) })),
+    };
+}
+
+/** 合作、朋友、同事、亲子、手足：两盘关系、互看十神、五维与顺年 */
+function formatPairForAI(result: BaziCompatibilityResult): string {
+    const { me, ta } = getMatchSides(result);
+    const relation = getMatchRelation(result);
+    const direction = getMatchDirectionLabel(result);
+    const spec = getPairSpec(relation.key);
+    const links = buildPairLinks(me, ta);
+    const mutual = buildMutualView(me, ta);
+    const years = getDisplayMarriageYears(result);
+    const lines: string[] = [];
     lines.push('【合盘对象】');
+    lines.push(`- 关系：${relation.name}${direction ? `（${direction}）` : ''}，看${relation.look}`);
+    lines.push('我：');
+    formatProfile(me).forEach((line) => lines.push(`- ${line}`));
+    lines.push('TA：');
+    formatProfile(ta).forEach((line) => lines.push(`- ${line}`));
+    lines.push('【两盘干支关系】');
+    if (links.length === 0) lines.push('- 两盘之间未见明显冲合刑害。');
+    links.forEach((link) => lines.push(`- ${link.name}（${link.where}）`));
+    lines.push('【互看十神（以日干论）】');
+    lines.push(`- TA 之于你：${mutual.taToMe}（${mutual.taToMeGist}）`);
+    lines.push(`- 你之于 TA：${mutual.meToTa}（${mutual.meToTaGist}）`);
+    lines.push(`- 日干：${mutual.link}`);
+    lines.push('【本地规则参考】');
+    lines.push('以下契合度、五维和顺年来自同一规则系统，不是独立验证或关系成败概率；高分不能抵消具体负面证据。');
+    lines.push(`- 契合度：${result.totalScore}（${result.grade}）`);
+    lines.push(`- 总断：${result.summary}`);
+    if (spec) lines.push(`- 分数口径：${spec.basis}`);
+    lines.push('【五维分数参考】');
+    result.dimensions.forEach((dimension) => {
+        lines.push(`- ${dimension.title}：${dimension.score}（${dimension.grade}）`);
+        dimension.evidence.forEach((item) => lines.push(`  - ${item.label}：${item.detail}`));
+    });
+    lines.push(`【${spec?.timing.title ?? '时机'}候选（不代表一定应验）】`);
+    if (years.length === 0) lines.push('- 近十二年的流年少有补到两人所需的，暂不定年份。');
+    years.forEach((item, index) => lines.push(`- ${index === 0 ? '最顺' : '次之'}：${item.year}年 ${item.ganZhi}，依据：${item.reasons.join('；')}`));
+    return lines.join('\n');
+}
+
+export function formatBaziMatchForAI(result: BaziCompatibilityResult): string {
+    if ((result.relation ?? 'love') !== 'love') return formatPairForAI(result);
+    const lines: string[] = [];
+    const displayMarriageYears = getDisplayMarriageYears(result);
+    const { review, evidenceMatrix } = getBaziMatchReview(result);
+    const { me } = getMatchSides(result);
+    lines.push('【合盘对象】');
+    lines.push(`- 关系：婚恋；“我”是${me.name}（${(result.self ?? 'male') === 'male' ? '男方' : '女方'}），称呼用“你”“TA”`);
     lines.push('男方：');
     formatProfile(result.maleProfile).forEach((line) => lines.push(`- ${line}`));
     lines.push('女方：');
@@ -83,7 +143,7 @@ export function formatBaziMatchForAI(result: BaziCompatibilityResult): string {
         lines.push(`- ${item.title}：${direction} / ${strength}。${item.detail}${refs ? `（取法依据：${refs}）` : ''}`);
     });
     lines.push('【五维分数参考】');
-    result.dimensions.forEach((dimension) => {
+    getDisplayDimensions(result).forEach((dimension) => {
         const refs = formatReferenceNames(getBaziMatchDimensionReferenceFallbackIds(dimension.key));
         lines.push(`- ${dimension.title}：${dimension.score}（${dimension.grade}，参考依据：${refs}）`);
         dimension.evidence.slice(0, 2).forEach((item) => {
@@ -108,9 +168,11 @@ export function formatBaziMatchForAI(result: BaziCompatibilityResult): string {
 }
 
 export function buildBaziMatchSummaryTitle(result: BaziCompatibilityResult): string {
-    return `${result.maleProfile.name} × ${result.femaleProfile.name}`;
+    const { me, ta } = getMatchSides(result);
+    return `${me.name} × ${ta.name}`;
 }
 
 export function buildBaziMatchSummarySubtitle(result: BaziCompatibilityResult): string {
-    return `合盘 · ${result.totalScore}分 · ${result.grade}`;
+    const relation = getMatchRelation(result).name;
+    return result.dimensions.length ? `${relation} · ${result.totalScore}分 · ${result.grade}` : relation;
 }

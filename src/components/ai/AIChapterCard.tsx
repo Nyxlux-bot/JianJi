@@ -1,6 +1,9 @@
-import React, { memo, useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import React, { memo, useMemo, useRef, useState } from 'react';
+import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import InkDots from './InkDots';
 import Markdown from 'react-native-markdown-display';
+import Animated from 'react-native-reanimated';
+import { riseIn } from '../../theme/motion';
 import { parseChapter, type ChapterSegment, type EventSegment, type YearSegment } from '../../ai/layout/parse-chapter';
 import { reflowLongParagraphs } from '../../ai/layout/reflow';
 import { AI_VERIFICATION_MARK_LABELS, type AIVerificationMark, type AIVerificationMarkEntry } from '../../core/ai-verification-marks';
@@ -42,6 +45,50 @@ function Seal({ status, styles, Colors }: { status: ChapterStatus; styles: AIPag
 function Md({ children, markdownStyles }: { children: string; markdownStyles: AIMarkdownStyles }) {
     const text = useMemo(() => reflowLongParagraphs(children), [children]);
     return text.trim() ? <Markdown style={markdownStyles}>{text}</Markdown> : null;
+}
+
+/** 按空行切成段落块；代码块里的空行不切 */
+function splitBlocks(text: string): string[] {
+    const blocks: string[] = [];
+    let current: string[] = [];
+    let inFence = false;
+    for (const line of text.split('\n')) {
+        if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
+        if (!inFence && !line.trim()) {
+            if (current.length) blocks.push(current.join('\n'));
+            current = [];
+            continue;
+        }
+        current.push(line);
+    }
+    if (current.length) blocks.push(current.join('\n'));
+    return blocks;
+}
+
+/** 已写完的段落文字不变，不随末段每次推送重新解析 */
+const MdBlock = memo(function MdBlock({ text, markdownStyles }: { text: string; markdownStyles: AIMarkdownStyles }) {
+    return <Markdown style={markdownStyles}>{text}</Markdown>;
+});
+
+/**
+ * 流式正文：每段各自渲染，新写出的一段淡入上浮；正在写的末段只长字、不重播。
+ * 打开时已经写好的段落不播。从没流式过的消息按整篇渲染。
+ */
+function StreamMd({ children, markdownStyles, streaming }: { children: string; markdownStyles: AIMarkdownStyles; streaming: boolean }) {
+    const blocks = useMemo(() => splitBlocks(reflowLongParagraphs(children)), [children]);
+    const animateFrom = useRef<number | null>(streaming ? blocks.length : null);
+    if (streaming && animateFrom.current === null) animateFrom.current = blocks.length;
+    if (animateFrom.current === null) return <Md markdownStyles={markdownStyles}>{children}</Md>;
+    const from = animateFrom.current;
+    return (
+        <View>
+            {blocks.map((block, index) => (
+                <Animated.View key={index} entering={index >= from ? riseIn(0, 4, 260) : undefined}>
+                    <MdBlock text={block} markdownStyles={markdownStyles} />
+                </Animated.View>
+            ))}
+        </View>
+    );
 }
 
 const MARK_ORDER: AIVerificationMark[] = ['yes', 'no', 'unsure'];
@@ -232,14 +279,14 @@ function AssistantBody<M extends ChapterMessage>({ item, props }: { item: Chapte
         return (
             <View style={props.styles.kinBox}>
                 <Text style={props.styles.kinLabel}>六亲初验</Text>
-                <Md markdownStyles={props.markdownStyles}>{content}</Md>
+                <StreamMd markdownStyles={props.markdownStyles} streaming={streaming}>{content}</StreamMd>
             </View>
         );
     }
     if (id === 'verification') return <VerificationView content={content} streaming={streaming} props={props} />;
     if (id === 'five_year') return <FiveYearView content={content} streaming={streaming} props={props} />;
     if (id === 'compat') return <CompatView content={content} streaming={streaming} props={props} />;
-    return <Md markdownStyles={props.markdownStyles}>{content}</Md>;
+    return <StreamMd markdownStyles={props.markdownStyles} streaming={streaming}>{content}</StreamMd>;
 }
 
 function Superseded<M extends ChapterMessage>({ item, props }: { item: ChapterItem<M>; props: AIChapterCardProps<M> }) {
@@ -278,7 +325,7 @@ function AIChapterCardInner<M extends ChapterMessage>(props: AIChapterCardProps<
                         <AssistantBody item={item} props={props} />
                         {item.streaming ? (
                             <View style={styles.cursorLine}>
-                                <ActivityIndicator size="small" color={Colors.accent.gold} />
+                                <InkDots color={Colors.text.primary} />
                                 <Text style={styles.cursorText}>正在撰写…</Text>
                             </View>
                         ) : null}

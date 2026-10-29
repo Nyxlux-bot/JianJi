@@ -1,8 +1,8 @@
 import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import SheetModal from './SheetModal';
 import {
     FlatList,
     ListRenderItemInfo,
-    Modal,
     StyleSheet,
     Text,
     TextInput,
@@ -670,7 +670,7 @@ export default function DateTimePicker({
     };
 
     return (
-        <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+        <SheetModal visible={visible} onRequestClose={onClose}>
             <View style={styles.overlay}>
                 <TouchableWithoutFeedback onPress={onClose}><View style={styles.closeArea} /></TouchableWithoutFeedback>
                 <View style={styles.content}>
@@ -705,12 +705,12 @@ export default function DateTimePicker({
                     {renderBaziPanel()}
                 </View>
             </View>
-        </Modal>
+        </SheetModal>
     );
 }
 
 const makeStyles = (Colors: any) => StyleSheet.create({
-    overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+    overlay: { flex: 1, justifyContent: 'flex-end' },
     closeArea: { flex: 1 },
     content: {
         backgroundColor: Colors.bg.primary, borderTopLeftRadius: BorderRadius.xl,

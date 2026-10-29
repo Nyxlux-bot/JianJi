@@ -74,7 +74,7 @@ const PILLAR_LABELS: Record<BaziPillarKey, string> = {
     hour: '时柱',
 };
 
-const FAMILY_RELATIONS: Record<'male' | 'female', Record<Exclude<ShiShenName, '日主'>, string[]>> = {
+export const FAMILY_RELATIONS: Record<'male' | 'female', Record<Exclude<ShiShenName, '日主'>, string[]>> = {
     male: {
         比肩: ['兄弟', '同辈', '堂兄弟'],
         劫财: ['姐妹', '同辈', '儿媳'],
@@ -101,7 +101,7 @@ const FAMILY_RELATIONS: Record<'male' | 'female', Record<Exclude<ShiShenName, '�
     },
 };
 
-const SOCIAL_RELATIONS: Record<Exclude<ShiShenName, '日主'>, string[]> = {
+export const SOCIAL_RELATIONS: Record<Exclude<ShiShenName, '日主'>, string[]> = {
     比肩: ['朋友', '同事', '合伙人', '竞争者'],
     劫财: ['朋友', '同辈', '竞争者', '分利之人'],
     食神: ['晚辈', '学生', '下属', '仆人'],

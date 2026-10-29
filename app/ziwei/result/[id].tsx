@@ -14,7 +14,7 @@ import { useTheme } from '../../../src/theme/ThemeContext';
 
 export default function ZiweiHistoryResultLoader() {
     const { Colors } = useTheme();
-    const styles = makeStyles(Colors);
+    const styles = React.useMemo(() => makeStyles(Colors), [Colors]);
     const { id } = useLocalSearchParams<{ id: string }>();
     const [screenState, setScreenState] = useState<'loading' | 'missing'>('loading');
 

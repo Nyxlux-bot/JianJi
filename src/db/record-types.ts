@@ -41,12 +41,18 @@ export type DivinationResult = PanResult | BaziResult | ZiweiRecordResult | Bazi
 const LIUYAO_METHODS: readonly DivinationMethod[] = ['time', 'coin', 'number', 'manual'];
 const WUXING_VALUES = ['木', '火', '土', '金', '水'] as const;
 const BAZI_MATCH_GRADES = ['优', '良', '中', '差'] as const;
-const BAZI_MATCH_DIMENSION_KEYS = ['harmony', 'supportHusband', 'supportWife', 'offspring', 'longevity', 'mutualSupport', 'lifecycle'] as const;
+const BAZI_MATCH_DIMENSION_KEYS = [
+    'harmony', 'supportHusband', 'supportWife', 'offspring', 'longevity', 'mutualSupport', 'lifecycle', 'palaceStar',
+    'complement', 'division', 'wealth', 'trust', 'rhythm', 'rapport', 'temper', 'contact', 'lasting',
+    'cooperation', 'hierarchy', 'task', 'bond', 'palace', 'discipline', 'getAlong', 'help',
+] as const;
 const BAZI_MATCH_REFERENCE_IDS = ['HM-01', 'HM-02', 'FS-01', 'FS-02', 'PG-01', 'PG-02', 'CY-01', 'YY-01', 'YQ-01', 'EXP-01', 'LS-01'] as const;
 const BAZI_MATCH_MATRIX_CATEGORIES = ['bestFit', 'mainConflict', 'spouseStarPalace', 'elementComplement', 'relationImpact', 'fortuneTiming', 'marriageTiming', 'riskPriority'] as const;
 const BAZI_MATCH_MATRIX_DIRECTIONS = ['positive', 'negative', 'neutral'] as const;
 const BAZI_MATCH_MATRIX_STRENGTHS = ['high', 'medium', 'low'] as const;
 const BAZI_MATCH_REVIEW_CAN_PROCEED = ['strong', 'workable', 'cautious', 'difficult'] as const;
+const BAZI_MATCH_RELATIONS = ['love', 'biz', 'friend', 'work', 'kin', 'sib'] as const;
+const BAZI_MATCH_DIRECTIONS = ['superior', 'peer', 'subordinate', 'parent', 'child'] as const;
 
 export interface RecordSummary {
     id: string;
@@ -466,7 +472,10 @@ export function isBaziCompatibilityResult(value: unknown): value is BaziCompatib
         && (candidate.review === undefined || isBaziMatchReview(candidate.review))
         && (candidate.evidenceMatrix === undefined || (Array.isArray(candidate.evidenceMatrix) && candidate.evidenceMatrix.every((item) => isBaziMatchMatrixEntry(item))))
         && (candidate.aiAnalysis === undefined || typeof candidate.aiAnalysis === 'string')
-        && (candidate.aiChatHistory === undefined || isPersistedAIChatHistory(candidate.aiChatHistory));
+        && (candidate.aiChatHistory === undefined || isPersistedAIChatHistory(candidate.aiChatHistory))
+        && (candidate.relation === undefined || isOneOf(candidate.relation, BAZI_MATCH_RELATIONS))
+        && (candidate.direction === undefined || isOneOf(candidate.direction, BAZI_MATCH_DIRECTIONS))
+        && (candidate.self === undefined || candidate.self === 'male' || candidate.self === 'female');
 }
 
 export function isZiweiRecordResult(value: unknown): value is ZiweiRecordResult {

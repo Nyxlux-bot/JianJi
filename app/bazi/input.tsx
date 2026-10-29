@@ -53,7 +53,7 @@ function yieldToNextFrame(): Promise<void> {
 
 export default function BaziInputPage() {
     const { Colors } = useTheme();
-    const styles = makeStyles(Colors);
+    const styles = React.useMemo(() => makeStyles(Colors), [Colors]);
     const { editId } = useLocalSearchParams<{ editId?: string }>();
     const [birthPickerVisible, setBirthPickerVisible] = useState(false);
     const [referencePickerVisible, setReferencePickerVisible] = useState(false);
