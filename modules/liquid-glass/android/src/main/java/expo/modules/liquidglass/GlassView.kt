@@ -30,11 +30,24 @@ class GlassView(context: Context) : View(context) {
   private val shader: RuntimeShader? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) RuntimeShader(SHADER) else null
   private val toGlobal = Matrix()
   private val fromGlobal = Matrix()
+  // 着色器参数没变就沿用上一帧的 RenderEffect：每帧新建会在 UI 线程不断产生垃圾，攒多了 GC 一停就掉帧
+  private val effectKey = FloatArray(9)
+  private val nextKey = FloatArray(9)
+  private var hasEffect = false
 
-  // 底下的页面每帧都可能在动（经幡），每次要画一帧都跟着重画；看不见时不画
+  // 底下的页面每帧都可能在动（经幡），每次要画一帧都跟着重画；自己或任一上层透明（没按住时的水泡）就不画
   private val preDraw = ViewTreeObserver.OnPreDrawListener {
-    if (isShown && alpha > 0f) invalidate()
+    if (isShown && visibleUpward()) invalidate()
     true
+  }
+
+  private fun visibleUpward(): Boolean {
+    var view: View? = this
+    while (view != null) {
+      if (view.alpha <= 0f) return false
+      view = view.parent as? View
+    }
+    return true
   }
 
   init {
@@ -86,18 +99,24 @@ class GlassView(context: Context) : View(context) {
     val density = resources.displayMetrics.density
     val w = width.toFloat()
     val h = height.toFloat()
-    shader.setFloatUniform("size", w, h)
-    shader.setFloatUniform("radius", minOf(cornerRadius * density, w / 2f, h / 2f))
-    shader.setFloatUniform("bevel", maxOf(1f, bevel * density))
-    shader.setFloatUniform("strength", refraction * density)
-    shader.setFloatUniform("magnify", magnify)
-    shader.setFloatUniform("dispersion", dispersion)
-    val glass = RenderEffect.createRuntimeShaderEffect(shader, "content")
-    val blur = blurRadius * density
-    node.setRenderEffect(
-      if (blur > 0.01f) RenderEffect.createChainEffect(glass, RenderEffect.createBlurEffect(blur, blur, Shader.TileMode.CLAMP))
-      else glass
-    )
+    nextKey[0] = w; nextKey[1] = h; nextKey[2] = cornerRadius; nextKey[3] = bevel; nextKey[4] = refraction
+    nextKey[5] = magnify; nextKey[6] = dispersion; nextKey[7] = blurRadius; nextKey[8] = density
+    if (!hasEffect || !nextKey.contentEquals(effectKey)) {
+      nextKey.copyInto(effectKey)
+      hasEffect = true
+      shader.setFloatUniform("size", w, h)
+      shader.setFloatUniform("radius", minOf(cornerRadius * density, w / 2f, h / 2f))
+      shader.setFloatUniform("bevel", maxOf(1f, bevel * density))
+      shader.setFloatUniform("strength", refraction * density)
+      shader.setFloatUniform("magnify", magnify)
+      shader.setFloatUniform("dispersion", dispersion)
+      val glass = RenderEffect.createRuntimeShaderEffect(shader, "content")
+      val blur = blurRadius * density
+      node.setRenderEffect(
+        if (blur > 0.01f) RenderEffect.createChainEffect(glass, RenderEffect.createBlurEffect(blur, blur, Shader.TileMode.CLAMP))
+        else glass
+      )
+    }
     canvas.drawRenderNode(node)
   }
 
