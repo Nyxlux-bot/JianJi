@@ -1,23 +1,33 @@
 /** 研墨：三点墨轮流呼吸，替代转圈的菊花。系统减弱动态效果时静止。 */
-import React, { useEffect } from 'react';
+import React from 'react';
 import { StyleSheet, View } from 'react-native';
-import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
+import Animated, { css, useReducedMotion } from 'react-native-reanimated';
+
+// 循环交给 C++ 驱动的 CSS 动画，每帧不跑 JS
+const BREATH = css.keyframes({
+    from: { opacity: 0.25, transform: [{ scale: 0.8 }] },
+    to: { opacity: 0.9, transform: [{ scale: 1 }] },
+});
 
 function Dot({ color, delay }: { color: string; delay: number }) {
     const reduceMotion = useReducedMotion();
-    const breath = useSharedValue(reduceMotion ? 1 : 0);
-
-    useEffect(() => {
-        if (reduceMotion) return;
-        const half = { duration: 600, easing: Easing.inOut(Easing.sin) };
-        breath.value = withDelay(delay, withRepeat(withSequence(withTiming(1, half), withTiming(0, half)), -1));
-    }, [breath, delay, reduceMotion]);
-
-    const style = useAnimatedStyle(() => ({
-        opacity: 0.25 + 0.65 * breath.value,
-        transform: [{ scale: 0.8 + 0.2 * breath.value }],
-    }));
-    return <Animated.View style={[styles.dot, { backgroundColor: color }, style]} />;
+    return (
+        <Animated.View
+            style={[
+                styles.dot,
+                { backgroundColor: color },
+                reduceMotion ? styles.still : {
+                    animationName: BREATH,
+                    animationDuration: 600,
+                    animationDelay: delay,
+                    animationDirection: 'alternate',
+                    animationIterationCount: 'infinite',
+                    animationTimingFunction: 'ease-in-out',
+                    animationFillMode: 'backwards',
+                },
+            ]}
+        />
+    );
 }
 
 export default function InkDots({ color }: { color: string }) {
@@ -33,4 +43,5 @@ export default function InkDots({ color }: { color: string }) {
 const styles = StyleSheet.create({
     row: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 20 },
     dot: { width: 7, height: 7, borderRadius: 3.5 },
+    still: { opacity: 0.9 },
 });

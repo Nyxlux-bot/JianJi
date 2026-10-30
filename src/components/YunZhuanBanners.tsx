@@ -2,7 +2,7 @@ import React, { useEffect, useMemo } from 'react';
 import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useFonts } from 'expo-font';
 import { useIsFocused } from 'expo-router';
-import Animated, { cancelAnimation, Easing, makeMutable, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
+import Animated, { css, makeMutable, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useTheme } from '../theme/ThemeContext';
 
 // 《度人经》开篇。字体子集只含这些字，改字要重跑 scripts/build-yunzhuan-font.py
@@ -25,6 +25,7 @@ const COLUMNS: Record<Layer, [number, number][]> = {
     near: [[-28, 60], [350, 66]],
 };
 const FIRST_INDEX: Record<Layer, number> = { far: 0, mid: 7, focus: 11, near: 14 };
+const PAD = 24; // 字影最远伸出约 16dp（焦点层半径 10 + 下移 6）
 const INK = {
     yin: { far: '#a8924e', mid: '#c9ad5c', focus: '#e2c46e', near: '#f0d78a', shadow: 'rgba(0, 0, 0, 0.8)' },
     yang: { far: '#d6a596', mid: '#c97462', focus: '#b23f2e', near: '#a8382a', shadow: 'rgba(150, 60, 40, 0.28)' },
@@ -46,26 +47,22 @@ function Column({ index, x, size, layer, theme, screenHeight, still }: {
     const lineHeight = Math.round(size * 1.55);
     const count = Math.ceil(screenHeight * 1.1 / lineHeight) + 1;
     const loop = count * lineHeight;
-    const phase = (index * 211) % loop;
     const text = useMemo(() => {
         const start = (index * 29) % TEXT.length;
-        const chars = Array.from({ length: count }, (_, k) => TEXT[(start + k) % TEXT.length]);
-        return [...chars, ...chars].join('\n');
+        return Array.from({ length: count }, (_, k) => TEXT[(start + k) % TEXT.length]).join('\n');
     }, [index, count]);
-    const progress = useSharedValue(0);
-
-    useEffect(() => {
-        if (still) return;
-        // 速度与字号成正比：每秒走字号的 0.2 倍。从停下的位置接着走，回到页面时不跳位
-        const from = progress.value % 1;
-        progress.value = from;
-        progress.value = withRepeat(withTiming(from + 1, { duration: loop / (size * 0.2) * 1000, easing: Easing.linear }), -1, false);
-        return () => { cancelAnimation(progress); };
-    }, [still, loop, size, progress]);
-
-    const motion = useAnimatedStyle(() => ({
-        transform: [{ translateY: -((phase + progress.value * loop) % loop) }],
-    }));
+    // 循环交给 Reanimated 的 CSS 动画，C++ 每帧插值，不跑 JS：16 列常驻也不占 UI 线程的 JS 和 GC。
+    // 速度与字号成正比，每秒走字号的 0.2 倍；负延迟让各列错开起点；暂停后原位接着走
+    const motion = useMemo(() => {
+        const duration = loop / (size * 0.2) * 1000;
+        return {
+            animationName: css.keyframes({ from: { transform: [{ translateY: 0 }] }, to: { transform: [{ translateY: -loop }] } }),
+            animationDuration: duration,
+            animationDelay: -((index * 211) % loop) / loop * duration,
+            animationTimingFunction: 'linear',
+            animationIterationCount: 'infinite',
+        } as const;
+    }, [index, loop, size]);
 
     const color = INK[theme][layer];
     // RN 没有文字模糊，远近景用透明字 + 同色阴影代替；焦点层加落影浮起来
@@ -77,10 +74,21 @@ function Column({ index, x, size, layer, theme, screenHeight, still }: {
                 ? { color, textShadowColor: INK[theme].shadow, textShadowOffset: { width: 0, height: 6 }, textShadowRadius: 10 }
                 : { color };
 
+    // 整列只平移不变内容：栅格化成贴图，滚动时不重绘文字和阴影。
+    // 一列约两屏高，做成一张贴图会超过很多 GPU 的上限（4096px），超了 Android 就悄悄退回每帧重画文字和字影；
+    // 所以拆成上下两段各一张，每段多留 PAD 给字影，两段在接缝处重叠
     return (
-        // 整列只平移不变内容：栅格化成贴图，滚动时不重绘文字和阴影
-        <Animated.View style={[styles.column, { left: x, width: size }, motion]} shouldRasterizeIOS renderToHardwareTextureAndroid>
-            <Text style={[styles.glyphs, { fontSize: size, lineHeight }, ink]} allowFontScaling={false}>{text}</Text>
+        <Animated.View style={[styles.column, { left: x, width: size, animationPlayState: still ? 'paused' : 'running' }, motion]}>
+            {[0, 1].map((k) => (
+                <View
+                    key={k}
+                    style={{ height: loop + PAD * 2, marginTop: k === 0 ? -PAD : -PAD * 2, paddingTop: PAD }}
+                    shouldRasterizeIOS
+                    renderToHardwareTextureAndroid
+                >
+                    <Text style={[styles.glyphs, { fontSize: size, lineHeight }, ink]} allowFontScaling={false}>{text}</Text>
+                </View>
+            ))}
         </Animated.View>
     );
 }

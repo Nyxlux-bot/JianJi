@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Svg, { Defs, LinearGradient, RadialGradient, Rect, Stop } from 'react-native-svg';
-import Animated, { cancelAnimation, Easing, runOnJS, SensorType, useAnimatedReaction, useAnimatedSensor, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withRepeat, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
+import Animated, { cancelAnimation, css, runOnJS, SensorType, useAnimatedReaction, useAnimatedSensor, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import PressableScale from '../../components/PressableScale';
 import { ringLevel } from '../../components/YunZhuanBanners';
 import { useTheme } from '../../theme/ThemeContext';
@@ -53,6 +53,20 @@ function frontWeight(rotation: number, index: number) {
     let off = (((index - rotation) % COUNT) + COUNT) % COUNT;
     if (off >= COUNT / 2) off -= COUNT;
     return Math.pow(Math.max(0, Math.cos(off * Math.PI * 2 / COUNT)), 4);
+}
+
+// 这张卡前面还有几张（越靠前越小）：只在两张卡交换前后时才变
+function cardsAhead(rotation: number, index: number) {
+    'worklet';
+    const depthOf = (k: number) => {
+        let off = (((k - rotation) % COUNT) + COUNT) % COUNT;
+        if (off >= COUNT / 2) off -= COUNT;
+        return Math.cos(off * Math.PI * 2 / COUNT);
+    };
+    const depth = depthOf(index);
+    let ahead = 0;
+    for (let k = 0; k < COUNT; k++) if (k !== index && depthOf(k) > depth) ahead++;
+    return ahead;
 }
 
 // 明暗的位置：指针/手指（-1–1）叠上手机倾斜。倾斜取反，压暗落在翘起的对角，与原先一致
@@ -136,11 +150,12 @@ function TiltSensor({ tiltX, tiltY }: { tiltX: SharedValue<number>; tiltY: Share
         baseRoll.value += (roll - baseRoll.value) * 0.006;
         const x = Math.max(-1, Math.min(1, (roll - baseRoll.value) / TILT_RANGE));
         const y = Math.max(-1, Math.min(1, (pitch - basePitch.value) / TILT_RANGE));
-        // 静止时传感器有细抖：变化小于死区就不写，免得卡面样式每帧都重算
+        // 静止时传感器有细抖：变化小于死区就不写，免得四张卡的三套样式每帧都重算。
+        // 0.005 约合卡面 0.04°，看不出来，但拿稳手机时基本不再触发
         const nextX = tiltX.value + (x - tiltX.value) * 0.3;
         const nextY = tiltY.value + (y - tiltY.value) * 0.3;
-        if (Math.abs(nextX - tiltX.value) > 0.002) tiltX.value = nextX;
-        if (Math.abs(nextY - tiltY.value) > 0.002) tiltY.value = nextY;
+        if (Math.abs(nextX - tiltX.value) > 0.005) tiltX.value = nextX;
+        if (Math.abs(nextY - tiltY.value) > 0.005) tiltY.value = nextY;
     });
 
     useEffect(() => () => {
@@ -176,17 +191,23 @@ const EntryCard = memo(function EntryCard({ entry, index, selected, rotation, ti
     const pointY = useSharedValue(0);
     const press = useSharedValue(0);
     const hovering = useRef(false);
-    const bob = useSharedValue(0);
     const tilt = TILT[index % TILT.length];
-
-    useEffect(() => {
-        if (reduceMotion) {
-            bob.value = 0.5;
-            return;
-        }
-        bob.value = withRepeat(withTiming(1, { duration: BOB_MS[index % BOB_MS.length] / 2, easing: Easing.inOut(Easing.sin) }), -1, true);
-        return () => { cancelAnimation(bob); };
-    }, [reduceMotion, bob, index]);
+    // 浮动单独一层，交给 C++ 驱动的 CSS 动画：原来写在 slotMotion 里，四张卡静止时也每帧在 JS 里重算整套位移。
+    // 负半个周期的延迟让它从正中起步，暂停（离开首页、减弱动态效果）时也停在正中
+    const float = useMemo(() => {
+        const duration = BOB_MS[index % BOB_MS.length] / 2;
+        return {
+            animationName: css.keyframes({
+                from: { transform: [{ translateY: -FLOAT }, { rotate: `${tilt - SWAY}deg` }] },
+                to: { transform: [{ translateY: FLOAT }, { rotate: `${tilt + SWAY}deg` }] },
+            }),
+            animationDuration: duration,
+            animationDelay: -duration / 2,
+            animationDirection: 'alternate',
+            animationIterationCount: 'infinite',
+            animationTimingFunction: 'ease-in-out',
+        } as const;
+    }, [index, tilt]);
 
     // x、y 是指针在卡面上的位置（-1–1），on 为 0 时回正
     const lean = (x: number, y: number, on: number) => {
@@ -214,20 +235,23 @@ const EntryCard = memo(function EntryCard({ entry, index, selected, rotation, ti
             if (!selected && event.translationX * event.translationX + event.translationY * event.translationY < 100) runOnJS(onSelect)(index);
         }), [reduceMotion, width, height, selected, index, onSelect]);
 
+    // 层级不放进动画样式：zIndex 混在里面，Reanimated 每帧都得走整棵树提交（原生同步开关也绕不过），
+    // 转卡掉到十几帧。名次交换时才由 React 改一次
+    const [ahead, setAhead] = useState(0);
+    useAnimatedReaction(() => cardsAhead(rotation.value, index), (now, prev) => {
+        if (now !== prev) runOnJS(setAhead)(now);
+    });
+
     const slotMotion = useAnimatedStyle(() => {
         let off = (((index - rotation.value) % COUNT) + COUNT) % COUNT;
         if (off >= COUNT / 2) off -= COUNT;
         const angle = off * Math.PI * 2 / COUNT;
         const depth = Math.cos(angle);
-        const b = reduceMotion ? 0 : bob.value * 2 - 1;
         return {
-            zIndex: 100 + Math.round(depth * 50),
             transform: [
                 { translateX: Math.sin(angle) * spread },
                 { translateY: -(1 - depth) * LIFT },
                 { scale: 1 - (1 - depth) * DEPTH },
-                { translateY: b * FLOAT },
-                { rotate: `${tilt + b * SWAY}deg` },
             ],
         };
     });
@@ -266,74 +290,76 @@ const EntryCard = memo(function EntryCard({ entry, index, selected, rotation, ti
 
     return (
         <Animated.View
-            style={[styles.slot, { width, height, marginLeft: -width / 2 }, slotMotion]}
+            style={[styles.slot, { width, height, marginLeft: -width / 2, zIndex: 100 - ahead }, slotMotion]}
             testID={`home-entry-${entry.id}`}
             aria-hidden={!selected}
             accessibilityElementsHidden={!selected}
             importantForAccessibility={selected ? 'auto' : 'no-hide-descendants'}
         >
-            <Animated.View style={[styles.card, cardMotion]}>
-                <View pointerEvents="none" style={[styles.shadow, { boxShadow: colors.shadow }]} />
-                <View
-                    style={styles.clip}
-                    // 网页鼠标悬停；拖动转盘时回正
-                    onPointerMove={event => {
-                        if (event.nativeEvent.pointerType !== 'mouse') return;
-                        const rect = (event.currentTarget as unknown as { getBoundingClientRect?: () => { left: number; top: number; width: number; height: number } }).getBoundingClientRect?.();
-                        if (dragged.current || reduceMotion || !rect) {
-                            hover(0, 0, false);
-                            return;
-                        }
-                        hover((event.nativeEvent.clientX - rect.left) / rect.width * 2 - 1, (event.nativeEvent.clientY - rect.top) / rect.height * 2 - 1, true);
-                    }}
-                    onPointerLeave={event => { if (event.nativeEvent.pointerType === 'mouse') hover(0, 0, false); }}
-                >
-                    <CardGround id={`${glowId}-ground`} gradient={colors.gradients[entry.id]} />
-                    <GestureDetector gesture={hold}>
-                        <Pressable
-                            onPress={() => { if (!dragged.current) onSelect(index); }}
-                            style={styles.fill}
-                            accessible={false}
-                            focusable={false}
-                            tabIndex={-1}
-                        >
-                            <View style={[styles.art, { top: 74 * fontScale }]} pointerEvents="none">
-                                <EntryArt entry={entry} size={artSize} />
-                            </View>
-                            <CardGrain grain={colors.grain} />
-                            <View style={styles.cardHead} pointerEvents="none">
-                                <Text style={styles.title} accessibilityRole="header" aria-level={2}>{entry.title}</Text>
-                                <Text style={styles.subtitle}>{entry.subtitle}</Text>
-                            </View>
-                            <View style={styles.details} pointerEvents="none">
-                                <Text style={styles.description} numberOfLines={2}>{description}</Text>
-                                <Text style={styles.meta} numberOfLines={2}>{meta}</Text>
-                            </View>
-                        </Pressable>
-                    </GestureDetector>
-                    <View style={styles.actionRow} pointerEvents={selected ? 'auto' : 'none'}>
-                        {entry.actions.map(({ label, accessibilityLabel, route, Icon }, actionIndex) => (
-                            <PressableScale
-                                key={label}
-                                onPress={() => { if (!dragged.current) router.push(route); }}
-                                style={[styles.action, actionIndex === 0 && styles.primary]}
-                                accessibilityRole="button"
-                                accessibilityLabel={accessibilityLabel}
-                                focusable={selected}
-                                tabIndex={selected ? 0 : -1}
+            <Animated.View style={[styles.float, float, { animationPlayState: reduceMotion ? 'paused' : 'running' }]}>
+                <Animated.View style={[styles.card, cardMotion]}>
+                    <View pointerEvents="none" style={[styles.shadow, { boxShadow: colors.shadow }]} />
+                    <View
+                        style={styles.clip}
+                        // 网页鼠标悬停；拖动转盘时回正
+                        onPointerMove={event => {
+                            if (event.nativeEvent.pointerType !== 'mouse') return;
+                            const rect = (event.currentTarget as unknown as { getBoundingClientRect?: () => { left: number; top: number; width: number; height: number } }).getBoundingClientRect?.();
+                            if (dragged.current || reduceMotion || !rect) {
+                                hover(0, 0, false);
+                                return;
+                            }
+                            hover((event.nativeEvent.clientX - rect.left) / rect.width * 2 - 1, (event.nativeEvent.clientY - rect.top) / rect.height * 2 - 1, true);
+                        }}
+                        onPointerLeave={event => { if (event.nativeEvent.pointerType === 'mouse') hover(0, 0, false); }}
+                    >
+                        <CardGround id={`${glowId}-ground`} gradient={colors.gradients[entry.id]} />
+                        <GestureDetector gesture={hold}>
+                            <Pressable
+                                onPress={() => { if (!dragged.current) onSelect(index); }}
+                                style={styles.fill}
+                                accessible={false}
+                                focusable={false}
+                                tabIndex={-1}
                             >
-                                <Icon size={16} color={actionIndex === 0 ? button.ink : button.tint} />
-                                <Text style={[styles.actionText, actionIndex === 0 && styles.primaryText]}>{label}</Text>
-                            </PressableScale>
-                        ))}
+                                <View style={[styles.art, { top: 74 * fontScale }]} pointerEvents="none">
+                                    <EntryArt entry={entry} size={artSize} />
+                                </View>
+                                <CardGrain grain={colors.grain} />
+                                <View style={styles.cardHead} pointerEvents="none">
+                                    <Text style={styles.title} accessibilityRole="header" aria-level={2}>{entry.title}</Text>
+                                    <Text style={styles.subtitle}>{entry.subtitle}</Text>
+                                </View>
+                                <View style={styles.details} pointerEvents="none">
+                                    <Text style={styles.description} numberOfLines={2}>{description}</Text>
+                                    <Text style={styles.meta} numberOfLines={2}>{meta}</Text>
+                                </View>
+                            </Pressable>
+                        </GestureDetector>
+                        <View style={styles.actionRow} pointerEvents={selected ? 'auto' : 'none'}>
+                            {entry.actions.map(({ label, accessibilityLabel, route, Icon }, actionIndex) => (
+                                <PressableScale
+                                    key={label}
+                                    onPress={() => { if (!dragged.current) router.push(route); }}
+                                    style={[styles.action, actionIndex === 0 && styles.primary]}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={accessibilityLabel}
+                                    focusable={selected}
+                                    tabIndex={selected ? 0 : -1}
+                                >
+                                    <Icon size={16} color={actionIndex === 0 ? button.ink : button.tint} />
+                                    <Text style={[styles.actionText, actionIndex === 0 && styles.primaryText]}>{label}</Text>
+                                </PressableScale>
+                            ))}
+                        </View>
+                        <Animated.View pointerEvents="none" style={[styles.glow, { width: width * 1.4, height: height * 1.12 }, shadeMotion]}>
+                            <Glow id={`${glowId}-shade`} color={colors.shade} />
+                        </Animated.View>
+                        <Animated.View pointerEvents="none" style={[styles.glow, { width: width * 1.6, height: height * 1.28 }, lightMotion]}>
+                            <Glow id={`${glowId}-light`} color="#ffffff" />
+                        </Animated.View>
                     </View>
-                    <Animated.View pointerEvents="none" style={[styles.glow, { width: width * 1.4, height: height * 1.12 }, shadeMotion]}>
-                        <Glow id={`${glowId}-shade`} color={colors.shade} />
-                    </Animated.View>
-                    <Animated.View pointerEvents="none" style={[styles.glow, { width: width * 1.6, height: height * 1.28 }, lightMotion]}>
-                        <Glow id={`${glowId}-light`} color="#ffffff" />
-                    </Animated.View>
-                </View>
+                </Animated.View>
             </Animated.View>
         </Animated.View>
     );
@@ -518,6 +544,7 @@ function makeStyles(colors: EntryTheme, entryId: HomeEntryId) {
     return StyleSheet.create({
         slot: { position: 'absolute', left: '50%', top: STAGE_TOP },
         shadow: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: CORNER },
+        float: { width: '100%', height: '100%' },
         card: { width: '100%', height: '100%', borderRadius: CORNER, backgroundColor: colors.gradients[entryId].middle },
         clip: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, overflow: 'hidden', borderRadius: CORNER },
         fill: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },

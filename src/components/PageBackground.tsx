@@ -43,13 +43,32 @@ export default function PageBackground({ plain = false }: { plain?: boolean }) {
                 locations={[0, 0.13, 0.27, 0.76, 1]}
                 style={styles.fill}
             />
-            {theme === 'yin' ? <View style={[styles.fill, styles.vignette]} /> : null}
+            {theme === 'yin' ? <Vignette /> : null}
         </View>
+    );
+}
+
+// 阴面四周压暗。原来是 120px 模糊的全屏内阴影，GPU 性能条显示它每帧都要整屏重算模糊，底栏玻璃还会再画一遍；
+// 换成四条边上的渐变，深浅大致相同：边上约 0.3，120dp 内淡到 0
+const SHADE = ['rgba(0, 0, 0, 0.3)', 'rgba(0, 0, 0, 0.12)', 'rgba(0, 0, 0, 0.03)', 'rgba(0, 0, 0, 0)'] as const;
+const SHADE_AT = [0, 0.35, 0.7, 1] as const;
+function Vignette() {
+    return (
+        <>
+            <LinearGradient colors={SHADE} locations={SHADE_AT} style={[styles.edge, styles.top]} />
+            <LinearGradient colors={SHADE} locations={SHADE_AT} start={{ x: 0.5, y: 1 }} end={{ x: 0.5, y: 0 }} style={[styles.edge, styles.bottom]} />
+            <LinearGradient colors={SHADE} locations={SHADE_AT} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={[styles.edge, styles.left]} />
+            <LinearGradient colors={SHADE} locations={SHADE_AT} start={{ x: 1, y: 0.5 }} end={{ x: 0, y: 0.5 }} style={[styles.edge, styles.right]} />
+        </>
     );
 }
 
 const styles = StyleSheet.create({
     screen: { flex: 1 },
     fill: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
-    vignette: { boxShadow: 'inset 0 0 120px rgba(0, 0, 0, 0.6)' },
+    edge: { position: 'absolute' },
+    top: { top: 0, left: 0, right: 0, height: 120 },
+    bottom: { bottom: 0, left: 0, right: 0, height: 120 },
+    left: { top: 0, bottom: 0, left: 0, width: 120 },
+    right: { top: 0, bottom: 0, right: 0, width: 120 },
 });

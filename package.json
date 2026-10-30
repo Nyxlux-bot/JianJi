@@ -12,6 +12,7 @@
     "release:major": "node scripts/release-version.js major",
     "setup:hooks": "git config core.hooksPath .githooks",
     "guard:no-tests": "sh scripts/guard-no-test-files.sh --staged",
+    "check:motion": "node scripts/check-motion.cjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -64,6 +65,12 @@
       "exclude": [
         "typescript"
       ]
+    }
+  },
+  "reanimated": {
+    "staticFeatureFlags": {
+      "ANDROID_SYNCHRONOUSLY_UPDATE_UI_PROPS": true,
+      "IOS_SYNCHRONOUSLY_UPDATE_UI_PROPS": true
     }
   },
   "overrides": {
