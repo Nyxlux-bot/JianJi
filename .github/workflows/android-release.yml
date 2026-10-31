@@ -1,0 +1,186 @@
+name: 安卓打包发布（共用流程）
+
+# 由 release.yml（正式版）和 release-beta.yml（beta）调用，在 GitHub 的构建机上直接编译，不经过 EAS。
+# 需要的仓库设置：
+#   secrets  ANDROID_KEYSTORE_BASE64、ANDROID_KEYSTORE_PASSWORD、ANDROID_KEY_ALIAS、ANDROID_KEY_PASSWORD
+#            ——从 EAS 导出的那把签名密钥（老用户的安装包都是它签的，换了就没法覆盖升级）
+#   variables ANDROID_CERT_SHA256 ——这把密钥证书的 SHA-256 指纹，出包后核对，防止签错
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: 要打包的版本标签，例如 v1.9.0 或 v1.9.0-beta.1
+        required: true
+        type: string
+      prerelease:
+        description: true 为 beta 预发布
+        required: true
+        type: boolean
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    concurrency: android-release-${{ inputs.tag }}
+    env:
+      TAG: ${{ inputs.tag }}
+      APK: ${{ inputs.prerelease && 'jianji-beta.apk' || 'jianji-release.apk' }}
+      BUILD_TOOLS: '36.0.0'
+
+    steps:
+      - name: 1. 拉取完整代码历史
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: refs/tags/${{ inputs.tag }}
+
+      - name: 2. 核对版本号，生成中文版本说明
+        env:
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          APP_VERSION=$(jq -r '.expo.version' app.json)
+          if [ "$TAG" != "v${APP_VERSION}" ]; then
+            echo "标签 ${TAG} 与应用版本 ${APP_VERSION} 不一致，停止发布。"
+            exit 1
+          fi
+
+          CURATED_NOTES=".github/release-notes/${TAG}.md"
+          if [ -f "$CURATED_NOTES" ]; then
+            cp "$CURATED_NOTES" RELEASE_NOTES.md
+            echo "使用 ${TAG} 专用版本说明"
+            cat RELEASE_NOTES.md
+            exit 0
+          fi
+          echo "未找到专用版本说明，按提交类型生成。"
+
+          # 用 git describe 沿提交历史找上一个标签：beta 从上一个任意标签算起，正式版从上一个正式版算起（跨过中间的 beta）
+          if [ "$PRERELEASE" = "true" ]; then
+            PREV_TAG=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || echo "")
+          else
+            PREV_TAG=$(git describe --tags --abbrev=0 --exclude='*-*' "${TAG}^" 2>/dev/null || echo "")
+          fi
+
+          if [ -n "$PREV_TAG" ]; then
+            echo "变更范围：${PREV_TAG} → ${TAG}"
+            COMMITS=$(git log "${PREV_TAG}..HEAD" --oneline --no-merges)
+          else
+            echo "未找到上一个标签，使用最近 30 条提交"
+            COMMITS=$(git log --oneline --no-merges -30)
+          fi
+
+          FEATURES=""
+          FIXES=""
+          OPTIMIZATIONS=""
+          OTHERS=""
+
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            MSG=$(echo "$line" | sed 's/^[0-9a-f]\{7,\} //')
+
+            # 跳过纯版本 bump 提交
+            echo "$MSG" | grep -qiE '^(chore:)?\s*(bump version|version to)' && continue
+
+            if echo "$MSG" | grep -qiE '^(fix|bugfix)(\([^)]*\))?!?:'; then
+              FIXES="${FIXES}\n- ${MSG}"
+            elif echo "$MSG" | grep -qiE '^(feat|add)(\([^)]*\))?!?:'; then
+              FEATURES="${FEATURES}\n- ${MSG}"
+            elif echo "$MSG" | grep -qiE '^(perf|refactor)(\([^)]*\))?!?:'; then
+              OPTIMIZATIONS="${OPTIMIZATIONS}\n- ${MSG}"
+            elif echo "$MSG" | grep -qiE '(bugfix|修复|修正|bug)'; then
+              FIXES="${FIXES}\n- ${MSG}"
+            elif echo "$MSG" | grep -qiE '(performance|优化|改进|improve|optimization|性能|重构|提速|升级依赖|update|更新)'; then
+              OPTIMIZATIONS="${OPTIMIZATIONS}\n- ${MSG}"
+            elif echo "$MSG" | grep -qiE '(^feat|^add|feat:|add:|新增|添加|支持|新功能)'; then
+              FEATURES="${FEATURES}\n- ${MSG}"
+            else
+              OTHERS="${OTHERS}\n- ${MSG}"
+            fi
+          done <<< "$COMMITS"
+
+          NOTES=""
+          [ "$PRERELEASE" = "true" ] && NOTES="> 测试版：与正式版同一包名，可直接覆盖安装；正式版出来后也能直接覆盖回去。\n\n"
+          [ -n "$FEATURES" ] && NOTES="${NOTES}## 新增功能\n${FEATURES}\n\n"
+          [ -n "$FIXES" ]    && NOTES="${NOTES}## Bug 修复\n${FIXES}\n\n"
+          [ -n "$OPTIMIZATIONS" ] && NOTES="${NOTES}## 优化\n${OPTIMIZATIONS}\n\n"
+          [ -n "$OTHERS" ]   && NOTES="${NOTES}## 其他改动\n${OTHERS}\n\n"
+          [ -z "$FEATURES$FIXES$OPTIMIZATIONS$OTHERS" ] && NOTES="${NOTES}本次发布包含若干内部优化。\n"
+
+          printf "%b" "$NOTES" > RELEASE_NOTES.md
+          echo "--- 生成的版本说明 ---"
+          cat RELEASE_NOTES.md
+
+      - name: 3. 配置 Node 环境
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: 4. 配置 Java 与 Gradle 缓存
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: 5. 安装项目依赖
+        run: npm ci
+
+      - name: 6. 安装 NDK 等编译组件
+        # 版本与 React Native 0.86 要求一致；构建机自带 SDK 且已接受许可
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
+            "platforms;android-36" "build-tools;${BUILD_TOOLS}" "ndk;27.1.12297006" "cmake;3.22.1" > /dev/null
+          echo "已安装 SDK 平台 36、构建工具 ${BUILD_TOOLS}、NDK 27.1、CMake 3.22.1"
+
+      - name: 7. 生成安卓工程
+        run: npx expo prebuild --platform android --no-install
+
+      - name: 8. 编译发布版
+        working-directory: android
+        run: ./gradlew :app:assembleRelease
+
+      - name: 9. 用发布密钥签名并核对证书
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          EXPECTED_CERT: ${{ vars.ANDROID_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ] || [ -z "$EXPECTED_CERT" ]; then
+            echo "缺少签名密钥或证书指纹，见本文件开头的仓库设置说明。"
+            exit 1
+          fi
+          # 编译出来的包是模板自带的调试密钥签的，这里换成发布密钥
+          KEYSTORE="$RUNNER_TEMP/release.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE"
+          SIGNER="$ANDROID_HOME/build-tools/${BUILD_TOOLS}/apksigner"
+          "$SIGNER" sign --ks "$KEYSTORE" --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD --key-pass env:ANDROID_KEY_PASSWORD \
+            --out "$APK" android/app/build/outputs/apk/release/app-release.apk
+          rm -f "$KEYSTORE"
+
+          # 证书不对的包装不上老用户的手机（不能覆盖升级），宁可失败
+          ACTUAL=$("$SIGNER" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          EXPECTED=$(printf '%s' "$EXPECTED_CERT" | tr -d ': ' | tr 'A-F' 'a-f')
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "签名证书指纹 ${ACTUAL} 与 ANDROID_CERT_SHA256 不符，停止发布。"
+            exit 1
+          fi
+          echo "签名证书核对通过：${ACTUAL}"
+          ls -l "$APK"
+
+      - name: 10. 发布到 GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: 见机 ${{ inputs.tag }}
+          body_path: RELEASE_NOTES.md
+          files: ${{ env.APK }}
+          prerelease: ${{ inputs.prerelease }}
+          make_latest: ${{ inputs.prerelease && 'false' || 'true' }}
