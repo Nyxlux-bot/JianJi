@@ -44,14 +44,14 @@ export interface AISkillDefinition {
     requests: Partial<Record<AISkillStage, string>>;
     system?: string;
 }
-export const COMMON_SKILL: AISkillDefinition = { id: 'jianji-common', version: 3, instructions: common, requests: { retry }, system: auxiliary };
+export const COMMON_SKILL: AISkillDefinition = { id: 'jianji-common', version: 4, instructions: common, requests: { retry }, system: auxiliary };
 export const AI_SKILLS: Record<AISkillEngine, AISkillDefinition> = {
-    liuyao: { id: 'jianji-liuyao', version: 3, instructions: liuyao, requests: { initial: liuyaoInitial, followup: liuyaoFollowup, quick_replies: liuyaoQuick } },
-    bazi: { id: 'jianji-bazi', version: 10, instructions: bazi, system: baziSystem,
+    liuyao: { id: 'jianji-liuyao', version: 4, instructions: liuyao, requests: { initial: liuyaoInitial, followup: liuyaoFollowup, quick_replies: liuyaoQuick } },
+    bazi: { id: 'jianji-bazi', version: 11, instructions: bazi, system: baziSystem,
         requests: { foundation: baziFoundation, kinship: baziKinship, verification: baziVerification, five_year: baziFiveYear, followup: baziFollowup, digest: baziDigest, quick_replies: baziQuick } },
-    ziwei: { id: 'jianji-ziwei', version: 6, instructions: ziwei, system: ziweiSystem,
+    ziwei: { id: 'jianji-ziwei', version: 7, instructions: ziwei, system: ziweiSystem,
         requests: { foundation: ziweiFoundation, verification: ziweiVerification, five_year: ziweiFiveYear, followup: ziweiFollowup, digest: ziweiDigest, quick_replies: ziweiQuick } },
-    baziCompatibility: { id: 'jianji-bazi-compatibility', version: 5, instructions: compatibility, requests: { initial: compatibilityInitial } },
-    meihua: { id: 'jianji-meihua', version: 2, instructions: meihua, requests: { initial: meihuaInitial, followup: meihuaFollowup, quick_replies: meihuaQuick } },
+    baziCompatibility: { id: 'jianji-bazi-compatibility', version: 6, instructions: compatibility, requests: { initial: compatibilityInitial } },
+    meihua: { id: 'jianji-meihua', version: 3, instructions: meihua, requests: { initial: meihuaInitial, followup: meihuaFollowup, quick_replies: meihuaQuick } },
 };
 export const SKILL_REFERENCES = { liuyaoCompletion, meihuaCompletion, baziKinshipBoundary, baziKinshipMethods, baziEvidenceFormat, baziEvidenceMethods };

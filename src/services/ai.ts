@@ -20,6 +20,7 @@ import { buildKinshipContext, getCurrentKinshipVerification, isKinshipResponseKi
 import { BaziResult } from '../core/bazi-types';
 import { getAllRelatedGua } from '../core/hexagramTransform';
 import { PanResult } from '../core/liuyao-calc';
+import { analyzeLiuyaoStatus } from '../core/liuyao-status';
 import { BA_GUA, DIZHI_WUXING, getLiuyaoSubjectLabel, getLiuQin, type WuXing } from '../core/liuyao-data';
 import { getMonthGeneralByJieqi, getMoonPhase } from '../core/time-signs';
 import ichingData from '../data/iching.json';
@@ -314,6 +315,13 @@ export function formatPanForAI(result: PanResult): string {
         if (!hidden) return;
         lines.push(`- 本卦${yao.positionName}爻下伏神：${hidden.liuQin} ${hidden.ganZhi}（${hidden.wuxing}）；同位飞神：${yao.liuQin} ${yao.ganZhi}（${yao.wuxing}）`);
     });
+
+    // 与卦盘页显示的同一份计算，AI 不再自己重推旺衰与动变，免得和盘面说法对不上
+    const status = analyzeLiuyaoStatus(result);
+    lines.push('');
+    lines.push('【六亲旺衰与日月动变标记】与卦盘页显示一致：月令旺衰、临月建/日辰、月破、日冲、旬空、日月合、入墓及动爻化进退、回头生克、化空、化破均已算好，直接据此判断，不得与之矛盾。');
+    lines.push(`月令旺衰：${status.season.map((row) => `${row.wuxing}${row.state}`).join(' ')}`);
+    Object.values(status.summary).forEach((text) => lines.push(`- ${text}`));
 
     if (result.question?.trim()) {
         lines.push('');

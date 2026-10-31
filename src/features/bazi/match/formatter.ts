@@ -131,7 +131,6 @@ export function formatBaziMatchForAI(result: BaziCompatibilityResult): string {
     lines.push(`- 总分：${result.totalScore}（${result.grade}）`);
     lines.push(`- 总断：${review.mainLine}`);
     lines.push(`- 能否成局：${formatCanProceed(review.canProceed)}`);
-    lines.push(`- 分数口径：${review.scoreReview}`);
     lines.push(`- 最合之处：${review.bestFit}`);
     lines.push(`- 最大冲突：${review.mainConflict}`);
     lines.push(`- 矛盾优先级：${review.priorities.join('；')}`);

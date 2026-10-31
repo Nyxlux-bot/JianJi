@@ -91,7 +91,7 @@ export function formatMeihuaForAI(result: MeihuaResult): string {
     lines.push(`用卦${getTrigram(yong).name}：${getTrigramImages(getTrigram(yong).name).join('、')}`);
     lines.push('');
 
-    lines.push('【程序规则判定（参考）】按体用生克与卦气口诀机械给出，须结合全盘综合判断：');
+    lines.push('【体用口诀初判】按体用生克与卦气口诀给出，须结合全盘综合判断：');
     analysis.judgements.forEach((item) => lines.push(`- ${item.label}（${item.tag}）：${item.text}`));
     lines.push('');
 

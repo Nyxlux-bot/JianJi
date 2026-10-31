@@ -122,10 +122,10 @@ function formatRecordInputSummary(record: ZiweiRecordLike): string {
     return `公历 ${record.birthLocal.replace('T', ' ')}`;
 }
 
+// 亮度加括号且「不」写全：连写的「太阴不化忌」会被读成太阴不化忌，其实是太阴（不得地）化忌
 function formatStar(star: ZiweiStarViewModel): string {
-    return [star.name, star.brightness || '', star.mutagen ? `化${star.mutagen}` : '']
-        .filter(Boolean)
-        .join('');
+    const brightness = star.brightness === '不' ? '不得地' : star.brightness;
+    return `${star.name}${brightness ? `（${brightness}）` : ''}${star.mutagen ? `化${star.mutagen}` : ''}`;
 }
 
 function formatStarGroup(stars: ZiweiStarViewModel[]): string {
@@ -281,8 +281,8 @@ export function buildZiweiStructureLines(palace: ZiweiPalaceAnalysisView): strin
         `  三方四正汇总：主星 ${palace.surrounded.majorStars.join('、') || '无'} | 辅曜 ${palace.surrounded.minorStars.join('、') || '无'} | 杂曜 ${palace.surrounded.adjectiveStars.join('、') || '无'}`,
         `  本宫生年四化：${palace.flight.birthMutagens.join(' / ') || '无'} | 本宫自化：${palace.flight.selfMutagens.join(' / ') || '无'} | 本宫宫干飞化去向：${formatFlightTargets(palace)}`,
         `  三方四正四化汇总：${mutagenFlags || '无'}`,
-        `  规则匹配成立：${palace.surrounded.checks.filter((item) => item.matched).map((item) => item.label).join('、') || '无'}`,
-        `  规则匹配不成立：${palace.surrounded.checks.filter((item) => !item.matched).map((item) => item.label).join('、') || '无'}`,
+        `  已成会照：${palace.surrounded.checks.filter((item) => item.matched).map((item) => item.label).join('、') || '无'}`,
+        `  未成会照：${palace.surrounded.checks.filter((item) => !item.matched).map((item) => item.label).join('、') || '无'}`,
     ];
 }
 
