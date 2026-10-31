@@ -1,0 +1,35 @@
+name: 代码检查
+
+# 推送到 main 和每个 PR 都跑一遍，免得打了标签、编了半小时才发现类型错误
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: 安装项目依赖
+        run: npm ci
+
+      - name: 类型检查
+        run: npm run typecheck
+
+      - name: 动效规范检查
+        run: npm run check:motion
+
+      - name: 不许提交测试文件
+        run: git ls-files | sh scripts/guard-no-test-files.sh --stdin
