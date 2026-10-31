@@ -42,10 +42,11 @@ function Seal({ status, styles, Colors }: { status: ChapterStatus; styles: AIPag
     return <Text style={[styles.seal, { color, borderColor: color }]}>{SEAL_LABEL[status]}</Text>;
 }
 
-function Md({ children, markdownStyles }: { children: string; markdownStyles: AIMarkdownStyles }) {
+/** 核验、五年卷每次推送都整卷重解析；文字没变的段落别跟着重排 Markdown */
+const Md = memo(function Md({ children, markdownStyles }: { children: string; markdownStyles: AIMarkdownStyles }) {
     const text = useMemo(() => reflowLongParagraphs(children), [children]);
     return text.trim() ? <Markdown style={markdownStyles}>{text}</Markdown> : null;
-}
+});
 
 /** 按空行切成段落块；代码块里的空行不切 */
 function splitBlocks(text: string): string[] {

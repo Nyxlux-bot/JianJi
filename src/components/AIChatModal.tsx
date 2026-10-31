@@ -477,7 +477,9 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
 
     useEffect(() => {
         visibleRef.current = visible;
-    }, [visible]);
+        // 关着时生成中的推送没接（见下面的订阅），打开时补读一次最新进度
+        if (visible) setAnalysisJob(getAIAnalysisJob(workflowMode, result.id));
+    }, [visible, workflowMode, result.id]);
 
     useEffect(() => {
         loadingRef.current = isLoading;
@@ -500,7 +502,11 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
 
     useEffect(() => {
         void recoverInterruptedAIAnalysisJob(workflowMode, result.id);
-        return subscribeAIAnalysisJob(workflowMode, result.id, setAnalysisJob);
+        // 面板关着时，生成中每 0.25 秒一次的推送不进界面：整理消息、清理正文、切分章节都没人看，还和命盘页抢 JS 线程。
+        // 后台生成、落盘照常；写完、失败、取消这些结局照常接收，写完的结果靠它回写
+        return subscribeAIAnalysisJob(workflowMode, result.id, (job) => {
+            if (visibleRef.current || !isActiveAIAnalysisJob(job)) setAnalysisJob(job);
+        });
     }, [workflowMode, result.id]);
 
     useEffect(() => {
