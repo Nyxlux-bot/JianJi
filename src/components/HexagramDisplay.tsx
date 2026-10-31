@@ -37,6 +37,25 @@ function YaoLine({ yang, width, color }: { yang: boolean; width: number; color: 
         );
 }
 
+/** 老阳画圈、老阴画叉：同一个框、同样线宽，原来用「○」「×」两个字形，一个细大一个粗小 */
+function MoveMark({ yang, color }: { yang: boolean; color: string }) {
+    return (
+        <View style={MOVE_MARK.box}>
+            {yang
+                ? <View style={[MOVE_MARK.ring, { borderColor: color }]} />
+                : [45, -45].map((angle) => (
+                    <View key={angle} style={[MOVE_MARK.bar, { backgroundColor: color, transform: [{ rotate: `${angle}deg` }] }]} />
+                ))}
+        </View>
+    );
+}
+
+const MOVE_MARK = StyleSheet.create({
+    box: { width: 10, height: 10, alignItems: 'center', justifyContent: 'center' },
+    ring: { width: 9, height: 9, borderRadius: 4.5, borderWidth: 1.5 },
+    bar: { position: 'absolute', width: 11, height: 1.5, borderRadius: 0.75 },
+});
+
 function HexagramDisplayComponent({ result, status, yong, onYongChange }: HexagramDisplayProps) {
     const { Colors } = useTheme();
     const palette = useMemo(() => buildResultPalette(Colors), [Colors]);
@@ -136,7 +155,7 @@ function HexagramDisplayComponent({ result, status, yong, onYongChange }: Hexagr
                         </View>
                         <View style={[styles.c3, styles.lineCell]}>
                             <YaoLine yang={yao.nature === 'yang'} width={hasBian ? 54 : 72} color={lineColor} />
-                            <Text style={styles.moveMark}>{yao.isMoving ? (yao.value === 9 ? '○' : '×') : ''}</Text>
+                            {yao.isMoving ? <MoveMark yang={yao.value === 9} color={palette.vermilion} /> : <View style={MOVE_MARK.box} />}
                         </View>
                         <View style={styles.c4}>{shiYing(yao.isShi, yao.isYing)}</View>
                         {hasBian ? (
@@ -173,7 +192,7 @@ function HexagramDisplayComponent({ result, status, yong, onYongChange }: Hexagr
                         <View style={[styles.c2, styles.naJiaCell]}>{naJia(yao.liuQin, yao.zhi, 'lg', changed ? palette.vermilion : palette.body)}</View>
                         <View style={[styles.c3, styles.lineCell]}>
                             <YaoLine yang={yao.nature === 'yang'} width={54} color={changed ? palette.vermilion : palette.gold} />
-                            <Text style={styles.moveMark} />
+                            <View style={MOVE_MARK.box} />
                         </View>
                         <View style={styles.c4}>{shiYing(result.bianGua!.shiYao === yao.position, result.bianGua!.yingYao === yao.position)}</View>
                         <View style={[styles.c5, styles.dim]}>{changed ? naJia(source.liuQin, source.zhi, 'sm', palette.body) : null}</View>
@@ -279,7 +298,6 @@ function makeStyles(palette: ResultPalette) {
         marks: { alignSelf: 'flex-start', marginTop: 5, marginLeft: 1 },
         mark: { fontSize: 10, lineHeight: 11 },
         lineCell: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 },
-        moveMark: { width: 10, fontSize: 12, fontWeight: '700', color: palette.vermilion },
         pos: { fontSize: 11, color: palette.muted },
         dim: { opacity: 0.75 },
         summary: { flexDirection: 'row', gap: 8, paddingTop: 8 },
