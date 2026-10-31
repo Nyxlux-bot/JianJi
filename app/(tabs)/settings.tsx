@@ -48,6 +48,7 @@ import {
     subscribeSettings,
 } from '../../src/services/settings';
 import { exportDiagnosticLogFile, recordDiagnosticLog } from '../../src/services/diagnostics';
+import { checkForUpdate } from '../../src/services/update-check';
 import AIProviderSettings, { type AIProviderSettingsHandle, type SettingsSaveState } from '../../src/components/AIProviderSettings';
 import { CloseIcon, ChevronRightIcon, LocationIcon, SparkleIcon } from '../../src/components/Icons';
 import { buildResultPalette, type ResultPalette } from '../../src/theme/result-palette';
@@ -181,6 +182,7 @@ export default function SettingsPage() {
     const [isBackingUp, setIsBackingUp] = useState(false);
     const [isRestoring, setIsRestoring] = useState(false);
     const [isExportingDiagnostics, setIsExportingDiagnostics] = useState(false);
+    const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
     const [activeSheet, setActiveSheet] = useState<SheetType>(null);
     const [previewVisible, setPreviewVisible] = useState(false);
     const [pendingRecords, setPendingRecords] = useState<DivinationRecordEnvelope[]>([]);
@@ -455,6 +457,26 @@ export default function SettingsPage() {
         }
     };
 
+    const handleCheckUpdate = async () => {
+        try {
+            setIsCheckingUpdate(true);
+            const update = await checkForUpdate(APP_VERSION);
+            if (!update) {
+                CustomAlert.alert('已是最新版本', `当前 v${APP_VERSION}`);
+                return;
+            }
+            const url = Platform.OS === 'android' && update.apkUrl ? update.apkUrl : update.pageUrl;
+            CustomAlert.alert(`发现新版本 v${update.version}`, update.notes || undefined, [
+                { text: '稍后', style: 'cancel' },
+                { text: '下载', onPress: () => { void Linking.openURL(url); } },
+            ]);
+        } catch (error: unknown) {
+            CustomAlert.alert('检查失败', error instanceof Error ? error.message : '检查更新失败');
+        } finally {
+            setIsCheckingUpdate(false);
+        }
+    };
+
     const handleRestore = async () => {
         try {
             const result = await DocumentPicker.getDocumentAsync({
@@ -677,6 +699,10 @@ export default function SettingsPage() {
                     <Pressable onPress={() => { void Linking.openURL(REPO_URL); }} style={({ pressed }) => [layout.aboutRow, pressed && styles.pressed]} accessibilityRole="link">
                         <Text style={layout.aboutLabel}>开源地址</Text>
                         <Text style={layout.aboutLink} numberOfLines={1}>github.com/Nyxlux-bot/JianJi ↗</Text>
+                    </Pressable>
+                    <Pressable onPress={handleCheckUpdate} disabled={isCheckingUpdate} style={({ pressed }) => [layout.aboutRow, layout.aboutRule, (pressed || isCheckingUpdate) && styles.pressed]} accessibilityRole="button">
+                        <Text style={layout.aboutLabel}>检查更新</Text>
+                        {isCheckingUpdate && <Text style={layout.version}>检查中…</Text>}
                     </Pressable>
                     <Pressable onPress={handleResetSettings} style={({ pressed }) => [layout.aboutRow, layout.aboutRule, pressed && styles.pressed]} accessibilityRole="button">
                         <Text style={layout.danger}>恢复默认设置</Text>
