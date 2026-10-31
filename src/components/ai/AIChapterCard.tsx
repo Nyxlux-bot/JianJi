@@ -1,4 +1,4 @@
-import React, { memo, useMemo, useRef, useState } from 'react';
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import InkDots from './InkDots';
 import Markdown from 'react-native-markdown-display';
@@ -47,6 +47,56 @@ const Md = memo(function Md({ children, markdownStyles }: { children: string; ma
     const text = useMemo(() => reflowLongParagraphs(children), [children]);
     return text.trim() ? <Markdown style={markdownStyles}>{text}</Markdown> : null;
 });
+
+const REVEAL_FRAME_MS = 33;
+const REVEAL_MIN_CPS = 40;
+/** 积压的字约这么久吐完：推送 250ms 一批，吐字略慢于推送，屏上就一直在匀速出字而不是一批批跳出来 */
+const REVEAL_CATCH_UP_S = 0.35;
+
+/**
+ * 生成中按帧匀速吐字：推送攒下的一批字不一次性贴上去，而是约 30 帧/秒地往外放，
+ * 积压越多放得越快，始终追得上。打开时已写好的部分直接显示，写完立刻显示全文。
+ */
+function useRevealedText(text: string, streaming: boolean): string {
+    const [shown, setShown] = useState(text.length);
+    const shownRef = useRef(text.length);
+    const targetRef = useRef(text.length);
+    targetRef.current = text.length;
+    useEffect(() => {
+        if (!streaming || shownRef.current >= text.length) return;
+        let frame = 0;
+        let last = Date.now();
+        const tick = () => {
+            const now = Date.now();
+            const elapsed = now - last;
+            if (elapsed >= REVEAL_FRAME_MS) {
+                const backlog = targetRef.current - shownRef.current;
+                const step = Math.max(1, Math.round(Math.max(REVEAL_MIN_CPS, backlog / REVEAL_CATCH_UP_S) * elapsed / 1000));
+                shownRef.current = Math.min(targetRef.current, shownRef.current + step);
+                setShown(shownRef.current);
+                last = now;
+            }
+            if (shownRef.current < targetRef.current) frame = requestAnimationFrame(tick);
+        };
+        frame = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(frame);
+    }, [text.length, streaming]);
+    if (!streaming || shown >= text.length) {
+        shownRef.current = text.length;
+        return text;
+    }
+    return closeOpenMarkup(text.slice(0, shown));
+}
+
+/** 吐到一半的标记先收好：半个「**」、只有井号的标题行不露出来，未闭合的粗体临时补上结尾 */
+function closeOpenMarkup(slice: string): string {
+    let text = slice.endsWith('*') && !slice.endsWith('**') ? slice.slice(0, -1) : slice;
+    const lineStart = text.lastIndexOf('\n') + 1;
+    const line = text.slice(lineStart);
+    if (/^\s*#{1,6}\s*$/.test(line)) return text.slice(0, lineStart);
+    if ((line.match(/\*\*/g)?.length ?? 0) % 2) text += '**';
+    return text;
+}
 
 /** 按空行切成段落块；代码块里的空行不切 */
 function splitBlocks(text: string): string[] {
@@ -273,8 +323,11 @@ function stripRepeatedTitle(content: string, titles: string[]): string {
 }
 
 function AssistantBody<M extends ChapterMessage>({ item, props }: { item: ChapterItem<M>; props: AIChapterCardProps<M> }) {
-    const content = stripRepeatedTitle(props.getDisplayContent(item.message), [props.chapter.title, props.chapter.short, '基础定局', '基础命盘', '前事核验']);
     const streaming = Boolean(item.streaming);
+    const content = useRevealedText(
+        stripRepeatedTitle(props.getDisplayContent(item.message), [props.chapter.title, props.chapter.short, '基础定局', '基础命盘', '前事核验']),
+        streaming,
+    );
     const id = props.chapter.id;
     if (item.stage === 'kinship' || item.stage === 'kinship_review') {
         return (
