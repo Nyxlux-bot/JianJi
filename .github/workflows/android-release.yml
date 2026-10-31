@@ -141,7 +141,9 @@ jobs:
 
       - name: 8. 编译发布版
         working-directory: android
-        run: ./gradlew :app:assembleRelease
+        # 预构建生成的 gradle.properties 只给 2GB 堆、512MB 元空间，四种架构一起出发布版时 mergeExtDexRelease 会元空间溢出；
+        # 命令行 -D 优先于工程配置，构建机有 16GB 内存
+        run: ./gradlew :app:assembleRelease -Dorg.gradle.jvmargs="-Xmx6g -XX:MaxMetaspaceSize=2g -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8"
 
       - name: 9. 用发布密钥签名并核对证书
         env:
