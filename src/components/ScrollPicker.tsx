@@ -67,7 +67,9 @@ export default function ScrollPicker({
         }
     }, [value, data, itemHeight, selectedIndex]);
 
-    // 初始渲染时滚动到默认值
+    // 初始渲染（或候选项条数变了）时滚动到默认值。
+    // 不能跟着 value 跑：甩动松手时会先提交一次值，这里再无动画定位一下，惯性就被拽停了；外部改值由上面那个 Effect 负责
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
         const index = data.indexOf(value);
         if (index !== -1 && scrollViewRef.current) {
@@ -81,7 +83,7 @@ export default function ScrollPicker({
                 }
             }, 0);
         }
-    }, [data.length, itemHeight, value]);
+    }, [data.length, itemHeight]);
 
     const handleMomentumScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
         if (isProgrammaticScroll.current) {
@@ -124,7 +126,8 @@ export default function ScrollPicker({
                     { useNativeDriver: true }
                 )}
                 onMomentumScrollEnd={handleMomentumScrollEnd}
-                onScrollEndDrag={handleMomentumScrollEnd}
+                // 甩动松手后还有惯性，等 onMomentumScrollEnd 再提交；这里只管没有惯性的松手
+                onScrollEndDrag={(event) => { if (Math.abs(event.nativeEvent.velocity?.y ?? 0) < 0.01) handleMomentumScrollEnd(event); }}
                 scrollEventThrottle={16} // 16ms 保证 60fps 的频率推送给动画引擎
                 contentContainerStyle={{ paddingVertical: 0 }}
             >
