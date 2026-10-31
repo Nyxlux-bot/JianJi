@@ -1,6 +1,8 @@
-import { HeavenStem, SixtyCycle } from 'tyme4ts';
+import { HeavenStem, SixtyCycle, SixtyCycleDay, SolarDay } from 'tyme4ts';
 import { buildWuXingBandFromMonthBranch } from '../../core/renyuan-duty';
+import { buildBaziShenShaBucketMap } from '../../core/bazi-shensha';
 import {
+    BaziLiuYueItem,
     BaziPillarKey,
     BaziResult,
     ShiShenName,
@@ -44,8 +46,70 @@ const SHI_SHEN_SHORT: Record<ShiShenName | string, string> = {
     日主: '元',
 };
 
+/** 流月按节令序月称呼：寅月为正月 */
+const MONTH_NAME: Record<string, string> = {
+    寅: '正月', 卯: '二月', 辰: '三月', 巳: '四月', 午: '五月', 未: '六月',
+    申: '七月', 酉: '八月', 戌: '九月', 亥: '十月', 子: '十一月', 丑: '十二月',
+};
+const WEEKDAY = '日一二三四五六';
+const HOUR_SPAN = ['23–1', '1–3', '3–5', '5–7', '7–9', '9–11', '11–13', '13–15', '15–17', '17–19', '19–21', '21–23'];
+
 function toShiShenShort(name: string): string {
     return SHI_SHEN_SHORT[name] ?? name;
+}
+
+function clampIndex(index: number, length: number): number {
+    return Math.min(Math.max(index, 0), Math.max(length - 1, 0));
+}
+
+interface LiuRiItem {
+    ganZhi: string;
+    solar: SolarDay;
+    isCurrent: boolean;
+}
+
+interface LiuShiItem {
+    ganZhi: string;
+    span: string;
+    name: string;
+    isCurrent: boolean;
+}
+
+/** 此刻落在哪天哪个时辰：晚子口径下 23 点已算次日子时，早子口径下 23 点是当日夜子 */
+function getNowPosition(earlyZi: boolean, now: Date): { day: SolarDay; hourIndex: number } {
+    const hour = now.getHours();
+    const today = SolarDay.fromYmd(now.getFullYear(), now.getMonth() + 1, now.getDate());
+    if (hour === 23) {
+        return earlyZi ? { day: today, hourIndex: 12 } : { day: today.next(1), hourIndex: 0 };
+    }
+    return { day: today, hourIndex: Math.floor((hour + 1) / 2) };
+}
+
+function buildLiuRiList(liuYue: BaziLiuYueItem, nowDay: SolarDay): LiuRiItem[] {
+    const [year, month, day] = liuYue.termDateIso.split('-').map(Number);
+    const nowKey = nowDay.toString();
+    return SolarDay.fromYmd(year, month, day).getSixtyCycleDay().getSixtyCycleMonth().getDays().map((item) => ({
+        ganZhi: item.getSixtyCycle().getName(),
+        solar: item.getSolarDay(),
+        isCurrent: item.getSolarDay().toString() === nowKey,
+    }));
+}
+
+function buildLiuShiList(day: SixtyCycleDay, earlyZi: boolean, nowHourIndex: number | null): LiuShiItem[] {
+    const items = day.getHours().map((hour, index) => {
+        const ganZhi = hour.getSixtyCycle().getName();
+        return { ganZhi, span: HOUR_SPAN[index], name: `${ganZhi.charAt(1)}时` };
+    });
+    if (earlyZi) {
+        // 早子口径：0–1 点是当日早子，23–24 点的夜子仍属当日，干取次日子时
+        items[0] = { ...items[0], span: '0–1', name: '早子时' };
+        items.push({ ganZhi: day.next(1).getHours()[0].getSixtyCycle().getName(), span: '23–24', name: '夜子时' });
+    }
+    return items.map((item, index) => ({ ...item, isCurrent: index === nowHourIndex }));
+}
+
+function formatMonthDay(day: SolarDay): string {
+    return `${day.getMonth()}/${day.getDay()}`;
 }
 
 function buildCangGanText(result: BaziResult, index: number): string {
@@ -224,12 +288,54 @@ function buildProChartRows(columns: ProChartColumnView[]): ProChartRowView[] {
     ];
 }
 
+const extraStarsCache = new Map<string, string[]>();
+
 function getLayerStarsForGanZhi(result: BaziResult, ganZhi: string): string[] {
     const bucket = result.shenShaV2.ganZhiBuckets?.[ganZhi];
-    if (!bucket) {
-        return [];
+    if (bucket) {
+        return bucket.byPillar[3]?.stars.map((item) => item.star) ?? [];
     }
-    return bucket.byPillar[3]?.stars.map((item) => item.star) ?? [];
+    // 流日、流时的干支不在排盘时算好的池子里，用同一套规则现算，不改存档
+    const cacheKey = `${result.fourPillars.join('')}|${result.gender}|${ganZhi}`;
+    const cached = extraStarsCache.get(cacheKey);
+    if (cached) {
+        return cached;
+    }
+    const computed = buildBaziShenShaBucketMap({ fourPillars: result.fourPillars, gender: result.gender, ganZhiList: [ganZhi] })[ganZhi];
+    const stars = computed?.byPillar[3]?.stars.map((item) => item.star) ?? [];
+    extraStarsCache.set(cacheKey, stars);
+    return stars;
+}
+
+function buildGanZhiColumn(input: {
+    key: ProChartColumnView['key'];
+    label: string;
+    ganZhi: string | undefined;
+    subLabel?: string;
+    result: BaziResult;
+    dayMaster: HeavenStem;
+}): ProChartColumnView {
+    if (!input.ganZhi || input.ganZhi === '—') {
+        return { ...buildEmptyColumn(input.key, input.label), subLabel: input.subLabel };
+    }
+    const sixtyCycle = SixtyCycle.fromName(input.ganZhi);
+    const mainStarFull = input.dayMaster.getTenStar(sixtyCycle.getHeavenStem()).getName();
+    const subStarFull = input.dayMaster.getTenStar(sixtyCycle.getEarthBranch().getHideHeavenStemMain()).getName();
+
+    return {
+        ...buildDerivedColumn({
+            key: input.key,
+            label: input.label,
+            ganZhi: input.ganZhi,
+            dayMaster: input.dayMaster,
+            mainStarFull,
+            mainStarShort: toShiShenShort(mainStarFull),
+            subStarFull,
+            subStarShort: toShiShenShort(subStarFull),
+            shenSha: getLayerStarsForGanZhi(input.result, input.ganZhi),
+        }),
+        subLabel: input.subLabel,
+    };
 }
 
 function buildSpecialColumn(input: {
@@ -239,25 +345,7 @@ function buildSpecialColumn(input: {
     result: BaziResult;
     dayMaster: HeavenStem;
 }): ProChartColumnView {
-    const ganZhi = extractGanZhiFromDisplay(input.source);
-    if (!ganZhi) {
-        return buildEmptyColumn(input.key, input.label);
-    }
-    const sixtyCycle = SixtyCycle.fromName(ganZhi);
-    const mainStarFull = input.dayMaster.getTenStar(sixtyCycle.getHeavenStem()).getName();
-    const subStarFull = input.dayMaster.getTenStar(sixtyCycle.getEarthBranch().getHideHeavenStemMain()).getName();
-
-    return buildDerivedColumn({
-        key: input.key,
-        label: input.label,
-        ganZhi,
-        dayMaster: input.dayMaster,
-        mainStarFull,
-        mainStarShort: toShiShenShort(mainStarFull),
-        subStarFull,
-        subStarShort: toShiShenShort(subStarFull),
-        shenSha: getLayerStarsForGanZhi(input.result, ganZhi),
-    });
+    return buildGanZhiColumn({ ...input, ganZhi: extractGanZhiFromDisplay(input.source) });
 }
 
 function getSelectedDaYun(result: BaziResult, selection: FortuneSelectionView): BaziResult['daYun'][number] | null {
@@ -387,48 +475,38 @@ export function buildBaziProChartViewModel(
     const selectedLiuNian = getSelectedLiuNian(result, selection, selectedDaYun);
     const selectedLiuYue = getSelectedLiuYue(selection, selectedLiuNian);
 
-    const liuNianColumn = (() => {
-        if (!selectedLiuNian) {
-            return buildEmptyColumn('liuNian', '流年');
-        }
-        const liuNianSixtyCycle = SixtyCycle.fromName(selectedLiuNian.ganZhi);
-        const liuNianMain = dayMaster.getTenStar(liuNianSixtyCycle.getHeavenStem()).getName();
-        const liuNianSub = dayMaster.getTenStar(liuNianSixtyCycle.getEarthBranch().getHideHeavenStemMain()).getName();
-        return buildDerivedColumn({
-            key: 'liuNian',
-            label: '流年',
-            ganZhi: selectedLiuNian.ganZhi,
-            dayMaster,
-            mainStarFull: liuNianMain,
-            mainStarShort: toShiShenShort(liuNianMain),
-            subStarFull: liuNianSub,
-            subStarShort: toShiShenShort(liuNianSub),
-            shenSha: getLayerStarsForGanZhi(result, selectedLiuNian.ganZhi),
-        });
-    })();
+    const earlyZi = result.schoolOptionsResolved?.ziHourMode === 'early_zi_same_day';
+    const now = getNowPosition(earlyZi, new Date());
+    const liuRiList = selectedLiuYue ? buildLiuRiList(selectedLiuYue, now.day) : [];
+    const selectedLiuRi = liuRiList[clampIndex(selection.selectedLiuRiIndex ?? getInitialIndex(liuRiList), liuRiList.length)] ?? null;
+    const liuShiList = selectedLiuRi
+        ? buildLiuShiList(selectedLiuRi.solar.getSixtyCycleDay(), earlyZi, selectedLiuRi.isCurrent ? now.hourIndex : null)
+        : [];
+    // 没选过时辰就停在此刻的时辰，换日时也停在同一时辰
+    const liuShiIndex = clampIndex(selection.selectedLiuShiIndex ?? now.hourIndex, liuShiList.length);
+    const selectedLiuShi = liuShiList[liuShiIndex] ?? null;
+    const column = (key: ProChartColumnView['key'], label: string, ganZhi: string | undefined, subLabel?: string) => (
+        buildGanZhiColumn({ key, label, ganZhi, subLabel, result, dayMaster })
+    );
 
+    const liuNianColumn = column('liuNian', '流年', selectedLiuNian?.ganZhi, selectedLiuNian ? String(selectedLiuNian.year) : undefined);
     const yunWeiGanZhi = selection.mode === 'xiaoyun'
         ? (selectedXiaoYun?.xiaoYunGanZhi ?? '—')
         : (selectedDaYun?.ganZhi ?? '—');
     const yunWeiLabel = selection.mode === 'xiaoyun' ? '小运' : '大运';
-    const yunWeiColumn = yunWeiGanZhi === '—'
-        ? buildEmptyColumn('daYun', yunWeiLabel)
-        : (() => {
-            const yunWeiSixtyCycle = SixtyCycle.fromName(yunWeiGanZhi);
-            const yunWeiMain = dayMaster.getTenStar(yunWeiSixtyCycle.getHeavenStem()).getName();
-            const yunWeiSub = dayMaster.getTenStar(yunWeiSixtyCycle.getEarthBranch().getHideHeavenStemMain()).getName();
-            return buildDerivedColumn({
-                key: 'daYun',
-                label: yunWeiLabel,
-                ganZhi: yunWeiGanZhi,
-                dayMaster,
-                mainStarFull: yunWeiMain,
-                mainStarShort: toShiShenShort(yunWeiMain),
-                subStarFull: yunWeiSub,
-                subStarShort: toShiShenShort(yunWeiSub),
-                shenSha: getLayerStarsForGanZhi(result, yunWeiGanZhi),
-            });
-        })();
+    const yunWeiColumn = column('daYun', yunWeiLabel, yunWeiGanZhi, selection.mode === 'xiaoyun'
+        ? (selectedXiaoYun ? `${selectedXiaoYun.age}岁` : undefined)
+        : (selectedDaYun ? `${selectedDaYun.startAge}–${selectedDaYun.endAge}岁` : undefined));
+    // 小运每年一换，跟着流年走；起运前没有大运，岁运区只剩小运
+    const xiaoYunColumn = column('xiaoYun', '小运', selectedLiuNian?.xiaoYunGanZhi, selectedLiuNian ? `${selectedLiuNian.age}岁` : undefined);
+    const suiYunColumns = [
+        column('liuShi', '流时', selectedLiuShi?.ganZhi, selectedLiuShi?.span),
+        column('liuRi', '流日', selectedLiuRi?.ganZhi, selectedLiuRi ? formatMonthDay(selectedLiuRi.solar) : undefined),
+        column('liuYue', '流月', selectedLiuYue?.ganZhi, selectedLiuYue ? MONTH_NAME[selectedLiuYue.diZhi] : undefined),
+        liuNianColumn,
+        ...(selection.mode === 'xiaoyun' ? [] : [yunWeiColumn]),
+        xiaoYunColumn,
+    ];
 
     const dayLabel = result.subject.genderLabel === '男' ? '元男' : '元女';
     const pillarColumns = (['year', 'month', 'day', 'hour'] as BaziPillarKey[]).map((pillar, index) => {
@@ -489,23 +567,22 @@ export function buildBaziProChartViewModel(
     const firstDaYunStartYear = result.daYun[0]?.startYear ?? Number.POSITIVE_INFINITY;
     const leadingXiaoYun = result.xiaoYun.filter((item) => item.year < firstDaYunStartYear);
 
+    // 起运前的小运年份合成一格，点进去在流年层逐年看
+    const lastLeading = leadingXiaoYun[leadingXiaoYun.length - 1];
     const daYunTrack: DenseTrackCellView[] = [
-        ...leadingXiaoYun.map((item, index) => {
-            const formatted = formatGanZhiWithShiShen(dayMaster, item.xiaoYunGanZhi);
-            return {
-                key: `xiaoyun-${item.year}`,
-                trackKind: 'xiaoyun' as const,
-                sourceIndex: index,
-                topLabel: String(item.year),
-                subLabel: `${item.age}岁`,
-                primaryText: formatted.primaryText,
-                secondaryText: formatted.secondaryText,
-                tertiaryText: '小运',
-                active: selection.mode === 'xiaoyun' && selection.selectedXiaoYunIndex === index,
-                isCurrent: item.isCurrent,
-                selectable: true,
-            };
-        }),
+        ...(lastLeading ? [{
+            key: 'xiaoyun-pre',
+            trackKind: 'xiaoyun' as const,
+            sourceIndex: getInitialIndex(leadingXiaoYun),
+            topLabel: '起运前',
+            subLabel: `${leadingXiaoYun[0].age}~${lastLeading.age}岁`,
+            primaryText: '小',
+            secondaryText: '运',
+            tertiaryText: '小运',
+            active: selection.mode === 'xiaoyun',
+            isCurrent: leadingXiaoYun.some((item) => item.isCurrent),
+            selectable: true,
+        }] : []),
         ...result.daYun.map((item, index) => {
             const formatted = formatGanZhiWithShiShen(dayMaster, item.ganZhi);
             const xiaoYun = xiaoYunByYear.get(item.startYear);
@@ -549,8 +626,8 @@ export function buildBaziProChartViewModel(
         key: `liuyue-${item.year}-${index}`,
         trackKind: 'liuyue' as const,
         sourceIndex: index,
-        topLabel: item.termName,
-        subLabel: item.termDate,
+        topLabel: MONTH_NAME[item.diZhi] ?? item.termName,
+        subLabel: `${item.termName} ${item.termDate}`,
         primaryText: `${item.tianGan}${toShiShenShort(item.tianGanShiShen)}`,
         secondaryText: `${item.diZhi}${toShiShenShort(item.diZhiShiShen)}`,
         tertiaryText: item.ganZhi,
@@ -558,6 +635,58 @@ export function buildBaziProChartViewModel(
         isCurrent: item.isCurrent,
         selectable: true,
     }));
+
+    const liuRiTrack: DenseTrackCellView[] = liuRiList.map((item, index) => {
+        const formatted = formatGanZhiWithShiShen(dayMaster, item.ganZhi);
+        return {
+            key: `liuri-${item.solar.toString()}`,
+            trackKind: 'liuri' as const,
+            sourceIndex: index,
+            topLabel: formatMonthDay(item.solar),
+            subLabel: `周${WEEKDAY.charAt(item.solar.getWeek().getIndex())}`,
+            primaryText: formatted.primaryText,
+            secondaryText: formatted.secondaryText,
+            tertiaryText: item.ganZhi,
+            active: item === selectedLiuRi,
+            isCurrent: item.isCurrent,
+            selectable: true,
+        };
+    });
+
+    const liuShiTrack: DenseTrackCellView[] = liuShiList.map((item, index) => {
+        const formatted = formatGanZhiWithShiShen(dayMaster, item.ganZhi);
+        return {
+            key: `liushi-${index}`,
+            trackKind: 'liushi' as const,
+            sourceIndex: index,
+            topLabel: item.span,
+            subLabel: item.name,
+            primaryText: formatted.primaryText,
+            secondaryText: formatted.secondaryText,
+            tertiaryText: item.ganZhi,
+            active: index === liuShiIndex,
+            isCurrent: item.isCurrent,
+            selectable: true,
+        };
+    });
+
+    // 运程坞说明行：日期一律写明阳历，流月写节令月名
+    const liuYueEnd = liuRiList[liuRiList.length - 1];
+    const levelInfo = [
+        selection.mode === 'xiaoyun'
+            ? (lastLeading ? `起运前 ${leadingXiaoYun[0].age}–${lastLeading.age}岁 · 小运每年一换，看盘面小运列` : '起运前')
+            : (selectedDaYun ? `${selectedDaYun.ganZhi}运 · ${selectedDaYun.startYear} 年交运 · ${selectedDaYun.startAge}–${selectedDaYun.endAge}岁` : '—'),
+        selectedLiuNian ? `${selectedLiuNian.year} 年 ${selectedLiuNian.ganZhi} · ${selectedLiuNian.age}岁 · 小运 ${selectedLiuNian.xiaoYunGanZhi}` : '—',
+        selectedLiuYue && liuYueEnd
+            ? `${selectedLiuYue.ganZhi}月 · 节令${MONTH_NAME[selectedLiuYue.diZhi]} · 阳历 ${selectedLiuYue.termDate}–${formatMonthDay(liuYueEnd.solar)}`
+            : '—',
+        selectedLiuRi
+            ? `阳历 ${selectedLiuRi.solar.getYear()}年${selectedLiuRi.solar.getMonth()}月${selectedLiuRi.solar.getDay()}日 周${WEEKDAY.charAt(selectedLiuRi.solar.getWeek().getIndex())} · ${selectedLiuRi.ganZhi}日`
+            : '—',
+        selectedLiuRi && selectedLiuShi
+            ? `阳历 ${formatMonthDay(selectedLiuRi.solar)} ${selectedLiuShi.span} 点 · ${selectedLiuShi.ganZhi}时${!earlyZi && liuShiIndex === 0 ? '（前一天 23 点起）' : ''}`
+            : '—',
+    ];
 
     const qiYunBand = buildWuXingBandFromMonthBranch(result.baseInfo.renYuanDutyDetail.monthBranch) as QiYunBandItemView[];
     const infoStrip = {
@@ -610,6 +739,13 @@ export function buildBaziProChartViewModel(
             stars: yunWeiStars,
             group: 'suiYun',
         },
+        ...(selection.mode === 'xiaoyun' ? [] : [{
+            key: 'xiaoYun' as const,
+            label: '小运',
+            ganZhi: xiaoYunColumn.ganZhi === '—' ? '' : xiaoYunColumn.ganZhi,
+            stars: xiaoYunColumn.ganZhi === '—' ? [] : xiaoYunColumn.shenSha,
+            group: 'suiYun' as const,
+        }]),
         {
             key: 'liuNian',
             label: '流年',
@@ -622,6 +758,20 @@ export function buildBaziProChartViewModel(
             label: '流月',
             ganZhi: selectedLiuYue?.ganZhi ?? '',
             stars: liuYueStars,
+            group: 'suiYun',
+        },
+        {
+            key: 'liuRi',
+            label: '流日',
+            ganZhi: selectedLiuRi?.ganZhi ?? '',
+            stars: selectedLiuRi ? getLayerStarsForGanZhi(result, selectedLiuRi.ganZhi) : [],
+            group: 'suiYun',
+        },
+        {
+            key: 'liuShi',
+            label: '流时',
+            ganZhi: selectedLiuShi?.ganZhi ?? '',
+            stars: selectedLiuShi ? getLayerStarsForGanZhi(result, selectedLiuShi.ganZhi) : [],
             group: 'suiYun',
         },
     ];
@@ -640,9 +790,13 @@ export function buildBaziProChartViewModel(
         taimingColumns,
         taimingRows,
         infoStrip,
+        suiYunColumns,
         daYunTrack,
         liuNianTrack,
         liuYueTrack,
+        liuRiTrack,
+        liuShiTrack,
+        levelInfo,
         ganZhiLayer,
         shenShaSections,
         shenShaRows,

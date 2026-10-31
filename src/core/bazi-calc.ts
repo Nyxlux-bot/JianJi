@@ -525,10 +525,7 @@ function buildLiuYueList(input: {
         const nextFirstDay = month.next(1).getFirstDay().getSolarDay();
         const endDate = solarDayToDate(nextFirstDay.getYear(), nextFirstDay.getMonth(), nextFirstDay.getDay());
 
-        if (startDate.getFullYear() !== input.year) {
-            continue;
-        }
-
+        // 流年按立春到立春算，丑月（小寒到立春）落在次年一月，也属这一年
         if (
             input.year === input.birthChartDate.getFullYear()
             && endDate.getTime() <= input.birthChartDate.getTime()

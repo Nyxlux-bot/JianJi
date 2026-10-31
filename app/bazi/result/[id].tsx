@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
     BackIcon,
     ChevronRightIcon,
@@ -64,6 +65,7 @@ import {
     subscribePendingBaziRecord,
 } from '../../../src/features/bazi/pending-result-cache';
 import { useGanZhiRelationSettings } from '../../../src/features/bazi/ganzhi-relation-settings';
+import FortuneDock, { type FortuneDockLevel } from '../../../src/features/bazi/FortuneDock';
 import {
     getGanZhiElement,
     resolveWuXingElement,
@@ -230,6 +232,13 @@ export default function BaziResultPage() {
         selectedLiuNianIndex: 0,
         selectedLiuYueIndex: 0,
     });
+    /** 岁运区加到哪一层：1 流年 2 流月 3 流日 4 流时 */
+    const [fortuneDepth, setFortuneDepth] = useState(1);
+    /** 运程坞当前页签：0 大运 1 流年 2 流月 3 流日 4 流时 */
+    const [dockLevel, setDockLevel] = useState(1);
+    const [dockOpen, setDockOpen] = useState(true);
+    const [dockHeight, setDockHeight] = useState(0);
+    const insets = useSafeAreaInsets();
     const isPersisting = persistStatus === 'saving';
     const hasPersistedRecord = persistStatus === null || persistStatus === 'saved';
 
@@ -401,6 +410,7 @@ export default function BaziResultPage() {
         });
     };
 
+    // 上层换了，流日回到默认（今天或第一天）；流时留在原来的时辰
     const handleSelectDaYunCell = (cell: DenseTrackCellView) => {
         if (!result || !cell.selectable) {
             return;
@@ -413,6 +423,7 @@ export default function BaziResultPage() {
                 selectedXiaoYunIndex: cell.sourceIndex,
                 selectedLiuNianIndex: cell.sourceIndex,
                 selectedLiuYueIndex: getCurrentItemIndex(nextXiaoYun?.liuYue ?? []),
+                selectedLiuRiIndex: undefined,
             }));
             return;
         }
@@ -426,6 +437,7 @@ export default function BaziResultPage() {
             selectedDaYunIndex: cell.sourceIndex,
             selectedLiuNianIndex: nextLiuNianIndex,
             selectedLiuYueIndex: getCurrentItemIndex(nextLiuNian?.liuYue ?? []),
+            selectedLiuRiIndex: undefined,
         }));
     };
 
@@ -441,6 +453,7 @@ export default function BaziResultPage() {
                 selectedXiaoYunIndex: cell.sourceIndex,
                 selectedLiuNianIndex: cell.sourceIndex,
                 selectedLiuYueIndex: getCurrentItemIndex(nextXiaoYun?.liuYue ?? []),
+                selectedLiuRiIndex: undefined,
             }));
             return;
         }
@@ -452,6 +465,7 @@ export default function BaziResultPage() {
             mode: 'dayun',
             selectedLiuNianIndex: cell.sourceIndex,
             selectedLiuYueIndex: getCurrentItemIndex(nextLiuNian?.liuYue ?? []),
+            selectedLiuRiIndex: undefined,
         }));
     };
 
@@ -459,10 +473,31 @@ export default function BaziResultPage() {
         if (!cell.selectable) {
             return;
         }
+        setFortuneDepth((depth) => Math.max(depth, 2));
         setFortuneSelection((prev) => ({
             ...prev,
             selectedLiuYueIndex: cell.sourceIndex,
+            selectedLiuRiIndex: undefined,
         }));
+    };
+
+    const handleSelectLiuRiCell = (cell: DenseTrackCellView) => {
+        setFortuneDepth((depth) => Math.max(depth, 3));
+        setFortuneSelection((prev) => ({ ...prev, selectedLiuRiIndex: cell.sourceIndex }));
+    };
+
+    const handleSelectLiuShiCell = (cell: DenseTrackCellView) => {
+        setFortuneDepth(4);
+        setFortuneSelection((prev) => ({ ...prev, selectedLiuShiIndex: cell.sourceIndex }));
+    };
+
+    const handleDockLevelPress = (level: number) => {
+        if (level === dockLevel) {
+            setDockOpen((open) => !open);
+            return;
+        }
+        setDockLevel(level);
+        setDockOpen(true);
     };
 
     const handleToggleFavorite = async () => {
@@ -541,6 +576,22 @@ export default function BaziResultPage() {
 
     const heroRows = buildHeroRows(result, privacyEnabled);
     const aiDisabled = !aiConfigured || !result;
+    const dockLevels: FortuneDockLevel[] | null = activeSection === 'proChart' && proChartView ? (() => {
+        const findColumn = (key: string) => proChartView.suiYunColumns.find((column) => column.key === key);
+        // 起运前没有大运，大运页签显示当年小运
+        const yun = findColumn('daYun') ?? findColumn('xiaoYun');
+        const heads = [yun, findColumn('liuNian'), findColumn('liuYue'), findColumn('liuRi'), findColumn('liuShi')];
+        const tracks = [proChartView.daYunTrack, proChartView.liuNianTrack, proChartView.liuYueTrack, proChartView.liuRiTrack, proChartView.liuShiTrack];
+        const handlers = [handleSelectDaYunCell, handleSelectLiuNianCell, handleSelectLiuYueCell, handleSelectLiuRiCell, handleSelectLiuShiCell];
+        return heads.map((column, index) => ({
+            name: index === 0 ? (column?.label ?? '大运') : LEVEL_NAMES[index],
+            ganZhi: column && column.ganZhi !== '—' ? column.ganZhi : '—',
+            ghost: index > fortuneDepth,
+            info: proChartView.levelInfo[index] ?? '',
+            cells: tracks[index],
+            onSelect: handlers[index],
+        }));
+    })() : null;
 
     return (
         <View style={styles.container}>
@@ -615,7 +666,7 @@ export default function BaziResultPage() {
 
                 <ScrollView
                     style={styles.content}
-                    contentContainerStyle={styles.contentContainer}
+                    contentContainerStyle={[styles.contentContainer, dockLevels ? { paddingBottom: dockHeight + insets.bottom + 24 } : null]}
                     showsVerticalScrollIndicator={false}
                     nestedScrollEnabled
                     onScroll={handleContentScroll}
@@ -661,9 +712,12 @@ export default function BaziResultPage() {
                                 <PaiPanCard
                                     panelMode={panelMode}
                                     summary={buildPaiPanSummary(proChartView)}
-                                    columns={panelMode === 'fortune' ? proChartView.fortuneColumns : proChartView.taimingColumns}
-                                    liuNianTrack={proChartView.liuNianTrack}
-                                    daYunTrack={proChartView.daYunTrack}
+                                    columns={proChartView.taimingColumns}
+                                    suiYunColumns={proChartView.suiYunColumns.filter((column) => (SUI_YUN_DEPTH[column.key] ?? 0) <= fortuneDepth)}
+                                    pillarColumns={proChartView.fortuneColumns.filter((column) => PILLAR_KEYS.includes(column.key))}
+                                    alignKey={DOCK_ALIGN_KEYS[Math.min(dockLevel, fortuneDepth)]}
+                                    depth={fortuneDepth}
+                                    onDepthChange={setFortuneDepth}
                                     qiYunBand={proChartView.infoStrip.qiYunBand}
                                     palette={palette}
                                     styles={styles}
@@ -671,16 +725,15 @@ export default function BaziResultPage() {
                                 <YunChengCard
                                     result={result}
                                     privacyEnabled={privacyEnabled}
-                                    daYunTrack={proChartView.daYunTrack}
                                     liuNianTrack={proChartView.liuNianTrack}
-                                    liuYueTrack={proChartView.liuYueTrack}
-                                    onSelectDaYun={handleSelectDaYunCell}
-                                    onSelectLiuNian={handleSelectLiuNianCell}
-                                    onSelectLiuYue={handleSelectLiuYueCell}
                                     palette={palette}
                                     styles={styles}
                                 />
-                                <ShenShaCard rows={proChartView.shenShaRows} palette={palette} styles={styles} />
+                                <ShenShaCard
+                                    rows={proChartView.shenShaRows.filter((row) => (SUI_YUN_DEPTH[row.key] ?? 0) <= Math.max(2, fortuneDepth))}
+                                    palette={palette}
+                                    styles={styles}
+                                />
                                 <GanZhiLayerCard
                                     layer={proChartView.ganZhiLayer}
                                     onOpenDetail={handleOpenGanZhiVisual}
@@ -691,6 +744,19 @@ export default function BaziResultPage() {
                         ) : null}
                     </View>
                 </ScrollView>
+
+                {dockLevels ? (
+                    <FortuneDock
+                        levels={dockLevels}
+                        activeLevel={dockLevel}
+                        open={dockOpen}
+                        onLevelPress={handleDockLevelPress}
+                        selectionKey={JSON.stringify(fortuneSelection)}
+                        bottom={insets.bottom + 12}
+                        onLayout={(event) => setDockHeight(Math.round(event.nativeEvent.layout.height))}
+                        palette={palette}
+                    />
+                ) : null}
             </View>
 
             <ConfirmModal
@@ -1437,45 +1503,247 @@ const QiYunCard: React.FC<{ result: BaziResult; privacyEnabled: boolean; styles:
 /* 专业细盘                                                             */
 /* ------------------------------------------------------------------ */
 
+const LEVEL_NAMES = ['大运', '流年', '流月', '流日', '流时'];
+/** 运程坞各页签对应的岁运列，切页签时岁运区把这一列对到左边 */
+const DOCK_ALIGN_KEYS: Array<ProChartColumnView['key']> = ['daYun', 'liuNian', 'liuYue', 'liuRi', 'liuShi'];
+const PILLAR_KEYS: Array<ProChartColumnView['key']> = ['year', 'month', 'day', 'hour'];
+/** 流月及以下的列和神煞行，超过「显示到」那一层就不显示 */
+const SUI_YUN_DEPTH: Partial<Record<string, number>> = { liuYue: 2, liuRi: 3, liuShi: 4 };
+const DEPTH_OPTIONS = [
+    { depth: 1, label: '流年' },
+    { depth: 2, label: '流月' },
+    { depth: 3, label: '流日' },
+    { depth: 4, label: '流时' },
+];
+const PRO_DETAIL_ROWS: Array<{ key: string; label: string; pick: (column: ProChartColumnView) => string; small?: boolean }> = [
+    { key: 'xingYun', label: '星运', pick: (column) => column.xingYun },
+    { key: 'ziZuo', label: '自坐', pick: (column) => column.ziZuo },
+    { key: 'kongWang', label: '空亡', pick: (column) => column.kongWang || '—' },
+    { key: 'naYin', label: '纳音', pick: (column) => column.naYin, small: true },
+];
+const PRO_LABEL_WIDTH = 28;
+
 const PaiPanCard: React.FC<{
     panelMode: BaziPanelMode;
     summary: string;
+    /** 胎命身模式的列 */
     columns: ProChartColumnView[];
-    liuNianTrack: DenseTrackCellView[];
-    daYunTrack: DenseTrackCellView[];
+    suiYunColumns: ProChartColumnView[];
+    pillarColumns: ProChartColumnView[];
+    alignKey: ProChartColumnView['key'];
+    depth: number;
+    onDepthChange: (depth: number) => void;
     qiYunBand: QiYunBandItemView[];
     palette: Palette;
     styles: Styles;
-}> = ({ panelMode, summary, columns, liuNianTrack, daYunTrack, qiYunBand, palette, styles }) => {
-    const groupSplit = panelMode === 'fortune' ? 2 : 3;
-    const groups = panelMode === 'fortune'
-        ? [{ label: '岁运', span: 2 }, { label: '原局', span: columns.length - 2 }]
-        : [{ label: '胎命身', span: 3 }, { label: '原局', span: columns.length - 3 }];
-    const dayIndex = columns.findIndex((column) => column.key === 'day');
-    const dense = columns.length >= 7;
-    const activeLiuNian = liuNianTrack.find((cell) => cell.active);
-    const activeYun = daYunTrack.find((cell) => cell.active);
-    const subLabelFor = (column: ProChartColumnView): string => {
-        if (column.key === 'liuNian') return activeLiuNian?.topLabel ?? '';
-        if (column.key === 'daYun') return (activeYun?.subLabel ?? '').replace('~', '–');
-        return '';
-    };
+}> = ({ panelMode, summary, columns, suiYunColumns, pillarColumns, alignKey, depth, onDepthChange, qiYunBand, palette, styles }) => {
     const band = [...qiYunBand].sort((a, b) => (SEASON_BAND_ORDER[a.element] ?? 9) - (SEASON_BAND_ORDER[b.element] ?? 9));
-    const detail: Array<{ key: string; label: string; pick: (column: ProChartColumnView) => string; small?: boolean }> = [
-        { key: 'xingYun', label: '星运', pick: (column) => column.xingYun },
-        { key: 'ziZuo', label: '自坐', pick: (column) => column.ziZuo },
-        { key: 'kongWang', label: '空亡', pick: (column) => column.kongWang || '—' },
-        { key: 'naYin', label: '纳音', pick: (column) => column.naYin, small: true },
-    ];
+    const depthSwitch = (
+        <View style={styles.depthRow}>
+            <Text style={styles.depthLabel}>显示到</Text>
+            <View style={styles.heroSwitch} accessibilityRole="tablist" accessibilityLabel="岁运列显示到">
+                {DEPTH_OPTIONS.map((option) => {
+                    const on = option.depth === depth;
+                    return (
+                        <Pressable
+                            key={option.depth}
+                            onPress={() => onDepthChange(option.depth)}
+                            style={[styles.heroSwitchBtn, on && styles.heroSwitchBtnOn]}
+                            accessibilityRole="tab"
+                            accessibilityState={{ selected: on }}
+                            hitSlop={{ top: 10, bottom: 10 }}
+                        >
+                            <Text style={[styles.heroSwitchText, on && styles.heroSwitchTextOn]}>{option.label}</Text>
+                        </Pressable>
+                    );
+                })}
+            </View>
+        </View>
+    );
 
     return (
         <Card
             title="排盘"
             first
             dense
-            right={summary ? <Text style={styles.cardHeaderMeta} numberOfLines={1}>{summary}</Text> : null}
+            right={panelMode === 'fortune'
+                ? depthSwitch
+                : (summary ? <Text style={styles.cardHeaderMeta} numberOfLines={1}>{summary}</Text> : null)}
             styles={styles}
         >
+            {panelMode === 'fortune' ? (
+                <SuiYunTable yunColumns={suiYunColumns} pillarColumns={pillarColumns} alignKey={alignKey} palette={palette} styles={styles} />
+            ) : (
+                <TaimingTable columns={columns} palette={palette} styles={styles} />
+            )}
+            {band.length > 0 ? (
+                <View style={styles.seasonRow} accessibilityLabel="月令旺衰">
+                    <Text style={styles.seasonLabel}>月令</Text>
+                    {band.map((item) => {
+                        const element = resolveWuXingElement(item.element);
+                        return (
+                            <View
+                                key={`${item.element}-${item.status}`}
+                                style={[styles.seasonChip, element ? { backgroundColor: palette.elementSoft[element] } : null]}
+                            >
+                                <WuXingIcon element={item.element} size={11} />
+                                <Text style={[styles.seasonElement, { color: elementColor(item.element, palette) }]}>{item.element}</Text>
+                                <Text style={styles.seasonStatus}>{item.status}</Text>
+                            </View>
+                        );
+                    })}
+                </View>
+            ) : null}
+        </Card>
+    );
+};
+
+/**
+ * 流年大运模式的排盘：原局四柱钉在右边，左边岁运区一次放两列，左右滑看其他层。
+ * 列宽和原来六列时一样，主星、十神全称和五行小图标都放得下。
+ */
+const SuiYunTable: React.FC<{
+    yunColumns: ProChartColumnView[];
+    pillarColumns: ProChartColumnView[];
+    alignKey: ProChartColumnView['key'];
+    palette: Palette;
+    styles: Styles;
+}> = ({ yunColumns, pillarColumns, alignKey, palette, styles }) => {
+    const scrollRef = useRef<ScrollView>(null);
+    const [width, setWidth] = useState(0);
+    const columnWidth = width > 0 ? (width - PRO_LABEL_WIDTH) / 6 : 0;
+    const all = [...yunColumns, ...pillarColumns];
+    const cangHeight = Math.max(58, 8 + 17 * Math.max(1, ...all.map((column) => column.cangGanLines.length)));
+    const shenShaHeight = 11 + 16 * Math.max(1, ...all.map((column) => column.shenSha.length));
+    const wanted = yunColumns.findIndex((column) => column.key === alignKey);
+    const alignIndex = wanted >= 0 ? wanted : Math.max(0, yunColumns.findIndex((column) => column.key === 'liuNian'));
+    const scrollable = yunColumns.length > 2;
+
+    // 切运程坞页签或加减层时，把那一层对到岁运区左边，旁边就是它的上一层；直接跳到位，不和吸附抢
+    useEffect(() => {
+        if (columnWidth <= 0) {
+            return;
+        }
+        const x = Math.min(alignIndex, Math.max(0, yunColumns.length - 2)) * columnWidth;
+        scrollRef.current?.scrollTo({ x, animated: false });
+    }, [alignIndex, columnWidth, yunColumns.length]);
+
+    const column = (item: ProChartColumnView) => (
+        <ProColumn key={item.key} column={item} width={columnWidth} cangHeight={cangHeight} shenShaHeight={shenShaHeight} palette={palette} styles={styles} />
+    );
+
+    return (
+        <View style={styles.proGrid} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
+            <View style={styles.proLabelCol}>
+                <View style={styles.proGridHeadSpace} />
+                <View style={[styles.proLabelRow, styles.proColStar]}><Text style={styles.tableRowLabel}>主星</Text></View>
+                <View style={[styles.proLabelRow, styles.proGlyphRow]}><Text style={styles.tableRowLabel}>天干</Text></View>
+                <View style={[styles.proLabelRow, styles.proGlyphRow]}><Text style={styles.tableRowLabel}>地支</Text></View>
+                <View style={[styles.proLabelRow, { height: cangHeight }]}><Text style={styles.tableRowLabel}>藏干</Text></View>
+                {PRO_DETAIL_ROWS.map((row, index) => (
+                    <View key={row.key} style={[styles.proLabelRow, styles.proColDetail, index === 0 && styles.proDetailFirst]}>
+                        <Text style={styles.tableRowLabel}>{row.label}</Text>
+                    </View>
+                ))}
+                <View style={[styles.proLabelRow, styles.proColShenShaLabel, { height: shenShaHeight }]}><Text style={styles.tableRowLabel}>神煞</Text></View>
+            </View>
+            {columnWidth > 0 ? (
+                <>
+                    <View style={{ width: columnWidth * 2 }}>
+                        <View style={styles.proGroupCellGrid}>
+                            <Text style={styles.proGroupText}>{scrollable ? '‹ 岁运 ›' : '岁运'}</Text>
+                        </View>
+                        <ScrollView
+                            ref={scrollRef}
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            snapToInterval={columnWidth}
+                            decelerationRate="fast"
+                            disableIntervalMomentum
+                            scrollEnabled={scrollable}
+                            accessibilityLabel="岁运列，可左右滑动"
+                        >
+                            {yunColumns.map(column)}
+                        </ScrollView>
+                        {scrollable ? (
+                            <>
+                                <LinearGradient colors={[palette.card, palette.fadeFrom]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={[styles.proYunFade, styles.proYunFadeLeft]} />
+                                <LinearGradient colors={[palette.fadeFrom, palette.card]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={[styles.proYunFade, styles.proYunFadeRight]} />
+                            </>
+                        ) : null}
+                    </View>
+                    <View style={{ width: columnWidth * 4 }}>
+                        <View style={styles.proGroupCellGrid}>
+                            <Text style={styles.proGroupText}>原局</Text>
+                        </View>
+                        <View style={styles.proColRow}>{pillarColumns.map(column)}</View>
+                        <View style={styles.proGridDivider} />
+                    </View>
+                </>
+            ) : null}
+        </View>
+    );
+};
+
+const ProColumn: React.FC<{
+    column: ProChartColumnView;
+    width: number;
+    cangHeight: number;
+    shenShaHeight: number;
+    palette: Palette;
+    styles: Styles;
+}> = ({ column, width, cangHeight, shenShaHeight, palette, styles }) => (
+    <View style={[{ width }, column.key === 'day' && styles.tableDayTint]}>
+        <View style={styles.proColHead}>
+            <Text style={[styles.proHeadText, column.key === 'day' && styles.tableHeadTextDay]} numberOfLines={1}>{column.label}</Text>
+            {column.subLabel ? <Text style={styles.proHeadSub} numberOfLines={1}>{column.subLabel}</Text> : null}
+        </View>
+        <View style={[styles.proColCenter, styles.proColStar]}>
+            <Text style={[styles.tableCellText, styles.proStarText]} numberOfLines={1}>
+                {(column.key === 'day' ? column.mainStarShort : column.mainStarFull) || '—'}
+            </Text>
+        </View>
+        <View style={[styles.proColCenter, styles.proGlyphRow]}>
+            <GlyphWithIcon char={column.tianGan} textStyle={styles.proGlyphText} iconSize={11} palette={palette} styles={styles} />
+        </View>
+        <View style={[styles.proColCenter, styles.proGlyphRow]}>
+            <GlyphWithIcon char={column.diZhi} textStyle={styles.proGlyphText} iconSize={11} palette={palette} styles={styles} />
+        </View>
+        <View style={[styles.proColCenter, styles.proColCang, { height: cangHeight }]}>
+            {(column.cangGanLines.length > 0 ? column.cangGanLines : ['—']).map((line, lineIndex) => (
+                <StemLine key={`${line}-${lineIndex}`} line={line} stemSize={12} noteSize={11} lineHeight={17} palette={palette} styles={styles} />
+            ))}
+        </View>
+        {PRO_DETAIL_ROWS.map((row, index) => (
+            <View key={row.key} style={[styles.proColCenter, styles.proColDetail, index === 0 && styles.proDetailFirst]}>
+                <Text
+                    style={[styles.tableCellText, styles.proDetailText, row.small && styles.proDetailTextSmall]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.8}
+                >
+                    {row.pick(column) || '—'}
+                </Text>
+            </View>
+        ))}
+        <View style={[styles.proColShenSha, { height: shenShaHeight }]}>
+            {(column.shenSha.length > 0 ? column.shenSha : ['—']).map((line, lineIndex) => (
+                <Text key={`${line}-${lineIndex}`} style={styles.proShenShaText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{line}</Text>
+            ))}
+        </View>
+    </View>
+);
+
+/** 胎命身模式：身宫、命宫、胎元加原局四柱，共七列，沿用原来的行式表 */
+const TaimingTable: React.FC<{ columns: ProChartColumnView[]; palette: Palette; styles: Styles }> = ({ columns, palette, styles }) => {
+    const groupSplit = 3;
+    const groups = [{ label: '胎命身', span: 3 }, { label: '原局', span: columns.length - 3 }];
+    const dayIndex = columns.findIndex((column) => column.key === 'day');
+    const dense = columns.length >= 7;
+    const subLabelFor = (column: ProChartColumnView): string => column.subLabel ?? '';
+    const detail = PRO_DETAIL_ROWS;
+
+    return (
             <View style={styles.tableWrap}>
                 <View style={[styles.tableOverlay, styles.proTintOverlay]}>
                     {columns.map((column, index) => (
@@ -1563,145 +1831,17 @@ const PaiPanCard: React.FC<{
                     ))}
                 </View>
             </View>
-            {band.length > 0 ? (
-                <View style={styles.seasonRow} accessibilityLabel="月令旺衰">
-                    <Text style={styles.seasonLabel}>月令</Text>
-                    {band.map((item) => {
-                        const element = resolveWuXingElement(item.element);
-                        return (
-                            <View
-                                key={`${item.element}-${item.status}`}
-                                style={[styles.seasonChip, element ? { backgroundColor: palette.elementSoft[element] } : null]}
-                            >
-                                <WuXingIcon element={item.element} size={11} />
-                                <Text style={[styles.seasonElement, { color: elementColor(item.element, palette) }]}>{item.element}</Text>
-                                <Text style={styles.seasonStatus}>{item.status}</Text>
-                            </View>
-                        );
-                    })}
-                </View>
-            ) : null}
-        </Card>
     );
 };
 
-const TRACK_CELL_WIDTH = 54;
-const TRACK_CELL_GAP = 6;
-/** 末格右侧留白，确保滚到底时最后一格完全露出、不被渐隐遮住 */
-const TRACK_END_PADDING = 18;
-
-const FortuneTrack: React.FC<{
-    label: string;
-    cells: DenseTrackCellView[];
-    onSelect: (cell: DenseTrackCellView) => void;
-    markXiaoYun?: boolean;
-    palette: Palette;
-    styles: Styles;
-}> = ({ label, cells, onSelect, markXiaoYun = false, palette, styles }) => {
-    const scrollRef = useRef<ScrollView>(null);
-    const [viewportWidth, setViewportWidth] = useState(0);
-    const hasScrolledRef = useRef(false);
-    const activeIndex = cells.findIndex((cell) => cell.active);
-    const cellCount = cells.length;
-
-    useEffect(() => {
-        if (viewportWidth <= 0 || activeIndex < 0) {
-            return;
-        }
-        const step = TRACK_CELL_WIDTH + TRACK_CELL_GAP;
-        const contentWidth = cellCount * step - TRACK_CELL_GAP + TRACK_END_PADDING;
-        // 让选中格尽量居中，并对齐到格子边界，避免左侧露出半格
-        const centred = activeIndex * step - (viewportWidth - TRACK_CELL_WIDTH) / 2;
-        const snapped = Math.round(centred / step) * step;
-        const x = Math.max(0, Math.min(snapped, contentWidth - viewportWidth));
-        scrollRef.current?.scrollTo({ x, animated: hasScrolledRef.current });
-        hasScrolledRef.current = true;
-    }, [activeIndex, cellCount, viewportWidth]);
-
-    const handleLayout = (event: LayoutChangeEvent) => {
-        const next = Math.round(event.nativeEvent.layout.width);
-        if (next !== viewportWidth) {
-            setViewportWidth(next);
-        }
-    };
-
-    return (
-        <View style={styles.trackRow}>
-            <View style={styles.trackLabel}>
-                {label.split('').map((char, index) => (
-                    <Text key={`${char}-${index}`} style={styles.trackLabelText}>{char}</Text>
-                ))}
-            </View>
-            {cells.length === 0 ? (
-                <View style={styles.trackEmpty}>
-                    <Text style={styles.noteText}>无</Text>
-                </View>
-            ) : (
-                <View style={styles.trackViewport} onLayout={handleLayout}>
-                    <ScrollView
-                        ref={scrollRef}
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        contentContainerStyle={styles.trackContent}
-                        accessibilityLabel={`${label}轨道，可左右滑动查看更多`}
-                    >
-                        {cells.map((cell) => {
-                            const primaryChar = cell.primaryText.charAt(0);
-                            const secondaryChar = cell.secondaryText.charAt(0);
-                            return (
-                                <Pressable
-                                    key={cell.key}
-                                    style={({ pressed }) => [
-                                        styles.trackCell,
-                                        cell.active && styles.trackCellActive,
-                                        pressed && cell.selectable && styles.pressed,
-                                    ]}
-                                    onPress={() => onSelect(cell)}
-                                    disabled={!cell.selectable}
-                                    accessibilityRole="button"
-                                    accessibilityState={{ selected: cell.active, disabled: !cell.selectable }}
-                                    accessibilityLabel={`${cell.topLabel} ${cell.subLabel} ${cell.primaryText}${cell.secondaryText}${cell.isCurrent ? ' 当前' : ''}`}
-                                >
-                                    {cell.isCurrent ? <View style={styles.trackCurrentDot} /> : null}
-                                    <Text style={styles.trackTop} numberOfLines={1}>{cell.topLabel}</Text>
-                                    <Text style={styles.trackSub} numberOfLines={1}>{cell.subLabel.replace('~', '–')}</Text>
-                                    <Text style={[styles.trackGlyph, styles.trackGlyphFirst, { color: ganZhiCharColor(primaryChar, palette) }]}>
-                                        {primaryChar}
-                                        <Text style={styles.trackGlyphNote}>{cell.primaryText.slice(1)}</Text>
-                                    </Text>
-                                    <Text style={[styles.trackGlyph, { color: ganZhiCharColor(secondaryChar, palette) }]}>
-                                        {secondaryChar}
-                                        <Text style={styles.trackGlyphNote}>{cell.secondaryText.slice(1)}</Text>
-                                    </Text>
-                                    {markXiaoYun && cell.trackKind === 'xiaoyun' ? <Text style={styles.trackTag}>小运</Text> : null}
-                                </Pressable>
-                            );
-                        })}
-                    </ScrollView>
-                    <LinearGradient
-                        colors={[palette.fadeFrom, palette.card]}
-                        start={{ x: 0, y: 0.5 }}
-                        end={{ x: 1, y: 0.5 }}
-                        style={styles.trackFade}
-                    />
-                </View>
-            )}
-        </View>
-    );
-};
-
+/** 运程卡只留四项事实，五层轨道都在底部运程坞里 */
 const YunChengCard: React.FC<{
     result: BaziResult;
     privacyEnabled: boolean;
-    daYunTrack: DenseTrackCellView[];
     liuNianTrack: DenseTrackCellView[];
-    liuYueTrack: DenseTrackCellView[];
-    onSelectDaYun: (cell: DenseTrackCellView) => void;
-    onSelectLiuNian: (cell: DenseTrackCellView) => void;
-    onSelectLiuYue: (cell: DenseTrackCellView) => void;
     palette: Palette;
     styles: Styles;
-}> = ({ result, privacyEnabled, daYunTrack, liuNianTrack, liuYueTrack, onSelectDaYun, onSelectLiuNian, onSelectLiuYue, palette, styles }) => {
+}> = ({ result, privacyEnabled, liuNianTrack, palette, styles }) => {
     const limit = result.childLimit;
     const age = liuNianTrack.find((cell) => cell.active)?.subLabel ?? '—';
     const jiaoYunDate = splitFullDate(limit.jiaoYunDateTime).date;
@@ -1730,11 +1870,6 @@ const YunChengCard: React.FC<{
                         {fact.node}
                     </View>
                 ))}
-            </View>
-            <View style={styles.trackStack}>
-                <FortuneTrack label="大运" cells={daYunTrack} onSelect={onSelectDaYun} markXiaoYun palette={palette} styles={styles} />
-                <FortuneTrack label="流年" cells={liuNianTrack} onSelect={onSelectLiuNian} palette={palette} styles={styles} />
-                <FortuneTrack label="流月" cells={liuYueTrack} onSelect={onSelectLiuYue} palette={palette} styles={styles} />
             </View>
         </Card>
     );
@@ -2368,6 +2503,38 @@ const makeStyles = (Colors: any, palette: Palette, viewportWidth: number = 862) 
         },
         proShenShaText: { fontSize: isNarrow ? 10 : 11, lineHeight: 16, color: palette.muted, textAlign: 'center' },
         proShenShaTextDense: { fontSize: isNarrow ? 9 : 10, lineHeight: 15 },
+        /* 岁运横滑表：按列排，左侧标签列与各列逐行同高 */
+        depthRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+        depthLabel: isNarrow ? { display: 'none' } : { fontSize: 11, color: palette.muted },
+        proGrid: { marginTop: 12, flexDirection: 'row' },
+        proLabelCol: { width: PRO_LABEL_WIDTH },
+        proGridHeadSpace: { height: 56 },
+        proLabelRow: { justifyContent: 'center' },
+        proGroupCellGrid: {
+            height: 20,
+            marginHorizontal: 6,
+            borderBottomWidth: 1,
+            borderBottomColor: palette.rule,
+            justifyContent: 'center',
+        },
+        proGridDivider: { position: 'absolute', left: 0, top: 24, bottom: 4, width: 1, backgroundColor: palette.rule },
+        proYunFade: { position: 'absolute', top: 20, bottom: 0, width: 10, pointerEvents: 'none' },
+        proYunFadeLeft: { left: 0 },
+        proYunFadeRight: { right: 0 },
+        proColRow: { flexDirection: 'row' },
+        proColHead: { height: 36, alignItems: 'center', justifyContent: 'center' },
+        proColStar: { height: 26 },
+        proColCenter: { alignItems: 'center', justifyContent: 'center' },
+        proColCang: { paddingVertical: 4 },
+        proColDetail: { height: 30, borderTopWidth: 1, borderTopColor: palette.hairline },
+        proColShenSha: {
+            paddingTop: 7,
+            paddingBottom: 4,
+            alignItems: 'center',
+            borderTopWidth: 1,
+            borderTopColor: palette.hairline,
+        },
+        proColShenShaLabel: { borderTopWidth: 1, borderTopColor: palette.hairline },
         seasonRow: {
             marginTop: 10,
             paddingTop: 10,
@@ -2403,56 +2570,6 @@ const makeStyles = (Colors: any, palette: Palette, viewportWidth: number = 862) 
             fontVariant: tabular,
         },
         factValueInline: { marginTop: 0 },
-        trackStack: {
-            marginTop: 12,
-            paddingTop: 12,
-            borderTopWidth: 1,
-            borderTopColor: palette.hairline,
-            gap: 10,
-        },
-        trackRow: { flexDirection: 'row', alignItems: 'stretch', gap: 8 },
-        trackLabel: {
-            width: 28,
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderRightWidth: 1,
-            borderRightColor: palette.hairline,
-        },
-        trackLabelText: { fontSize: 12, lineHeight: 16, fontWeight: '600', color: palette.ink },
-        trackViewport: { position: 'relative', flex: 1, minWidth: 0 },
-        trackEmpty: { flex: 1, minHeight: 40, justifyContent: 'center' },
-        trackContent: { gap: TRACK_CELL_GAP, paddingRight: TRACK_END_PADDING },
-        trackCell: {
-            position: 'relative',
-            width: TRACK_CELL_WIDTH,
-            paddingVertical: 7,
-            alignItems: 'center',
-            borderRadius: 8,
-            borderWidth: 1,
-            borderColor: palette.trackCellBorder,
-            backgroundColor: palette.trackCellBg,
-        },
-        trackCellActive: {
-            borderWidth: 1.5,
-            borderColor: palette.gold,
-            backgroundColor: palette.dayTint,
-        },
-        trackCurrentDot: {
-            position: 'absolute',
-            top: 4,
-            right: 4,
-            width: 5,
-            height: 5,
-            borderRadius: 3,
-            backgroundColor: palette.vermilion,
-        },
-        trackTop: { fontSize: 12, lineHeight: 16, fontWeight: '600', color: palette.ink, fontVariant: tabular },
-        trackSub: { fontSize: 10, lineHeight: 13, color: palette.muted, fontVariant: tabular },
-        trackGlyph: { fontSize: 17, lineHeight: 22, fontWeight: '700' },
-        trackGlyphFirst: { marginTop: 5 },
-        trackGlyphNote: { fontSize: 11, fontWeight: '400', color: palette.muted },
-        trackTag: { marginTop: 2, fontSize: 9, lineHeight: 12, color: palette.muted },
-        trackFade: { position: 'absolute', top: 0, right: 0, bottom: 0, width: 18, pointerEvents: 'none' },
 
         /* 神煞 */
         shenShaList: { marginTop: 6 },
