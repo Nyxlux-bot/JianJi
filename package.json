@@ -10,6 +10,7 @@
     "release:patch": "node scripts/release-version.js patch",
     "release:minor": "node scripts/release-version.js minor",
     "release:major": "node scripts/release-version.js major",
+    "release:beta": "node scripts/release-version.js beta",
     "setup:hooks": "git config core.hooksPath .githooks",
     "guard:no-tests": "sh scripts/guard-no-test-files.sh --staged",
     "check:motion": "node scripts/check-motion.cjs",
