@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { Image, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Image, Platform, Pressable, StyleSheet, Text, View, processColor, useWindowDimensions, type ImageSourcePropType } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -7,6 +7,7 @@ import Svg, { Defs, LinearGradient, RadialGradient, Rect, Stop } from 'react-nat
 import Animated, { cancelAnimation, css, runOnJS, SensorType, useAnimatedReaction, useAnimatedSensor, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import PressableScale from '../../components/PressableScale';
 import { ringLevel } from '../../components/YunZhuanBanners';
+import { Tile } from '../../../modules/liquid-glass';
 import { useTheme } from '../../theme/ThemeContext';
 import StarDial from './StarDial';
 import { ENTRY_THEMES, HOME_ENTRIES, type EntryTheme, type HomeEntry, type HomeEntryId } from './entries';
@@ -24,7 +25,9 @@ const SWAY = 1.4;
 const TILT = [3.8, -1.4, 2.6, -4.2];
 const BOB_MS = [5300, 7100, 4700, 5900];
 const STAGE_TOP = LIFT * 2 + FLOAT + 6;
-const SPRING = { damping: 19, stiffness: 210, mass: 1 };
+// 默认能量降到 6e-9 才算结束，约 1 秒；卡片 0.5 秒就停稳了，中间半秒选中没更新、入口按钮点不动。
+// 2.5e-5 约 0.53 秒结束，与肉眼停稳同时，收尾吸附不到 1dp
+const SPRING = { damping: 19, stiffness: 210, mass: 1, energyThreshold: 2.5e-5 };
 // 按住/悬停：手指那一角往里按、整张后退；手指处压暗、对角淡白。bencho 源码 sink=35 的数值（sink 100 时为 13°、0.5、0.16、10px）
 const LEAN = 4.55;       // 每轴最大角度
 const SHADE = 0.175;
@@ -34,8 +37,6 @@ const HOVER = { stiffness: 415, damping: 19.7, mass: 1 }; // bencho 每帧 k 0.1
 const HOLD_MS = 150;     // 按住不动这么久才接管手指，否则交给转盘拖动
 const GYRO = 8;          // 手机倾斜到头约 8°，与原先一样
 const TILT_RANGE = 0.35; // 手机偏离平时拿法约 20°，卡面翘到头
-// 明暗按高斯式曲线淡出：纯色卡面上看不出 bencho 线性渐变那一圈边
-const FALLOFF = [[0, 1], [0.12, 0.94], [0.25, 0.8], [0.38, 0.6], [0.5, 0.42], [0.62, 0.26], [0.75, 0.13], [0.88, 0.04], [1, 0]] as const;
 
 function leanDepth(x: number, y: number) {
     'worklet';
@@ -90,23 +91,24 @@ const GRAIN = { light: require('../../../assets/home/grain-light.webp'), dark: r
 const CardGrain = memo(function CardGrain({ grain }: { grain: EntryTheme['grain'] }) {
     return (
         <View style={deckStyles.fill} pointerEvents="none" aria-hidden accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-            <Image source={GRAIN.light} resizeMode="repeat" fadeDuration={0} style={[deckStyles.tile, { tintColor: grain.light, opacity: grain.lightOpacity }]} />
-            <Image source={GRAIN.dark} resizeMode="repeat" fadeDuration={0} style={[deckStyles.tile, { tintColor: grain.dark, opacity: grain.darkOpacity }]} />
+            <GrainLayer source={GRAIN.light} color={grain.light} opacity={grain.lightOpacity} />
+            <GrainLayer source={GRAIN.dark} color={grain.dark} opacity={grain.darkOpacity} />
         </View>
     );
 });
 
-const Glow = memo(function Glow({ id, color }: { id: string; color: string }) {
-    return (
-        <Svg width="100%" height="100%">
-            <Defs>
-                <RadialGradient id={id} cx="50%" cy="50%" rx="50%" ry="50%">
-                    {FALLOFF.map(([offset, opacity]) => <Stop key={offset} offset={offset} stopColor={color} stopOpacity={opacity} />)}
-                </RadialGradient>
-            </Defs>
-            <Rect width="100%" height="100%" fill={`url(#${id})`} />
-        </Svg>
-    );
+// 安卓有原生平铺就用它：RN Image 的 repeat 在安卓上每层另生成一张整卡大的图，八层约 30MB，撑爆贴图缓存
+function GrainLayer({ source, color, opacity }: { source: ImageSourcePropType; color: string; opacity: number }) {
+    return Tile
+        ? <Tile source={Image.resolveAssetSource(source).uri} tint={processColor(color) as number} style={[deckStyles.tile, { opacity }]} />
+        : <Image source={source} resizeMode="repeat" fadeDuration={0} style={[deckStyles.tile, { tintColor: color, opacity }]} />;
+}
+
+// 明暗光斑：一张 256px 白色径向渐变按颜色染、拉伸铺满，贴图由 scripts/build-card-glow.py 生成（高斯式淡出曲线在脚本里）。
+// 原来是 SVG 渐变，安卓上会画成比卡片还大的位图，四张卡八张撑爆贴图缓存，转卡时每帧重传
+const GLOW = require('../../../assets/home/glow.png');
+const Glow = memo(function Glow({ color }: { color: string }) {
+    return <Image source={GLOW} resizeMode="stretch" fadeDuration={0} style={[deckStyles.tile, { tintColor: color }]} />;
 });
 
 // 卡面底：自上而下三色斜向渐变，右上一团淡光（同画布实物卡）
@@ -353,10 +355,10 @@ const EntryCard = memo(function EntryCard({ entry, index, selected, rotation, ti
                             ))}
                         </View>
                         <Animated.View pointerEvents="none" style={[styles.glow, { width: width * 1.4, height: height * 1.12 }, shadeMotion]}>
-                            <Glow id={`${glowId}-shade`} color={colors.shade} />
+                            <Glow color={colors.shade} />
                         </Animated.View>
                         <Animated.View pointerEvents="none" style={[styles.glow, { width: width * 1.6, height: height * 1.28 }, lightMotion]}>
-                            <Glow id={`${glowId}-light`} color="#ffffff" />
+                            <Glow color="#ffffff" />
                         </Animated.View>
                     </View>
                 </Animated.View>
