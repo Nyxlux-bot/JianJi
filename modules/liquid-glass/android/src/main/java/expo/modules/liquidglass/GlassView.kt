@@ -30,15 +30,40 @@ class GlassView(context: Context) : View(context) {
   private val shader: RuntimeShader? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) RuntimeShader(SHADER) else null
   private val toGlobal = Matrix()
   private val fromGlobal = Matrix()
+  // 上次画进来时底图到自己的变换，静止时拿来比对
+  private val drawnPlacement = Matrix()
+  private var wasShown = false
   // 着色器参数没变就沿用上一帧的 RenderEffect：每帧新建会在 UI 线程不断产生垃圾，攒多了 GC 一停就掉帧
   private val effectKey = FloatArray(9)
   private val nextKey = FloatArray(9)
   private var hasEffect = false
 
-  // 底下的页面每帧都可能在动（经幡），每次要画一帧都跟着重画；自己或任一上层透明（没按住时的水泡）就不画
+  // 底下的页面被标脏，或自己相对它挪动、缩放了（水泡跟手），才重画；都没变就沿用上一帧。
+  // 原来每帧无条件重画，重画又排下一帧，页面全静止时也满帧率空转。实测经幡流动、滚动、拖水泡时玻璃都跟着变。
+  // 自己或任一上层透明（没按住时的水泡）就不画，重新露出来时补画一次
   private val preDraw = ViewTreeObserver.OnPreDrawListener {
-    if (isShown && visibleUpward()) invalidate()
+    val shown = isShown && visibleUpward()
+    if (shown && (!wasShown || needsRedraw())) invalidate()
+    wasShown = shown
     true
+  }
+
+  private fun needsRedraw(): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false
+    val target = targetId?.let { GlassTargetView.targets[it]?.get() } ?: return true
+    return target.isDirty || !placement(target) || toGlobal != drawnPlacement
+  }
+
+  // 目标的坐标 → 屏幕 → 自己的坐标，结果放在 toGlobal；自己被缩放、拉伸时底图跟着对齐
+  @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+  private fun placement(target: View): Boolean {
+    toGlobal.reset()
+    target.transformMatrixToGlobal(toGlobal)
+    fromGlobal.reset()
+    transformMatrixToGlobal(fromGlobal)
+    if (!fromGlobal.invert(fromGlobal)) return false
+    toGlobal.postConcat(fromGlobal)
+    return true
   }
 
   private fun visibleUpward(): Boolean {
@@ -79,13 +104,8 @@ class GlassView(context: Context) : View(context) {
     val source = target.node ?: return
     if (!target.isAttachedToWindow) return
 
-    // 目标的坐标 → 屏幕 → 自己的坐标；自己被缩放、拉伸时底图跟着对齐
-    toGlobal.reset()
-    target.transformMatrixToGlobal(toGlobal)
-    fromGlobal.reset()
-    transformMatrixToGlobal(fromGlobal)
-    if (!fromGlobal.invert(fromGlobal)) return
-    toGlobal.postConcat(fromGlobal)
+    if (!placement(target)) return
+    drawnPlacement.set(toGlobal)
 
     node.setPosition(0, 0, width, height)
     val recording = node.beginRecording(width, height)
