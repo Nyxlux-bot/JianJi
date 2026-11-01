@@ -1326,8 +1326,8 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     const metricsRef = useRef({ offset: 0, height: 0, content: 0 });
     const followRef = useRef(false);
     const userScrollingRef = useRef(false);
-    // 安卓的带动画 scrollToEnd 也会发惯性滚动事件，跟随滚动自己的这段不能当成用户在滚
-    const glideUntilRef = useRef(0);
+    // 安卓上程序发起的带动画滚动也会发惯性事件；只有手指刚松开时接着的惯性才算用户在滚
+    const dragEndedAtRef = useRef(0);
     const pendingScrollRef = useRef<ChapterId | 'end' | null>(null);
     const [showNewPill, setShowNewPill] = useState(false);
     const [viewportHeight, setViewportHeight] = useState(0);
@@ -1406,7 +1406,6 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             // 生成中正文一行行长，跟随时顺滑地滚过去；打开、整段跳变时直接到底
             const glide = jobActive && pendingScrollRef.current !== 'end' && height - previous < metricsRef.current.height / 2;
             pendingScrollRef.current = null;
-            if (glide) glideUntilRef.current = Date.now() + 500;
             scrollRef.current?.scrollToEnd({ animated: glide });
             return;
         }
@@ -1626,9 +1625,9 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                                     contentContainerStyle={pageStyles.scrollBody}
                                     onScroll={handleScroll}
                                     scrollEventThrottle={100}
-                                    onScrollBeginDrag={() => { userScrollingRef.current = true; glideUntilRef.current = 0; }}
-                                    onScrollEndDrag={() => { userScrollingRef.current = false; }}
-                                    onMomentumScrollBegin={() => { if (Date.now() >= glideUntilRef.current) userScrollingRef.current = true; }}
+                                    onScrollBeginDrag={() => { userScrollingRef.current = true; }}
+                                    onScrollEndDrag={() => { userScrollingRef.current = false; dragEndedAtRef.current = Date.now(); }}
+                                    onMomentumScrollBegin={() => { if (Date.now() - dragEndedAtRef.current < 150) userScrollingRef.current = true; }}
                                     onMomentumScrollEnd={() => { userScrollingRef.current = false; }}
                                     onContentSizeChange={handleContentSizeChange}
                                     keyboardShouldPersistTaps="handled"
