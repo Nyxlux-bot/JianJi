@@ -46,11 +46,17 @@ export interface FortuneSelectionView {
     selectedXiaoYunIndex: number;
     selectedLiuNianIndex: number;
     selectedLiuYueIndex: number;
+    /** 流日在所选流月里的序号；不传时取今天，所选流月里没有今天就取第一天 */
+    selectedLiuRiIndex?: number;
+    /** 流时序号；不传时取此刻的时辰 */
+    selectedLiuShiIndex?: number;
 }
 
 export interface ProChartColumnView {
-    key: 'liuNian' | 'daYun' | 'year' | 'month' | 'day' | 'hour' | 'shenGong' | 'mingGong' | 'taiYuan';
+    key: 'liuShi' | 'liuRi' | 'liuYue' | 'liuNian' | 'daYun' | 'xiaoYun' | 'year' | 'month' | 'day' | 'hour' | 'shenGong' | 'mingGong' | 'taiYuan';
     label: string;
+    /** 列头第二行：流年写年份、流月写节令月名、流日写阳历日期 */
+    subLabel?: string;
     ganZhi: string;
     mainStarShort: string;
     mainStarFull: string;
@@ -105,7 +111,7 @@ export interface ProInfoStripView {
 
 export interface DenseTrackCellView {
     key: string;
-    trackKind: 'dayun' | 'xiaoyun' | 'liunian' | 'liuyue';
+    trackKind: 'dayun' | 'xiaoyun' | 'liunian' | 'liuyue' | 'liuri' | 'liushi';
     sourceIndex: number;
     topLabel: string;
     subLabel: string;
@@ -123,7 +129,7 @@ export interface ProShenShaSectionView {
 }
 
 export interface ProShenShaRowView {
-    key: 'year' | 'month' | 'day' | 'hour' | 'yunWei' | 'liuNian' | 'liuYue';
+    key: 'year' | 'month' | 'day' | 'hour' | 'yunWei' | 'xiaoYun' | 'liuNian' | 'liuYue' | 'liuRi' | 'liuShi';
     label: string;
     ganZhi: string;
     stars: string[];
@@ -138,9 +144,15 @@ export interface BaziProChartViewModel {
     taimingColumns: ProChartColumnView[];
     taimingRows: ProChartRowView[];
     infoStrip: ProInfoStripView;
+    /** 专业细盘岁运区，从细到粗：流时 流日 流月 流年 大运 小运；起运前没有大运列 */
+    suiYunColumns: ProChartColumnView[];
     daYunTrack: DenseTrackCellView[];
     liuNianTrack: DenseTrackCellView[];
     liuYueTrack: DenseTrackCellView[];
+    liuRiTrack: DenseTrackCellView[];
+    liuShiTrack: DenseTrackCellView[];
+    /** 运程坞说明行，依次对应 大运 流年 流月 流日 流时 */
+    levelInfo: string[];
     ganZhiLayer: BaziGanZhiLayerSummary;
     shenShaSections: ProShenShaSectionView[];
     shenShaRows: ProShenShaRowView[];

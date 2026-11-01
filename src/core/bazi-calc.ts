@@ -14,6 +14,7 @@ import {
     LunarHour,
     LunarSect2EightCharProvider,
     SixtyCycle,
+    SixtyCycleMonth,
     SixtyCycleYear,
     SolarTime,
 } from 'tyme4ts';
@@ -525,10 +526,7 @@ function buildLiuYueList(input: {
         const nextFirstDay = month.next(1).getFirstDay().getSolarDay();
         const endDate = solarDayToDate(nextFirstDay.getYear(), nextFirstDay.getMonth(), nextFirstDay.getDay());
 
-        if (startDate.getFullYear() !== input.year) {
-            continue;
-        }
-
+        // 流年按立春到立春算，丑月（小寒到立春）落在次年一月，也属这一年
         if (
             input.year === input.birthChartDate.getFullYear()
             && endDate.getTime() <= input.birthChartDate.getTime()
@@ -536,28 +534,43 @@ function buildLiuYueList(input: {
             continue;
         }
 
-        const monthGanZhi = month.getName().replace(/月$/, '');
-        const monthSixtyCycle = SixtyCycle.fromName(monthGanZhi);
-        const tianGan = monthSixtyCycle.getHeavenStem();
-        const diZhi = monthSixtyCycle.getEarthBranch();
-        const diZhiMainGan = diZhi.getHideHeavenStemMain();
-
-        months.push({
-            index: months.length,
-            year: input.year,
-            ganZhi: monthGanZhi,
-            tianGan: tianGan.getName(),
-            diZhi: diZhi.getName(),
-            tianGanShiShen: toNonDayShiShenName(input.dayMaster.getTenStar(tianGan).getName()),
-            diZhiShiShen: toNonDayShiShenName(input.dayMaster.getTenStar(diZhiMainGan).getName()),
-            termName: firstDay.getTerm().getName(),
-            termDate: `${firstDay.getMonth()}/${firstDay.getDay()}`,
-            termDateIso: `${firstDay.getYear()}-${pad2(firstDay.getMonth())}-${pad2(firstDay.getDay())}`,
-            isCurrent: isDateInRange(input.referenceChartDate, startDate, endDate),
-        });
+        months.push(toLiuYueItem(month, months.length, input.year, input.dayMaster, isDateInRange(input.referenceChartDate, startDate, endDate)));
     }
 
     return months;
+}
+
+function toLiuYueItem(month: SixtyCycleMonth, index: number, year: number, dayMaster: HeavenStem, isCurrent: boolean): BaziLiuYueItem {
+    const firstDay = month.getFirstDay().getSolarDay();
+    const monthGanZhi = month.getName().replace(/月$/, '');
+    const monthSixtyCycle = SixtyCycle.fromName(monthGanZhi);
+    const tianGan = monthSixtyCycle.getHeavenStem();
+    const diZhi = monthSixtyCycle.getEarthBranch();
+    return {
+        index,
+        year,
+        ganZhi: monthGanZhi,
+        tianGan: tianGan.getName(),
+        diZhi: diZhi.getName(),
+        tianGanShiShen: toNonDayShiShenName(dayMaster.getTenStar(tianGan).getName()),
+        diZhiShiShen: toNonDayShiShenName(dayMaster.getTenStar(diZhi.getHideHeavenStemMain()).getName()),
+        termName: firstDay.getTerm().getName(),
+        termDate: `${firstDay.getMonth()}/${firstDay.getDay()}`,
+        termDateIso: `${firstDay.getYear()}-${pad2(firstDay.getMonth())}-${pad2(firstDay.getDay())}`,
+        isCurrent,
+    };
+}
+
+/**
+ * 旧版流年只收开始于本年的月份，丑月（小寒到立春，在次年一月）被漏掉；打开旧记录时补回。
+ * 存档没记参考时点，补出的丑月不标当前，免得和存档里的当前月各亮一个红点。
+ */
+export function withChouMonth(item: BaziLiuNianItem, dayMasterName: string): BaziLiuNianItem {
+    if (item.liuYue.length === 0 || item.liuYue.some((month) => month.diZhi === '丑')) {
+        return item;
+    }
+    const chou = SixtyCycleYear.fromYear(item.year).getMonths()[11];
+    return { ...item, liuYue: [...item.liuYue, toLiuYueItem(chou, item.liuYue.length, item.year, HeavenStem.fromName(dayMasterName), false)] };
 }
 
 function buildLiuNianList(input: {
