@@ -17,7 +17,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.jianji.app",
-      "versionCode": 1080299
+      "versionCode": 1080300
     },
     "plugins": [
       "expo-router",
