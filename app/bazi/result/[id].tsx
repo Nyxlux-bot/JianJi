@@ -1620,13 +1620,21 @@ const SuiYunTable: React.FC<{
     const scrollable = yunColumns.length > 2;
 
     // 切运程坞页签或加减层时，把那一层对到岁运区左边，旁边就是它的上一层；直接跳到位，不和吸附抢
+    const alignX = Math.min(alignIndex, Math.max(0, yunColumns.length - 2)) * columnWidth;
+    const contentWidthRef = useRef(0);
     useEffect(() => {
-        if (columnWidth <= 0) {
+        if (columnWidth > 0) {
+            scrollRef.current?.scrollTo({ x: alignX, animated: false });
+        }
+    }, [alignX, columnWidth]);
+    // 加层时新列排进去之前，可滚宽度还是旧的，上面那次会被截短；内容变宽后再对一次
+    const handleContentSizeChange = (contentWidth: number) => {
+        if (contentWidth === contentWidthRef.current) {
             return;
         }
-        const x = Math.min(alignIndex, Math.max(0, yunColumns.length - 2)) * columnWidth;
-        scrollRef.current?.scrollTo({ x, animated: false });
-    }, [alignIndex, columnWidth, yunColumns.length]);
+        contentWidthRef.current = contentWidth;
+        scrollRef.current?.scrollTo({ x: alignX, animated: false });
+    };
 
     const column = (item: ProChartColumnView) => (
         <ProColumn key={item.key} column={item} width={columnWidth} cangHeight={cangHeight} shenShaHeight={shenShaHeight} palette={palette} styles={styles} />
@@ -1661,6 +1669,7 @@ const SuiYunTable: React.FC<{
                             decelerationRate="fast"
                             disableIntervalMomentum
                             scrollEnabled={scrollable}
+                            onContentSizeChange={handleContentSizeChange}
                             accessibilityLabel="岁运列，可左右滑动"
                         >
                             {yunColumns.map(column)}
