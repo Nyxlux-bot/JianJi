@@ -161,6 +161,8 @@ export interface AIRequestDebugMeta {
 
 export interface AIRequestBundle {
     messages: AIChatMessage[];
+    /** 本轮盘面、证据包、摘要等资料，由 buildRequestBundle 放进第一条用户消息 */
+    context?: string;
     debugMeta?: AIRequestDebugMeta;
     baziEvidencePack?: BaziAIEvidencePack;
 }
@@ -1020,11 +1022,8 @@ export function shouldGeneratePostResponseArtifacts(
 }
 
 // 梅花与六爻同为单次解读加追问，沿用同一个隐藏完成标记
-function buildMeihuaSystemMessage(result: MeihuaResult): AIChatMessage {
-    return {
-        role: 'system',
-        content: `${composeSkillInstructions('meihua', 'initial', { completionMarker: LIUYAO_COMPLETION_MARKER })}\n\n【本轮起卦数据】\n${formatMeihuaForAI(result)}`,
-    };
+function buildMeihuaSystemMessage(): AIChatMessage {
+    return { role: 'system', content: composeSkillInstructions('meihua', 'initial', { completionMarker: LIUYAO_COMPLETION_MARKER }) };
 }
 
 export function getLocalMeihuaQuickReplies(result: MeihuaResult): string[] {
@@ -1038,20 +1037,17 @@ export function getLocalMeihuaQuickReplies(result: MeihuaResult): string[] {
     return ['体用关系对我意味着什么', '事情中途会有什么变化', '大概什么时候有结果'];
 }
 
-export async function buildSystemMessage(result: PanResult): Promise<AIChatMessage> {
-    const panStr = formatPanForAI(result);
-    return {
-        role: 'system',
-        content: `${composeSkillInstructions('liuyao', 'initial', { completionMarker: LIUYAO_COMPLETION_MARKER })}\n\n【本轮排盘数据】\n${panStr}`,
-    };
+function buildLiuyaoSystemMessage(): AIChatMessage {
+    return { role: 'system', content: composeSkillInstructions('liuyao', 'initial', { completionMarker: LIUYAO_COMPLETION_MARKER }) };
 }
 
-export async function buildBaziSystemMessage(
+/** 八字本轮的规则（system）与资料（用户已核对的标记、证据包，交给 attachContext 放进用户消息） */
+function buildBaziSystemParts(
     result: BaziResult,
     formatterContext?: BaziFormatterContext,
     evidencePack?: BaziAIEvidencePack,
     stage: BaziAIWorkflowStage = 'foundation',
-): Promise<AIChatMessage> {
+): { system: AIChatMessage; context: string } {
     const context = mergeBaziFormatterContext(result.aiContextSnapshot, formatterContext);
     const asOf = new Date();
     const pack = evidencePack ?? buildBaziAIEvidencePack(result, context, asOf,
@@ -1068,8 +1064,8 @@ export async function buildBaziSystemMessage(
     const marksContext = stage === 'five_year' || stage === 'followup'
         ? buildVerificationMarksContext(getActiveVerificationMarks(result)) : '';
     return {
-        role: 'system',
-        content: [skillContext, marksContext, formatBaziAIEvidencePack(pack)].filter(Boolean).join('\n\n'),
+        system: { role: 'system', content: skillContext },
+        context: [marksContext, formatBaziAIEvidencePack(pack)].filter(Boolean).join('\n\n'),
     };
 }
 
@@ -1162,13 +1158,12 @@ function buildZiweiSystemBundle(
     });
     const marksContext = workflowStage === 'five_year' || workflowStage === 'followup'
         ? buildVerificationMarksContext(getActiveVerificationMarks(result)) : '';
-    const message: AIChatMessage = {
-        role: 'system',
-        content: [skillContext, marksContext, `【命盘底稿】\n${stageContext.text}`].filter(Boolean).join('\n\n'),
-    };
+    const message: AIChatMessage = { role: 'system', content: skillContext };
+    const context = [marksContext, `【命盘底稿】\n${stageContext.text}`].filter(Boolean).join('\n\n');
     const skills = getSkillVersions('ziwei', workflowStage === 'digest' || workflowStage === 'quick_replies' ? 'digest' : workflowStage);
     return {
         messages: [message],
+        context,
         debugMeta: {
             mode: 'ziwei', requestType: options.requestType || 'main', skills,
             workflowStage: workflowStage === 'digest' || workflowStage === 'quick_replies' ? undefined : workflowStage,
@@ -1180,14 +1175,6 @@ function buildZiweiSystemBundle(
             scopeLabel: stageContext.scopeLabel, compatibilityMode: !shouldUseEnhancedZiweiEvidence(result),
         },
     };
-}
-
-export async function buildZiweiSystemMessage(
-    result: ZiweiRecordResult,
-    formatterContext?: ZiweiFormatterContext,
-    workflowStage: ZiweiAIWorkflowStage = 'followup',
-): Promise<AIChatMessage> {
-    return buildZiweiSystemBundle(result, workflowStage, formatterContext).messages[0];
 }
 
 /**
@@ -1210,6 +1197,20 @@ export function ensureUserFirst(messages: AIChatMessage[]): AIChatMessage[] {
     return [...messages.slice(0, firstIndex), background, ...messages.slice(end)];
 }
 
+/**
+ * 盘面资料放进第一条用户消息，不放 system：system 会变成 Responses 的 instructions 或 Anthropic 的 system，
+ * 有的中转站把 Responses 请求转给别家模型时会丢掉它（Gemini 常见），模型就看不到盘；用户消息一定送得到。
+ * 放在第一条而不是最后一条，多轮追问时请求开头不变，便于接口做前缀缓存。
+ */
+export function attachContext(messages: AIChatMessage[], context?: string): AIChatMessage[] {
+    if (!context?.trim()) return messages;
+    const index = messages.findIndex((message) => message.role === 'user');
+    if (index < 0) return [...messages, { role: 'user', content: context }];
+    return messages.map((message, i) => (i === index
+        ? { ...message, content: `${context}\n\n【以下是用户的请求】\n${message.content}` }
+        : message));
+}
+
 export async function buildRequestBundle(
     result: AIDivinationResult,
     chatHistory: PersistedAIChatMessage[],
@@ -1217,8 +1218,8 @@ export async function buildRequestBundle(
     requestContext: AIRequestBuildContext = {},
 ): Promise<AIRequestBundle> {
     const bundle = await buildRawRequestBundle(result, chatHistory, formatterContext, requestContext);
-    const messages = ensureUserFirst(bundle.messages);
-    return messages === bundle.messages ? bundle : {
+    const messages = attachContext(ensureUserFirst(bundle.messages), bundle.context);
+    return {
         ...bundle,
         messages,
         debugMeta: bundle.debugMeta ? { ...bundle.debugMeta, messageCount: messages.length } : bundle.debugMeta,
@@ -1235,12 +1236,13 @@ async function buildRawRequestBundle(
         const isFollowup = requestContext.workflowStage === 'followup';
         const stage = isFollowup ? 'followup' as const : 'initial' as const;
         const messages = [
-            buildMeihuaSystemMessage(result),
+            buildMeihuaSystemMessage(),
             { role: 'system' as const, content: renderSkillRequest('meihua', stage) },
             ...toApiMessages(chatHistory),
         ];
         return {
             messages,
+            context: `【本轮起卦数据】\n${formatMeihuaForAI(result)}`,
             debugMeta: {
                 mode: 'meihua',
                 requestType: 'main',
@@ -1257,12 +1259,13 @@ async function buildRawRequestBundle(
         const isFollowup = requestContext.workflowStage === 'followup';
         const stage = isFollowup ? 'followup' as const : 'initial' as const;
         const messages = [
-            await buildSystemMessage(result),
+            buildLiuyaoSystemMessage(),
             { role: 'system' as const, content: renderSkillRequest('liuyao', stage) },
             ...toApiMessages(chatHistory),
         ];
         return {
             messages,
+            context: `【本轮排盘数据】\n${formatPanForAI(result)}`,
             debugMeta: {
                 mode: 'liuyao',
                 requestType: 'main',
@@ -1284,18 +1287,15 @@ async function buildRawRequestBundle(
         const asOf = requestContext.asOf ?? new Date();
         const pack = buildBaziAIEvidencePack(result, effectiveContext, asOf,
             resolveBaziEvidenceRequest(result, stage, asOf, chatHistory, effectiveContext));
-        const systemMessage = await buildBaziSystemMessage(result, effectiveContext, pack, stage);
+        const { system: systemMessage, context: baziContext } = buildBaziSystemParts(result, effectiveContext, pack, stage);
         const history = getBaziWorkflowVersion(result) === 2 ? getBaziRequestHistory(chatHistory, stage) : chatHistory;
         const stageHistory = stage === 'five_year' ? history.map((message, index) => index === history.length - 1 && message.role === 'user'
             ? { ...message, content: buildBaziFiveYearPrompt(new Date(pack.asOf)), requestContent: undefined } : message) : history;
         const digest = stage === 'followup' ? result.aiConversationDigest : undefined;
-        const messages: AIChatMessage[] = [
-            systemMessage,
-            ...(digest ? [{ role: 'system' as const, content: buildBaziDigestText(digest) }] : []),
-            ...toApiMessages(stageHistory),
-        ];
+        const messages: AIChatMessage[] = [systemMessage, ...toApiMessages(stageHistory)];
         return {
             messages,
+            context: [baziContext, digest ? buildBaziDigestText(digest) : ''].filter(Boolean).join('\n\n'),
             baziEvidencePack: pack,
             debugMeta: {
                 mode: 'bazi',
@@ -1327,11 +1327,11 @@ async function buildRawRequestBundle(
     if (digest) {
         const messages: AIChatMessage[] = [
             ...systemBundle.messages,
-            { role: 'system', content: buildZiweiDigestText(digest) },
             ...toApiMessages(stageHistory.filter((message, index) => !message.hidden || index === stageHistory.length - 1).slice(-10)),
         ];
         return {
             messages,
+            context: [systemBundle.context, buildZiweiDigestText(digest)].filter(Boolean).join('\n\n'),
             debugMeta: {
                 ...ziweiDebugMeta,
                 usedDigest: true,
@@ -1343,6 +1343,7 @@ async function buildRawRequestBundle(
     const messages: AIChatMessage[] = [...systemBundle.messages, ...toApiMessages(stageHistory)];
     return {
         messages,
+        context: systemBundle.context,
         debugMeta: {
             ...ziweiDebugMeta,
             usedDigest: false,
@@ -1667,17 +1668,14 @@ export async function generateQuickReplies(
         return { value: fallback() };
     }
 
-    const systemMsg: AIChatMessage = {
-        role: 'system',
-        content: composeSkillInstructions(engine, 'quick_replies') + '\n' + (meihua ? formatMeihuaForAI(result) : formatPanForAI(result)),
-    };
+    const systemMsg: AIChatMessage = { role: 'system', content: composeSkillInstructions(engine, 'quick_replies') };
     const instruction: AIChatMessage = {
         role: 'user',
         content: renderSkillRequest(engine, 'quick_replies', { question: result.question, outputContract: JSON.stringify(LIUYAO_QUICK_REPLIES_OUTPUT) }),
     };
 
     const content = await requestChatCompletion(
-        [systemMsg, ...toApiMessages(chatHistory), instruction],
+        attachContext([systemMsg, ...toApiMessages(chatHistory), instruction], meihua ? formatMeihuaForAI(result) : formatPanForAI(result)),
         { runtime, signal, stage: stageName },
     );
     if (!content.success || !content.content) {

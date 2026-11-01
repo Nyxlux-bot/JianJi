@@ -383,13 +383,25 @@ function getLocalReadingQuickReplies(engineType: DivinationEngine, result: Divin
     return [];
 }
 
+const READING_MIN_CHARS = 300;
+
+/**
+ * 传输层收到结束事件（response.completed / message_stop）才算请求成功，中途断流早已报错；
+ * 完成标记只是辅助。模型漏写标记（追问几轮后常见，有的模型基本不写）不等于没写完，
+ * 只有首轮解读既没标记又明显过短时才当作截断。
+ */
+function looksTruncated(content: string, phase: 'initial' | 'followup'): boolean {
+    return phase === 'initial' && !hasLiuyaoCompletionMarker(content)
+        && stripLiuyaoCompletionMarker(content).length < READING_MIN_CHARS;
+}
+
 export function validateMeihuaAIContent(
     result: MeihuaResult,
     content: string,
     phase: 'initial' | 'followup' = 'initial',
 ): AIAnalysisValidationResult {
-    if (!hasLiuyaoCompletionMarker(content)) {
-        return { success: false, issues: ['流式响应在正文完成前结束（未收到梅花完成标记）'] };
+    if (looksTruncated(content, phase)) {
+        return { success: false, issues: ['回复过短且没有完成标记，可能没有写完'] };
     }
     const normalized = stripThinkingBlocks(content).trim();
     const { ti, yong } = getTiYong(result);
@@ -466,10 +478,10 @@ export function validateLiuyaoAIContent(
     phase: 'initial' | 'followup' = 'initial',
 ): AIAnalysisValidationResult & { missingSections: string[]; missingEvidenceAnchors: string[] } {
     const normalized = stripThinkingBlocks(content).trim();
-    if (!hasLiuyaoCompletionMarker(content)) {
+    if (looksTruncated(content, phase)) {
         return {
             success: false,
-            issues: ['流式响应在正文完成前结束（未收到六爻完成标记）'],
+            issues: ['回复过短且没有完成标记，可能没有写完'],
             missingSections: [],
             missingEvidenceAnchors: [],
         };
