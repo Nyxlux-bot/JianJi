@@ -49,7 +49,8 @@ export default function StarDial({ rotation, centerY, color, peak }: {
         <Animated.View
             pointerEvents="none"
             shouldRasterizeIOS
-            renderToHardwareTextureAndroid
+            // 安卓不再套硬件层：react-native-svg 已经把整盘画成一张位图，再套一层就多一张 1560px 见方的贴图，
+            // 首页贴图因此超过系统缓存上限，转卡时每帧重传
             aria-hidden
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"

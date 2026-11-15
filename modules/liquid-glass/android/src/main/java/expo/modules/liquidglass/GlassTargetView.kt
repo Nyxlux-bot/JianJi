@@ -22,6 +22,9 @@ class GlassTargetView(context: Context, appContext: AppContext) : ExpoView(conte
       value?.let { targets[it] = WeakReference(this) }
     }
 
+  // ExpoView 是 LinearLayout，Android 一重新布局就会把子视图横着排开，页面被挤出屏幕；位置交给 RN
+  override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) = Unit
+
   override fun dispatchDraw(canvas: Canvas) {
     val node = node
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || node == null || !canvas.isHardwareAccelerated) {

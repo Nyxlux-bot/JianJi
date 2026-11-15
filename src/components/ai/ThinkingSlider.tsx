@@ -13,7 +13,8 @@ const AREA_HEIGHT = 44;
 const RAIL_HEIGHT = 6;
 const HOLE = 8;
 const LABEL_WIDTH = 44;
-const SNAP = { damping: 26, stiffness: 320, overshootClamping: true } as const;
+// Reanimated 4 默认 mass 是 4，不写就比预想慢一倍
+const SNAP = { damping: 26, stiffness: 320, mass: 1, overshootClamping: true } as const;
 
 const LOCK_COPY: Record<ThinkingLock, { label: string; description: string }> = {
     always: { label: '始终', description: '这个模型始终会先思考再作答，接口不提供调节。' },
@@ -106,7 +107,10 @@ export default function ThinkingSlider({ stops, value, budget, lock, onChange, C
         return Gesture.Exclusive(pan, tap);
     }, [count, locked, commit, stopX, width, x, pressed, lastHover]);
 
-    const fillStyle = useAnimatedStyle(() => ({ width: Math.max(0, x.value - INSET) }));
+    // 进度只用 scaleX：逐帧改 width 要重新布局、走整棵树提交，拖动时掉帧。右端藏在圆钮下面，看不出缩放
+    const fillStyle = useAnimatedStyle(() => ({
+        transform: [{ scaleX: Math.max(0, x.value - INSET) / Math.max(1, width.value - 2 * INSET) }],
+    }));
     const knobStyle = useAnimatedStyle(() => ({
         transform: [{ translateX: x.value - KNOB / 2 }, { scale: 1 + pressed.value * 0.12 }],
     }));
@@ -204,8 +208,8 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     },
     railLocked: { opacity: 0.45 },
     fill: {
-        position: 'absolute', left: INSET, top: (AREA_HEIGHT - RAIL_HEIGHT) / 2, height: RAIL_HEIGHT,
-        borderRadius: RAIL_HEIGHT / 2, backgroundColor: Colors.accent.gold,
+        position: 'absolute', left: INSET, right: INSET, top: (AREA_HEIGHT - RAIL_HEIGHT) / 2, height: RAIL_HEIGHT,
+        borderRadius: RAIL_HEIGHT / 2, backgroundColor: Colors.accent.gold, transformOrigin: 'left center',
     },
     fillAuto: { opacity: 0 },
     fillAlways: { opacity: 0.45 },

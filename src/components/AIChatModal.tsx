@@ -477,7 +477,9 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
 
     useEffect(() => {
         visibleRef.current = visible;
-    }, [visible]);
+        // 关着时生成中的推送没接（见下面的订阅），打开时补读一次最新进度
+        if (visible) setAnalysisJob(getAIAnalysisJob(workflowMode, result.id));
+    }, [visible, workflowMode, result.id]);
 
     useEffect(() => {
         loadingRef.current = isLoading;
@@ -500,7 +502,11 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
 
     useEffect(() => {
         void recoverInterruptedAIAnalysisJob(workflowMode, result.id);
-        return subscribeAIAnalysisJob(workflowMode, result.id, setAnalysisJob);
+        // 面板关着时，生成中每 0.25 秒一次的推送不进界面：整理消息、清理正文、切分章节都没人看，还和命盘页抢 JS 线程。
+        // 后台生成、落盘照常；写完、失败、取消这些结局照常接收，写完的结果靠它回写
+        return subscribeAIAnalysisJob(workflowMode, result.id, (job) => {
+            if (visibleRef.current || !isActiveAIAnalysisJob(job)) setAnalysisJob(job);
+        });
     }, [workflowMode, result.id]);
 
     useEffect(() => {
@@ -1320,6 +1326,8 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     const metricsRef = useRef({ offset: 0, height: 0, content: 0 });
     const followRef = useRef(false);
     const userScrollingRef = useRef(false);
+    // 安卓上程序发起的带动画滚动也会发惯性事件；只有手指刚松开时接着的惯性才算用户在滚
+    const dragEndedAtRef = useRef(0);
     const pendingScrollRef = useRef<ChapterId | 'end' | null>(null);
     const [showNewPill, setShowNewPill] = useState(false);
     const [viewportHeight, setViewportHeight] = useState(0);
@@ -1395,8 +1403,10 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         const previous = metricsRef.current.content;
         metricsRef.current.content = height;
         if (pendingScrollRef.current === 'end' || followRef.current) {
+            // 生成中正文一行行长，跟随时顺滑地滚过去；打开、整段跳变时直接到底
+            const glide = jobActive && pendingScrollRef.current !== 'end' && height - previous < metricsRef.current.height / 2;
             pendingScrollRef.current = null;
-            scrollRef.current?.scrollToEnd({ animated: false });
+            scrollRef.current?.scrollToEnd({ animated: glide });
             return;
         }
         const { offset, height: viewport } = metricsRef.current;
@@ -1616,8 +1626,8 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                                     onScroll={handleScroll}
                                     scrollEventThrottle={100}
                                     onScrollBeginDrag={() => { userScrollingRef.current = true; }}
-                                    onScrollEndDrag={() => { userScrollingRef.current = false; }}
-                                    onMomentumScrollBegin={() => { userScrollingRef.current = true; }}
+                                    onScrollEndDrag={() => { userScrollingRef.current = false; dragEndedAtRef.current = Date.now(); }}
+                                    onMomentumScrollBegin={() => { if (Date.now() - dragEndedAtRef.current < 150) userScrollingRef.current = true; }}
                                     onMomentumScrollEnd={() => { userScrollingRef.current = false; }}
                                     onContentSizeChange={handleContentSizeChange}
                                     keyboardShouldPersistTaps="handled"

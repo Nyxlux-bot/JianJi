@@ -2,3 +2,4 @@
 set -eu
 
 sh scripts/guard-no-test-files.sh --staged
+node scripts/check-motion.cjs

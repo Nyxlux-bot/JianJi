@@ -21,6 +21,8 @@ expo-env.d.ts
 *.p12
 *.key
 *.mobileprovision
+# eas credentials 导出的签名密码
+credentials.json
 
 # Metro
 .metro-health-check*

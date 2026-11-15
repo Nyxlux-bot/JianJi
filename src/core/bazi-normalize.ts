@@ -27,6 +27,7 @@ import { getBaziWorkflowVersion, isBaziWorkflowStage, resolveBaziConversationSta
 import { buildJiaoYunRuleDetail, createEmptyJiaoYunRuleDetail } from './jiaoyun-rule';
 import { calculateRenYuanDuty, createEmptyRenYuanDutyDetail } from './renyuan-duty';
 import { buildBaziAnalysisProfile, isBaziAnalysisProfile } from './bazi-analysis-profile';
+import { withChouMonth } from './bazi-calc';
 
 function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -468,8 +469,14 @@ export function normalizeBaziResultV2(result: BaziResult): BaziResult {
         throw new Error('八字会话的阶段标识无效');
     }
 
+    const dayMaster = normalized.fourPillars[2]?.[0] ?? '';
+    const fillChou = (items: BaziResult['liuNian']) => (dayMaster && Array.isArray(items) ? items.map((item) => withChouMonth(item, dayMaster)) : items);
+
     const normalizedResult: BaziResult = {
         ...normalized,
+        daYun: normalized.daYun.map((item) => ({ ...item, liuNian: fillChou(item.liuNian) })),
+        liuNian: fillChou(normalized.liuNian),
+        xiaoYun: fillChou(normalized.xiaoYun),
         timeMeta,
         solarDate: timeMeta.solarDate,
         solarTime: timeMeta.solarTime,

@@ -1,0 +1,25 @@
+name: 正式版打包发布
+
+# npm run release:patch | minor | major 推送 v1.9.0 这样的标签后自动运行；也可手动补发已有标签
+on:
+  push:
+    tags:
+      - 'v*'
+      - '!v*-*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '要发布的现有正式版标签，例如 v1.9.0'
+        required: true
+        type: string
+
+jobs:
+  release:
+    if: ${{ !contains(inputs.release_tag || github.ref_name, '-') }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/android-release.yml
+    with:
+      tag: ${{ inputs.release_tag || github.ref_name }}
+      prerelease: false
+    secrets: inherit

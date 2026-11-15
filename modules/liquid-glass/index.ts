@@ -6,7 +6,7 @@ import type React from 'react';
 import { View, type ViewProps } from 'react-native';
 import { requireNativeView, requireOptionalNativeModule } from 'expo';
 
-const native = requireOptionalNativeModule<{ supported: boolean }>('LiquidGlass');
+const native = requireOptionalNativeModule<{ supported: boolean; tile?: boolean }>('LiquidGlass');
 
 export const liquidGlassSupported = !!native?.supported;
 
@@ -30,3 +30,13 @@ export type GlassViewProps = ViewProps & {
 export const GlassTarget: React.ComponentType<GlassTargetProps> = native ? requireNativeView('LiquidGlass', 'GlassTarget') : View;
 
 export const GlassView: React.ComponentType<GlassViewProps> = liquidGlassSupported ? requireNativeView('LiquidGlass', 'GlassView') : () => null;
+
+export type TileProps = ViewProps & {
+    /** Image.resolveAssetSource 得到的 uri */
+    source: string;
+    /** processColor 过的染色 */
+    tint?: number;
+};
+
+/** 安卓平铺小图（卡面纸纹），所有视图共用一张原图；没有这个原生视图时（iOS、网页、Expo Go、旧原生包）为 null，用 RN Image 的 repeat */
+export const Tile: React.ComponentType<TileProps> | null = native?.tile ? requireNativeView('LiquidGlass', 'Tile') : null;

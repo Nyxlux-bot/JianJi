@@ -59,16 +59,19 @@ export const COMPAT_CONTRACT = {
 /** 解析正文时两套小节都认，旧详批照常分节 */
 export const COMPAT_SECTION_TITLES: readonly string[] = [...new Set([...COMPAT_CONTRACT.sections, ...COMPAT_CONTRACT.pairSections])];
 
+// 只押一类事，用户才核对得了；列一串可能等于没说
+const DETAIL_HINT = '落到现实最可能是哪一类事（只押一类，如升学、换工作、搬家、感情变动、家人变故），为什么是它而不是别的';
+
 const FIELD_HINTS: Record<ChapterContractEngine, Record<ChapterFieldContract['key'], string>> = {
     bazi: {
         basis: '原局与该年岁运之间实际发生的作用（合冲刑害、生克、透藏），只写盘里有的',
         luck: '大运{干支} · 流年{干支}',
-        detail: '这些作用落到现实里可能是什么事，为什么',
+        detail: DETAIL_HINT,
     },
     ziwei: {
         basis: '涉及的宫位、星曜与四化引动，只写盘里有的',
         luck: '大限{宫名}（{起止虚岁}） · 流年{干支}',
-        detail: '这些引动落到现实里可能是什么事，为什么',
+        detail: DETAIL_HINT,
     },
 };
 
@@ -79,7 +82,7 @@ export function renderVerificationFormat(engine: ChapterContractEngine): string 
     return [
         '【输出格式】正文按下面的骨架写。### 标题和粗体标签原样照写，其余用自然中文；不要再加别的标题层级。',
         '开头可以先用一两句话交代本轮核验的范围（可省略）。',
-        `### {年份} {该年干支} · ${age} · {一句话应事，不超过${summaryMaxChars}字}`,
+        `### {年份} {该年干支} · ${age} · {一句话写所押的具体事，不超过${summaryMaxChars}字}`,
         ...fields.map((field) => `**${field.label}**：${FIELD_HINTS[engine][field.key]}`),
         `共写 ${minEvents} 到 ${maxEvents} 节，按年份从早到晚排列；每节只对应一个年份，跨年的阶段写起始年。`,
         '最后可以用一句话请用户逐条核对（可省略）。',

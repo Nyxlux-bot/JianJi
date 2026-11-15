@@ -10,6 +10,8 @@ class LiquidGlassModule : Module() {
 
     // RuntimeShader 要 Android 13
     Constant("supported") { Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU }
+    // 有平铺视图的原生包才有这项：新 JS 跑在旧原生包上时退回 RN Image，不至于找不到视图
+    Constant("tile") { true }
 
     View(GlassTargetView::class) {
       Name("GlassTarget")
@@ -25,6 +27,12 @@ class LiquidGlassModule : Module() {
       Prop("magnify") { view: GlassView, value: Float? -> view.magnify = value ?: 0f; view.invalidate() }
       Prop("dispersion") { view: GlassView, value: Float? -> view.dispersion = value ?: 0.03f; view.invalidate() }
       Prop("blurRadius") { view: GlassView, value: Float? -> view.blurRadius = value ?: 0.6f; view.invalidate() }
+    }
+
+    View(TileView::class) {
+      Name("Tile")
+      Prop("source") { view: TileView, uri: String -> view.setSource(uri) }
+      Prop("tint") { view: TileView, color: Int? -> view.setTint(color) }
     }
   }
 }

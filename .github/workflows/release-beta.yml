@@ -1,0 +1,25 @@
+name: beta 打包预发布
+
+# npm run release:beta 推送 v1.9.0-beta.1 这样的标签后自动运行；也可手动补发已有标签。
+# 与正式版同一包名、同一签名，可互相覆盖安装；发布为预发布，不会成为 Latest
+on:
+  push:
+    tags:
+      - 'v*-beta.*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '要发布的现有 beta 标签，例如 v1.9.0-beta.1'
+        required: true
+        type: string
+
+jobs:
+  release:
+    if: ${{ contains(inputs.release_tag || github.ref_name, '-beta.') }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/android-release.yml
+    with:
+      tag: ${{ inputs.release_tag || github.ref_name }}
+      prerelease: true
+    secrets: inherit
