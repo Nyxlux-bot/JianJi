@@ -131,10 +131,11 @@ jobs:
 
       - name: 6. 安装 NDK 等编译组件
         # 版本与 React Native 0.88 要求一致；构建机自带 SDK 且已接受许可
+        # API 37 起平台包带小版本号，只有 android-37.0，没有 android-37
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
-            "platforms;android-37" "build-tools;${BUILD_TOOLS}" "ndk;27.1.12297006" "cmake;3.22.1" > /dev/null
-          echo "已安装 SDK 平台 37、构建工具 ${BUILD_TOOLS}、NDK 27.1、CMake 3.22.1"
+            "platforms;android-37.0" "build-tools;${BUILD_TOOLS}" "ndk;27.1.12297006" "cmake;3.22.1" > /dev/null
+          echo "已安装 SDK 平台 37.0、构建工具 ${BUILD_TOOLS}、NDK 27.1、CMake 3.22.1"
 
       - name: 7. 生成安卓工程
         run: npx expo prebuild --platform android --no-install
