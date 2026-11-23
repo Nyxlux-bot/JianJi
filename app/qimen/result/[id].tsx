@@ -168,6 +168,7 @@ export default function QimenResultPage() {
                 form: activeResult.form,
                 juMethod: activeResult.juMethod,
                 spiritStyle: activeResult.spiritStyle,
+                numberSeed: activeResult.numberSeed,
                 dateTime: activeResult.inputDateTime,
                 location: activeResult.location,
                 longitude: activeResult.longitude,

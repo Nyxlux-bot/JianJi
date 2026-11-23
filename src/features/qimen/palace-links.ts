@@ -14,7 +14,8 @@ const ADDRESS = /^qimen:\/\/palace\/([1-9])(?:\?period=([0-3]))?$/u;
 
 export function linkQimenPalaces(text: string): string {
     return text.replace(CITATION, (original, marker?: string, oldLabel?: string, oldUrl?: string, bareUrl?: string) => {
-        const label = (marker ?? oldLabel ?? '').replace(/\s*·\s*/gu, '·').trim();
+        // 模型偶尔写成日文中点「・」，统一成「·」后再对照盘名、宫名。
+        const label = (marker ?? oldLabel ?? '').replace(/\s*[·・]\s*/gu, '·').trim();
         const namedTarget = targets.get(label);
         if (namedTarget) return `[${label}](${namedTarget})`;
         if (marker) return original;

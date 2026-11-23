@@ -209,6 +209,8 @@ export function shiftQimenResultByHours(result: QimenResult, deltaHours: number)
         form: result.form,
         juMethod: result.juMethod,
         spiritStyle: result.spiritStyle,
+        // 报数盘步进时辰后仍按原数定局
+        numberSeed: result.numberSeed,
         dateTime: formatSolarTime(shifted),
         location: result.location,
         longitude: result.longitude,
