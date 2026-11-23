@@ -1,3 +1,8 @@
+import qimen from './skills/qimen/SKILL.md';
+import qimenInitial from './skills/qimen/references/initial.md';
+import qimenFollowup from './skills/qimen/references/followup.md';
+import qimenCompletion from './skills/qimen/references/completion.md';
+import qimenQuick from './skills/qimen/references/quick_replies.md';
 import common from './skills/common/SKILL.md';
 import retry from './skills/common/references/retry.md';
 import auxiliary from './skills/common/references/auxiliary.md';
@@ -35,7 +40,7 @@ import meihuaFollowup from './skills/meihua/references/followup.md';
 import meihuaCompletion from './skills/meihua/references/completion.md';
 import meihuaQuick from './skills/meihua/references/quick_replies.md';
 
-export type AISkillEngine = 'liuyao' | 'bazi' | 'ziwei' | 'baziCompatibility' | 'meihua';
+export type AISkillEngine = 'liuyao' | 'bazi' | 'ziwei' | 'baziCompatibility' | 'meihua' | 'qimen';
 export type AISkillStage = 'initial' | 'foundation' | 'kinship' | 'kinship_review' | 'verification' | 'five_year' | 'followup' | 'digest' | 'quick_replies' | 'retry';
 export interface AISkillDefinition {
     id: string;
@@ -46,6 +51,7 @@ export interface AISkillDefinition {
 }
 export const COMMON_SKILL: AISkillDefinition = { id: 'jianji-common', version: 4, instructions: common, requests: { retry }, system: auxiliary };
 export const AI_SKILLS: Record<AISkillEngine, AISkillDefinition> = {
+    qimen: { id: 'jianji-qimen', version: 10, instructions: qimen, requests: { initial: qimenInitial, followup: qimenFollowup, quick_replies: qimenQuick } },
     liuyao: { id: 'jianji-liuyao', version: 4, instructions: liuyao, requests: { initial: liuyaoInitial, followup: liuyaoFollowup, quick_replies: liuyaoQuick } },
     bazi: { id: 'jianji-bazi', version: 11, instructions: bazi, system: baziSystem,
         requests: { foundation: baziFoundation, kinship: baziKinship, verification: baziVerification, five_year: baziFiveYear, followup: baziFollowup, digest: baziDigest, quick_replies: baziQuick } },
@@ -54,4 +60,4 @@ export const AI_SKILLS: Record<AISkillEngine, AISkillDefinition> = {
     baziCompatibility: { id: 'jianji-bazi-compatibility', version: 6, instructions: compatibility, requests: { initial: compatibilityInitial } },
     meihua: { id: 'jianji-meihua', version: 3, instructions: meihua, requests: { initial: meihuaInitial, followup: meihuaFollowup, quick_replies: meihuaQuick } },
 };
-export const SKILL_REFERENCES = { liuyaoCompletion, meihuaCompletion, baziKinshipBoundary, baziKinshipMethods, baziEvidenceFormat, baziEvidenceMethods };
+export const SKILL_REFERENCES = { liuyaoCompletion, meihuaCompletion, qimenCompletion, baziKinshipBoundary, baziKinshipMethods, baziEvidenceFormat, baziEvidenceMethods };

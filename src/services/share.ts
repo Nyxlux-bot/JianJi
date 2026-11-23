@@ -1,3 +1,7 @@
+import { getQimenReading, splitQimenReading } from '../features/qimen/ai-reading';
+import { formatQimenForAI, getQimenChatPeriod } from '../features/qimen/ai-serializer';
+import { qimenCitationText } from '../features/qimen/palace-links';
+import type { QimenPeriod, QimenResult } from '../features/qimen/types';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { PersistedAIChatMessage } from '../core/ai-meta';
@@ -10,7 +14,7 @@ import { PanResult } from '../core/liuyao-calc';
 import { getLiuyaoSubjectLabel } from '../core/liuyao-data';
 import { ZiweiRecordResult } from '../features/ziwei/record';
 import { formatPanForAI, type AIDivinationResult } from './ai';
-import { isMeihuaResult } from '../db/record-types';
+import { isMeihuaResult, isQimenResult } from '../db/record-types';
 import { formatMeihuaForAI } from '../features/meihua/ai-serializer';
 import { MEIHUA_METHOD_LABEL, type MeihuaResult } from '../features/meihua/types';
 import { formatBaziToText } from './bazi-formatter';
@@ -44,7 +48,7 @@ async function shareMarkdownFile(fileName: string, markdown: string): Promise<vo
 }
 
 function isBaziResult(result: AIDivinationResult): result is BaziResult {
-    return Array.isArray((result as BaziResult).fourPillars);
+    return 'fourPillars' in result && Array.isArray(result.fourPillars) && !('kind' in result && result.kind === 'qimen');
 }
 
 function isZiweiResult(result: AIDivinationResult): result is ZiweiRecordResult {
@@ -179,6 +183,7 @@ export async function shareBaziResultMarkdown(
 
 export async function shareChatMarkdown(result: AIDivinationResult, messages: PersistedAIChatMessage[]): Promise<void> {
     const lines: string[] = [];
+    const qimen = isQimenResult(result);
 
     if (isBaziResult(result)) {
         const title = result.subject.name?.trim() || result.fourPillars.join(' ');
@@ -194,6 +199,8 @@ export async function shareChatMarkdown(result: AIDivinationResult, messages: Pe
         lines.push(`- 命盘：${result.fiveElementsClass} · 命主${result.soul} / 身主${result.body}`);
         lines.push(`- 真太阳时：${result.trueSolarDateTimeLocal.replace('T', ' ')}`);
         lines.push(`- 导出时间：${new Date().toISOString()}`);
+    } else if (qimen) {
+        lines.push('# AI 会话导出：奇门遁甲', '', qimenCitationText(formatQimenForAI(result, getQimenChatPeriod(messages), true)));
     } else if (isMeihuaResult(result)) {
         lines.push(`# AI 会话导出：${result.ben.fullName}`);
         lines.push('');
@@ -221,7 +228,11 @@ export async function shareChatMarkdown(result: AIDivinationResult, messages: Pe
             const roleLabel = message.role === 'user' ? '用户' : '助手';
             lines.push('');
             lines.push(`### ${roleLabel}`);
-            lines.push(message.content || '(空内容)');
+            if (qimen && message.qimenExcerpt) {
+                lines.push(`引用${message.qimenPeriod}原文`, '', ...qimenCitationText(message.qimenExcerpt).split('\n').map(line => '> ' + line), '');
+            }
+            const content = qimen && message.role === 'assistant' ? qimenCitationText(message.content) : message.content;
+            lines.push(content || '(空内容)');
         });
     }
 
@@ -229,8 +240,23 @@ export async function shareChatMarkdown(result: AIDivinationResult, messages: Pe
         ? `bazi_chat_${sanitizeName(result.subject.name?.trim() || result.fourPillars.join('_'))}_${Date.now()}.md`
         : isZiweiResult(result)
             ? `ziwei_chat_${sanitizeName(result.name?.trim() || result.fiveElementsClass)}_${Date.now()}.md`
+            : qimen ? `qimen_chat_${result.id}.md`
             : isMeihuaResult(result)
                 ? `meihua_chat_${sanitizeName(result.ben.fullName)}_${Date.now()}.md`
                 : `liuyao_chat_${sanitizeName(result.benGua.fullName)}_${Date.now()}.md`;
     await shareMarkdownFile(fileName, lines.join('\n'));
+}
+
+export async function shareQimenResultMarkdown(result: QimenResult, period: QimenPeriod = '时盘'): Promise<void> {
+    const reading = getQimenReading(result.aiChatHistory ?? []);
+    const sections = reading.sections ?? (result.aiAnalysis ? splitQimenReading(result.aiAnalysis) : undefined);
+    const missing = !sections && (result.aiAnalysis || result.aiChatHistory?.length) ? '旧解读未分卷，可从 AI 页导出完整会话。' : '尚未生成本卷解读';
+    const analysis = [
+        sections?.总断 && '### 总断\n\n' + sections.总断,
+        `### ${period}\n\n` + (sections?.[period] || missing),
+    ].filter(Boolean).join('\n\n');
+    await shareMarkdownFile(
+        `qimen_${result.id}_${period}.md`,
+        ['# 奇门遁甲 · ' + period, '', qimenCitationText(formatQimenForAI(result, period)), '', '## AI 解读', qimenCitationText(analysis || '尚未生成')].join('\n'),
+    );
 }

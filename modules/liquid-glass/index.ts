@@ -2,7 +2,7 @@
  * Android 液态玻璃：GlassTarget 包住要被折射的内容，GlassView 放在它外面、叠在上面，实时折射底下那一块。
  * 只有装了开发包的 Android 13+ 有效；Expo Go、iOS、网页、旧 Android 上 GlassTarget 是普通 View，GlassView 什么都不画。
  */
-import type React from 'react';
+import React from 'react';
 import { View, type ViewProps } from 'react-native';
 import { requireNativeView, requireOptionalNativeModule } from 'expo';
 
@@ -27,7 +27,9 @@ export type GlassViewProps = ViewProps & {
     blurRadius?: number;
 };
 
-export const GlassTarget: React.ComponentType<GlassTargetProps> = native ? requireNativeView('LiquidGlass', 'GlassTarget') : View;
+export const GlassTarget: React.ComponentType<GlassTargetProps> = native
+    ? requireNativeView('LiquidGlass', 'GlassTarget')
+    : ({ targetId: _targetId, ...props }) => React.createElement(View, props);
 
 export const GlassView: React.ComponentType<GlassViewProps> = liquidGlassSupported ? requireNativeView('LiquidGlass', 'GlassView') : () => null;
 

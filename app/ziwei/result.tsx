@@ -493,7 +493,9 @@ export default function ZiweiResultPage() {
         return ringOrder[(position + direction + ringOrder.length) % ringOrder.length];
     }, [ringOrder]);
 
-    const cursorInfo = useMemo(() => (dynamic ? buildZiweiCursorInfo(dynamic) : null), [dynamic]);
+    const cursorInfo = useMemo(() => (
+        staticChart && dynamic ? buildZiweiCursorInfo(staticChart, dynamic) : null
+    ), [staticChart, dynamic]);
     const natalLayer = useMemo(() => (staticChart ? buildNatalLayer(staticChart) : null), [staticChart]);
     const layer = useMemo(() => {
         if (!staticChart || !dynamic || !cursorInfo) {

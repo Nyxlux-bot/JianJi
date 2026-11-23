@@ -1,3 +1,6 @@
+import { qimenCitationText } from '../features/qimen/palace-links';
+import { formatQimenForAI, getQimenChatPeriod } from '../features/qimen/ai-serializer';
+import type { QimenResult } from '../features/qimen/types';
 /**
  * AI 分析服务
  * 负责六爻与八字两套排盘的系统提示词、上下文整理、流式请求与快捷追问。
@@ -40,12 +43,12 @@ import type { AIRequestRuntime } from './ai-provider-types';
 import type { AIExecutionMeta, AISkillVersion } from '../core/ai-execution-meta';
 import { recordDiagnosticLog } from './diagnostics';
 import { formatZiweiToText } from './ziwei-formatter';
-import { isMeihuaResult } from '../db/record-types';
+import { isMeihuaResult, isQimenResult } from '../db/record-types';
 import { formatMeihuaForAI } from '../features/meihua/ai-serializer';
 import type { MeihuaResult } from '../features/meihua/types';
 
 /** 走 AI 对话的排盘结果（八字合盘另有独立流程）。 */
-export type AIDivinationResult = PanResult | BaziResult | ZiweiRecordResult | MeihuaResult;
+export type AIDivinationResult = PanResult | BaziResult | ZiweiRecordResult | MeihuaResult | QimenResult;
 
 const ICHING_MAP = new Map<string, string>();
 (ichingData as any[]).forEach((item) => {
@@ -140,7 +143,7 @@ export interface AIChatMessage {
 }
 
 export interface AIRequestDebugMeta {
-    mode: 'liuyao' | 'bazi' | 'ziwei' | 'baziCompatibility' | 'meihua';
+    mode: 'liuyao' | 'bazi' | 'ziwei' | 'baziCompatibility' | 'meihua' | 'qimen';
     skills?: AISkillVersion[];
     requestType: 'main' | 'digest' | 'quick_replies';
     workflowStage?: BaziAIWorkflowStage;
@@ -182,7 +185,7 @@ export interface AIRequestOptions {
 }
 
 function isBaziResult(result: AIDivinationResult): result is BaziResult {
-    return Array.isArray((result as BaziResult).fourPillars);
+    return 'fourPillars' in result && Array.isArray(result.fourPillars) && !('kind' in result && result.kind === 'qimen');
 }
 
 function isZiweiResult(result: AIDivinationResult): result is ZiweiRecordResult {
@@ -338,10 +341,18 @@ export function formatPanForAI(result: PanResult): string {
 }
 
 function toApiMessages(messages: PersistedAIChatMessage[]): AIChatMessage[] {
-    return messages.map((message) => ({
-        role: message.role,
-        content: message.role === 'user' && message.requestContent ? message.requestContent : message.content,
-    }));
+    return messages.map((message) => {
+        if (message.role !== 'user') return { role: message.role, content: message.content };
+        const content = message.requestContent || message.content;
+        if (message.qimenExcerpt && message.qimenPeriod) {
+            return { role: message.role, content: `【引用${message.qimenPeriod}原文】
+${message.qimenExcerpt}
+
+【本轮追问】
+${content}` };
+        }
+        return { role: message.role, content: message.qimenPeriod ? `【发问时查看的盘面】${message.qimenPeriod}\n${content}` : content };
+    });
 }
 
 function toVisibleMessages(messages: PersistedAIChatMessage[]): PersistedAIChatMessage[] {
@@ -1026,6 +1037,10 @@ function buildMeihuaSystemMessage(): AIChatMessage {
     return { role: 'system', content: composeSkillInstructions('meihua', 'initial', { completionMarker: LIUYAO_COMPLETION_MARKER }) };
 }
 
+export function getLocalQimenQuickReplies(): string[] {
+    return ['现在最适合先做哪一步？', '日盘和月盘有哪些不同？', '哪些变化会改变这次判断？'];
+}
+
 export function getLocalMeihuaQuickReplies(result: MeihuaResult): string[] {
     const question = result.question || '';
     if (/婚|感情|复合|对象|恋|姻缘/u.test(question)) {
@@ -1232,6 +1247,16 @@ async function buildRawRequestBundle(
     formatterContext?: BaziFormatterContext | ZiweiFormatterContext,
     requestContext: AIRequestBuildContext = {},
 ): Promise<AIRequestBundle> {
+    if (isQimenResult(result)) {
+        const stage = requestContext.workflowStage === 'followup' ? 'followup' : 'initial';
+        const messages: AIChatMessage[] = [
+            { role: 'system', content: composeSkillInstructions('qimen', stage, { completionMarker: LIUYAO_COMPLETION_MARKER }) },
+            { role: 'system', content: renderSkillRequest('qimen', stage) },
+            ...toApiMessages(chatHistory).map(message => ({ ...message, content: qimenCitationText(message.content) })),
+        ];
+        return { messages, context: `【本轮奇门盘面资料】\n${formatQimenForAI(result, getQimenChatPeriod(chatHistory), true)}`, debugMeta: { mode: 'qimen', requestType: 'main', skills: getSkillVersions('qimen', stage), usedDynamicEvidencePack: false, usedDigest: false, systemCharCount: messages[0].content.length, messageCount: messages.length } };
+    }
+
     if (isMeihuaResult(result)) {
         const isFollowup = requestContext.workflowStage === 'followup';
         const stage = isFollowup ? 'followup' as const : 'initial' as const;
@@ -1659,11 +1684,12 @@ export async function generateQuickReplies(
         return outcome;
     }
 
-    // 六爻与梅花共用 JSON 快捷追问流程，只换技能、资料和本地兜底
+    // 六爻、梅花与奇门共用 JSON 快捷追问流程，只换技能、资料和本地兜底
+    const qimen = isQimenResult(result);
     const meihua = isMeihuaResult(result);
-    const engine = meihua ? 'meihua' as const : 'liuyao' as const;
+    const engine = qimen ? 'qimen' : meihua ? 'meihua' : 'liuyao';
     const stageName = `${engine}_quick_replies`;
-    const fallback = () => (meihua ? getLocalMeihuaQuickReplies(result) : getLocalLiuyaoQuickReplies(result));
+    const fallback = () => (qimen ? getLocalQimenQuickReplies() : meihua ? getLocalMeihuaQuickReplies(result) : getLocalLiuyaoQuickReplies(result));
     if (!result.question) {
         return { value: fallback() };
     }
@@ -1675,7 +1701,7 @@ export async function generateQuickReplies(
     };
 
     const content = await requestChatCompletion(
-        attachContext([systemMsg, ...toApiMessages(chatHistory), instruction], meihua ? formatMeihuaForAI(result) : formatPanForAI(result)),
+        attachContext(ensureUserFirst([systemMsg, ...toApiMessages(chatHistory), instruction]), qimen ? formatQimenForAI(result, getQimenChatPeriod(chatHistory), true) : meihua ? formatMeihuaForAI(result) : formatPanForAI(result)),
         { runtime, signal, stage: stageName },
     );
     if (!content.success || !content.content) {
@@ -1694,7 +1720,7 @@ export async function generateQuickReplies(
             : fallback(),
         failure: parsed && Array.isArray(parsed.quickReplies)
             ? undefined
-            : createAIFailure('invalid_response', stageName, `${meihua ? '梅花' : '六爻'}快捷追问返回格式无效`, { usedFallback: true }),
+            : createAIFailure('invalid_response', stageName, `${qimen ? '奇门' : meihua ? '梅花' : '六爻'}快捷追问返回格式无效`, { usedFallback: true }),
     };
     if (outcome.failure) {
         logAIFailure(stageName, outcome.failure);

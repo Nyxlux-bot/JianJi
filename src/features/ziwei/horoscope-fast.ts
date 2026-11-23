@@ -6,8 +6,7 @@
  * `_getHoroscopeBySolarDate`），把只取决于干支、宫位序号或日期的部分全部做成查表缓存，
  * 最后仍然构造 iztro 自己的 `FunctionalHoroscope`，下游拿到的对象与原版完全一致。
  *
- * 唯一有意的差别：运限分界、日界读取本命盘自己的配置，而不是 iztro 的全局配置，
- * 避免同时打开多张不同配置的命盘时互相串味。
+ * 通过 iztro 插件安装，计算及返回的功能对象都绑定本命盘的配置和语言。
  */
 import { getHeavenlyStemAndEarthlyBranchBySolarDate, normalizeDateStr, solar2lunar } from 'lunar-lite';
 import FunctionalHoroscope from 'iztro/lib/astro/FunctionalHoroscope';
@@ -16,27 +15,23 @@ import type { IFunctionalHoroscope } from 'iztro/lib/astro/FunctionalHoroscope';
 import { getConfig } from 'iztro/lib/astro/astro';
 import { getPalaceNames } from 'iztro/lib/astro/palace';
 import { EARTHLY_BRANCHES } from 'iztro/lib/data';
-import { kot, t } from 'iztro/lib/i18n';
+import { getLanguage, kot, t } from 'iztro/lib/i18n';
 import { getYearly12 } from 'iztro/lib/star';
 import { fixEarthlyBranchIndex, fixIndex, getMutagensByHeavenlyStem, timeToIndex } from 'iztro/lib/utils';
+import { normalizeDayBoundary } from 'iztro/lib/utils/date';
+import { validateDate, validateTimeIndex } from 'iztro/lib/utils/validation';
 import { getCachedHoroscopeStar } from './iztro-optimizer';
 
 type LunarDateValue = ReturnType<typeof solar2lunar>;
 type GanzhiValue = ReturnType<typeof getHeavenlyStemAndEarthlyBranchBySolarDate>;
 type DivideValue = 'normal' | 'exact';
 
-export interface ZiweiFastHoroscopeRules {
-    horoscopeDivide: DivideValue;
-    dayDivide: 'forward' | 'current';
-}
-
 const LUNAR_CACHE_LIMIT = 1024;
 const GANZHI_CACHE_LIMIT = 2048;
 const lunarCache = new Map<string, LunarDateValue>();
 const ganzhiCache = new Map<string, GanzhiValue>();
-const birthdayCache = new WeakMap<object, LunarDateValue>();
 const yearly12Cache = new Map<string, ReturnType<typeof getYearly12>>();
-const palaceNamesCache = new Map<number, string[]>();
+const palaceNamesCache = new Map<string, string[]>();
 const mutagenCache = new Map<string, string[]>();
 
 const CHILDHOOD_PALACES = ['命宫', '财帛', '疾厄', '夫妻', '福德', '官禄'];
@@ -56,33 +51,30 @@ function dayKey(date: Date): string {
     return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
 }
 
-function lunarOf(date: Date): LunarDateValue {
-    const key = dayKey(date);
-    return lunarCache.get(key) ?? remember(lunarCache, key, solar2lunar(date), LUNAR_CACHE_LIMIT);
+function lunarOf(date: string): LunarDateValue {
+    return lunarCache.get(date) ?? remember(lunarCache, date, solar2lunar(date), LUNAR_CACHE_LIMIT);
 }
 
 /** 运限用的农历日期（与 iztro 同源，按天缓存） */
 export function getCachedLunarDate(date: Date): { lunarYear: number; lunarMonth: number; lunarDay: number; isLeap: boolean } {
-    return lunarOf(date);
+    return lunarOf(dayKey(date));
 }
 
-function ganzhiOf(date: Date, timeIndex: number, year: DivideValue, month?: DivideValue): GanzhiValue {
-    // 'exact' 分界按节气交接时刻判定，同一天不同时间可能落在两侧，所以带上时分
-    const exact = year === 'exact' || month === 'exact';
-    const key = `${exact ? `${dayKey(date)}T${date.getHours()}:${date.getMinutes()}` : dayKey(date)}|${timeIndex}|${year}|${month ?? '-'}`;
+function ganzhiOf(date: string, timeIndex: number, divide: DivideValue): GanzhiValue {
+    const key = `${date}|${timeIndex}|${divide}`;
     const cached = ganzhiCache.get(key);
     if (cached) {
         return cached;
     }
-    const options = month === undefined ? { year } : { year, month };
-    return remember(ganzhiCache, key, getHeavenlyStemAndEarthlyBranchBySolarDate(date, timeIndex, options), GANZHI_CACHE_LIMIT);
+    return remember(ganzhiCache, key, getHeavenlyStemAndEarthlyBranchBySolarDate(date, timeIndex, { year: divide, month: divide }), GANZHI_CACHE_LIMIT);
 }
 
 function palaceNamesFrom(index: number): string[] {
-    let names = palaceNamesCache.get(index);
+    const key = `${getLanguage()}|${index}`;
+    let names = palaceNamesCache.get(key);
     if (!names) {
         names = getPalaceNames(index) as string[];
-        palaceNamesCache.set(index, names);
+        palaceNamesCache.set(key, names);
     }
     // 下游可能持有并修改数组，交出去的总是副本
     return names.slice();
@@ -93,56 +85,51 @@ function mutagensOf(heavenlyStem: string): string[] {
     if (customMutagens && Object.keys(customMutagens).length > 0) {
         return getMutagensByHeavenlyStem(heavenlyStem as never) as string[];
     }
-    let mutagens = mutagenCache.get(heavenlyStem);
+    const key = `${getLanguage()}|${heavenlyStem}`;
+    let mutagens = mutagenCache.get(key);
     if (!mutagens) {
         mutagens = getMutagensByHeavenlyStem(heavenlyStem as never) as string[];
-        mutagenCache.set(heavenlyStem, mutagens);
+        mutagenCache.set(key, mutagens);
     }
     return mutagens.slice();
 }
 
 /**
- * 流年岁前、将前诸星只取决于流年地支和流派。iztro 会按全局分界重新取一次流年，
- * 这里先用本盘的分界取到地支，再拿该地支任意一年的年中日期去查（年中不受分界影响）。
+ * 流年岁前、将前诸星按命盘的流派、语言和已计算的流年地支缓存。
  */
-function yearly12Of(targetDate: Date, horoscopeDivide: DivideValue): ReturnType<typeof getYearly12> {
+function yearly12Of(solarDate: string, branch: string): ReturnType<typeof getYearly12> {
     const { algorithm } = getConfig();
-    const branch = ganzhiOf(targetDate, 0, horoscopeDivide).yearly[1];
     const branchIndex = EARTHLY_BRANCHES.indexOf(kot(branch, 'Earthly') as never);
-    const key = `${algorithm}|${branchIndex}`;
+    const key = `${algorithm}|${getLanguage()}|${branchIndex}`;
     const cached = yearly12Cache.get(key);
     if (cached) {
         return cached;
     }
-    // 2020 年为子年
-    const value = getYearly12(new Date(2020 + branchIndex, 6, 1) as unknown as string);
+    const value = getYearly12(solarDate);
     yearly12Cache.set(key, value);
     return value;
 }
 
-function birthdayOf(astrolabe: IFunctionalAstrolabe): LunarDateValue {
-    let birthday = birthdayCache.get(astrolabe);
-    if (!birthday) {
-        birthday = solar2lunar(astrolabe.solarDate);
-        birthdayCache.set(astrolabe, birthday);
-    }
-    return birthday;
+export function fastHoroscopePlugin(this: IFunctionalAstrolabe): void {
+    this.horoscope = (targetDate = new Date(), timeIndex) => computeFastHoroscope(this, targetDate, timeIndex);
 }
 
-export function computeFastHoroscope(
+function computeFastHoroscope(
     astrolabe: IFunctionalAstrolabe,
-    targetDate: Date,
-    rules: ZiweiFastHoroscopeRules,
+    targetDate: string | Date,
     timeIndex?: number,
 ): IFunctionalHoroscope {
-    const birthday = birthdayOf(astrolabe);
-    const date = lunarOf(targetDate);
-    const targetTimeIndex = timeIndex ?? timeToIndex(targetDate.getHours());
-    const adjustedTargetTimeIndex = rules.dayDivide === 'current' && targetTimeIndex >= 12 ? 0 : targetTimeIndex;
-    const { yearly, monthly, daily, hourly } = ganzhiOf(targetDate, adjustedTargetTimeIndex, rules.horoscopeDivide, rules.horoscopeDivide);
+    validateDate(targetDate);
+    if (timeIndex !== undefined) validateTimeIndex(timeIndex);
+    const rules = getConfig();
+    const birthday = astrolabe.rawDates.lunarDate;
+    const targetTimeIndex = timeIndex ?? timeToIndex(normalizeDateStr(targetDate)[3] ?? 0);
+    const { solarDate, timeIndex: adjustedTargetTimeIndex } = normalizeDayBoundary(targetDate, targetTimeIndex);
+    const date = lunarOf(solarDate);
+    const { yearly, monthly, daily, hourly } = ganzhiOf(solarDate, adjustedTargetTimeIndex, rules.horoscopeDivide);
 
     let nominalAge = date.lunarYear - birthday.lunarYear;
-    if (getConfig().ageDivide === 'birthday') {
+    if (rules.ageDivide === 'birthday') {
         if (date.lunarMonth > birthday.lunarMonth
             || (date.lunarMonth === birthday.lunarMonth && date.lunarDay > birthday.lunarDay)) {
             nominalAge += 1;
@@ -213,7 +200,7 @@ export function computeFastHoroscope(
             earthlyBranch: t(kot(earthlyBranchOfDecade, 'Earthly')),
             palaceNames: palaceNamesFrom(decadalIndex),
             mutagen: mutagensOf(heavenlyStemOfDecade),
-            stars: getCachedHoroscopeStar(heavenlyStemOfDecade, earthlyBranchOfDecade, 'decadal'),
+            stars: getCachedHoroscopeStar(astrolabe, heavenlyStemOfDecade, earthlyBranchOfDecade, 'decadal'),
         },
         age: {
             index: ageIndex,
@@ -231,8 +218,8 @@ export function computeFastHoroscope(
             earthlyBranch: t(kot(yearly[1], 'Earthly')),
             palaceNames: palaceNamesFrom(yearlyIndex),
             mutagen: mutagensOf(yearly[0]),
-            stars: getCachedHoroscopeStar(yearly[0], yearly[1], 'yearly'),
-            yearlyDecStar: yearly12Of(targetDate, rules.horoscopeDivide),
+            stars: getCachedHoroscopeStar(astrolabe, yearly[0], yearly[1], 'yearly'),
+            yearlyDecStar: yearly12Of(solarDate, yearly[1]),
         },
         monthly: {
             index: monthlyIndex,
@@ -241,7 +228,7 @@ export function computeFastHoroscope(
             earthlyBranch: t(kot(monthly[1], 'Earthly')),
             palaceNames: palaceNamesFrom(monthlyIndex),
             mutagen: mutagensOf(monthly[0]),
-            stars: getCachedHoroscopeStar(monthly[0], monthly[1], 'monthly'),
+            stars: getCachedHoroscopeStar(astrolabe, monthly[0], monthly[1], 'monthly'),
         },
         daily: {
             index: dailyIndex,
@@ -250,7 +237,7 @@ export function computeFastHoroscope(
             earthlyBranch: t(kot(daily[1], 'Earthly')),
             palaceNames: palaceNamesFrom(dailyIndex),
             mutagen: mutagensOf(daily[0]),
-            stars: getCachedHoroscopeStar(daily[0], daily[1], 'daily'),
+            stars: getCachedHoroscopeStar(astrolabe, daily[0], daily[1], 'daily'),
         },
         hourly: {
             index: hourlyIndex,
@@ -259,7 +246,7 @@ export function computeFastHoroscope(
             earthlyBranch: t(kot(hourly[1], 'Earthly')),
             palaceNames: palaceNamesFrom(hourlyIndex),
             mutagen: mutagensOf(hourly[0]),
-            stars: getCachedHoroscopeStar(hourly[0], hourly[1], 'hourly'),
+            stars: getCachedHoroscopeStar(astrolabe, hourly[0], hourly[1], 'hourly'),
         },
     };
 

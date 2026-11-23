@@ -27,6 +27,7 @@ import { useTheme } from '../theme/ThemeContext';
 interface DateTimePickerProps {
     visible: boolean;
     initialDate: Date;
+    yearRange?: { min: number; max: number };
     onClose: () => void;
     onConfirm: (date: Date) => void;
     onConfirmDetail?: (selection: DateTimePickerSelection) => void;
@@ -205,12 +206,16 @@ function formatBaziResultLabel(date: Date): string {
 export default function DateTimePicker({
     visible,
     initialDate,
+    yearRange,
     onClose,
     onConfirm,
     onConfirmDetail,
 }: DateTimePickerProps) {
     const { Colors } = useTheme();
     const styles = useMemo(() => makeStyles(Colors), [Colors]);
+    const searchStart = yearRange?.min ?? 1801;
+    const searchEnd = yearRange?.max ?? 2099;
+    const yearOptions = useMemo(() => yearRange ? Array.from({ length: yearRange.max - yearRange.min + 1 }, (_, i) => String(yearRange.min + i)) : YEARS, [yearRange]);
     const [activeTab, setActiveTab] = useState<'solar' | 'lunar' | 'bazi'>('solar');
     const [draftDate, setDraftDate] = useState(() => new Date(initialDate));
     const [fastInput, setFastInput] = useState('');
@@ -237,9 +242,13 @@ export default function DateTimePicker({
 
     const handleConfirmSelection = useCallback((date: Date, sourceTab: DateTimePickerSelection['sourceTab']) => {
         const confirmedDate = new Date(date.getTime());
+        if (yearRange && (confirmedDate.getFullYear() < yearRange.min || confirmedDate.getFullYear() > yearRange.max)) {
+            CustomAlert.alert('时间超出范围', `请选择 ${yearRange.min}–${yearRange.max} 年内的公历时间。`);
+            return;
+        }
         onConfirm(confirmedDate);
         onConfirmDetail?.(buildSelection(confirmedDate, sourceTab));
-    }, [onConfirm, onConfirmDetail]);
+    }, [onConfirm, onConfirmDetail, yearRange]);
 
     const solarYear = draftDate.getFullYear().toString();
     const solarMonth = String(draftDate.getMonth() + 1).padStart(2, '0');
@@ -352,8 +361,8 @@ export default function DateTimePicker({
             baziDraft.monthGan + baziDraft.monthZhi,
             baziDraft.dayGan + baziDraft.dayZhi,
             baziDraft.hourGan + baziDraft.hourZhi,
-            1801,
-            2099,
+            searchStart,
+            searchEnd,
         );
         setBaziResults(nextResults);
         setBaziDraft((prev) => ({
@@ -361,9 +370,9 @@ export default function DateTimePicker({
             step: null,
         }));
         if (nextResults.length === 0) {
-            CustomAlert.alert('未找到', '在 1801-2099 年间没有找到这套四柱搭配的准确时间！');
+            CustomAlert.alert('未找到', `在 ${searchStart}–${searchEnd} 年间没有找到对应的四柱时刻。`);
         }
-    }, [baziDraft]);
+    }, [baziDraft, searchStart, searchEnd]);
 
     const handleConfirm = useCallback(() => {
         if (activeTab === 'solar') {
@@ -497,7 +506,7 @@ export default function DateTimePicker({
         if (activeTab === 'solar') {
             return (
                 <View style={styles.pickerContainer}>
-                    <ScrollPicker data={YEARS} value={solarYear} onValueChange={(value) => updateSolarDate({ year: parseInt(value, 10) })} Colors={Colors} />
+                    <ScrollPicker data={yearOptions} value={solarYear} onValueChange={(value) => updateSolarDate({ year: parseInt(value, 10) })} Colors={Colors} />
                     <ScrollPicker data={SOLAR_MONTHS} value={solarMonth} onValueChange={(value) => updateSolarDate({ month: parseInt(value, 10) })} Colors={Colors} />
                     <ScrollPicker data={solarDaysNum} value={solarDay} onValueChange={(value) => updateSolarDate({ day: parseInt(value, 10) })} Colors={Colors} />
                     <ScrollPicker data={HOURS} value={hour} onValueChange={(value) => updateSolarDate({ hour: parseInt(value, 10) })} Colors={Colors} />
@@ -509,7 +518,7 @@ export default function DateTimePicker({
             return (
                 <View>
                     <View style={styles.pickerContainer}>
-                        <ScrollPicker data={YEARS} value={lunarYear} onValueChange={(value) => updateLunarDate({ year: parseInt(value, 10) })} Colors={Colors} />
+                        <ScrollPicker data={yearOptions} value={lunarYear} onValueChange={(value) => updateLunarDate({ year: parseInt(value, 10) })} Colors={Colors} />
                         <ScrollPicker data={MONTH_CN} value={lunarMonth} onValueChange={(value) => updateLunarDate({ month: MONTH_CN.indexOf(value) + 1 })} Colors={Colors} />
                         <ScrollPicker data={DAY_CN} value={lunarDay} onValueChange={(value) => updateLunarDate({ day: DAY_CN.indexOf(value) + 1 })} Colors={Colors} />
                         <ScrollPicker data={HOURS} value={hour} onValueChange={(value) => updateSolarDate({ hour: parseInt(value, 10) })} Colors={Colors} />
@@ -601,7 +610,7 @@ export default function DateTimePicker({
 
                 {/* 搜索提示栏 */}
                 <View style={styles.baziControl}>
-                    <Text style={styles.baziSub}>查找范围：1801~2099年</Text>
+                    <Text style={styles.baziSub}>查找范围：{searchStart}–{searchEnd}年</Text>
                     <TouchableOpacity style={styles.baziClearBtn} onPress={clearBazi}>
                         <Svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={Colors.text.secondary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <Path d="M3 6h18" />

@@ -101,9 +101,10 @@ export interface AIProviderSettingsHandle {
  * probed automatically once the URL, key and a model are in place. Endpoint and
  * protocol come from the typed URL and the probe, never from the host name.
  */
-export default function AIProviderSettings({ settings, onChange, saveState, ref }: {
+export default function AIProviderSettings({ settings, onChange, saveState, onPendingModelChange, ref }: {
     settings: AISettings; onChange: React.Dispatch<React.SetStateAction<AISettings>>;
     saveState: SettingsSaveState; ref?: React.Ref<AIProviderSettingsHandle>;
+    onPendingModelChange: (pending: boolean) => void;
 }) {
     const { Colors } = useTheme();
     const { width } = useWindowDimensions();
@@ -217,8 +218,13 @@ export default function AIProviderSettings({ settings, onChange, saveState, ref 
         if (pickerOpen && query.trim()) addModel(query, catalogModels.find((entry) => entry.id === query.trim()));
         else closePicker();
     };
+    const hasPendingModel = Boolean(provider && pickerOpen && query.trim() && !provider.models.some((entry) => entry.model === query.trim()));
+    useEffect(() => {
+        onPendingModelChange(hasPendingModel);
+        return () => onPendingModelChange(false);
+    }, [hasPendingModel, onPendingModelChange]);
     useImperativeHandle(ref, () => ({
-        hasPendingModel: () => Boolean(provider && pickerOpen && query.trim() && !provider.models.some((entry) => entry.model === query.trim())),
+        hasPendingModel: () => hasPendingModel,
         commitPendingModel: commitModelQuery,
     }));
     const modelOptions = useMemo(() => {

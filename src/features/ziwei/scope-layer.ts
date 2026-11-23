@@ -226,8 +226,16 @@ export interface ZiweiCursorInfo {
     nominalAge: number;
 }
 
-export function buildZiweiCursorInfo(dynamic: ZiweiDynamicHoroscopeResult): ZiweiCursorInfo {
-    const cursor = dynamic.cursorDate;
+export function buildZiweiCursorInfo(
+    staticChart: ZiweiStaticChartResult,
+    dynamic: ZiweiDynamicHoroscopeResult,
+): ZiweiCursorInfo {
+    let cursor = dynamic.cursorDate;
+    if (cursor.getHours() === 23) {
+        // 运限已将晚子折为早子，时间轴沿用同一天，避免跳转后再次进日。
+        const dayOffset = staticChart.input.config.dayDivide === 'forward' ? 1 : 0;
+        cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + dayOffset);
+    }
     const lunar = getCachedLunarDate(cursor);
     const yearlyGz = `${zh(dynamic.horoscopeNow.yearly.heavenlyStem, 'Heavenly')}${zh(dynamic.horoscopeNow.yearly.earthlyBranch, 'Earthly')}`;
     const solarYear = cursor.getFullYear();
@@ -338,7 +346,7 @@ export function buildScopeLayer(
     staticChart: ZiweiStaticChartResult,
     dynamic: ZiweiDynamicHoroscopeResult,
     scope: ZiweiDynamicScope,
-    info: ZiweiCursorInfo = buildZiweiCursorInfo(dynamic),
+    info: ZiweiCursorInfo = buildZiweiCursorInfo(staticChart, dynamic),
 ): ZiweiScopeLayer {
     const snapshot = dynamic.runtimeSnapshot.scopes[scope];
     const prefix = SCOPE_PREFIX[scope];
@@ -662,7 +670,7 @@ export function buildZiweiTrack(
     staticChart: ZiweiStaticChartResult,
     dynamic: ZiweiDynamicHoroscopeResult,
     view: ZiweiView,
-    info: ZiweiCursorInfo = buildZiweiCursorInfo(dynamic),
+    info: ZiweiCursorInfo = buildZiweiCursorInfo(staticChart, dynamic),
 ): ZiweiTrack {
     const context: TrackContext = { staticChart, dynamic, info };
     switch (view) {

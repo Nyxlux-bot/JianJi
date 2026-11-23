@@ -5,6 +5,7 @@ import {
     NativeSyntheticEvent,
     Pressable,
     ScrollView,
+    type ScrollViewInstance,
     StyleSheet,
     Text,
     useWindowDimensions,
@@ -1609,7 +1610,7 @@ const SuiYunTable: React.FC<{
     palette: Palette;
     styles: Styles;
 }> = ({ yunColumns, pillarColumns, alignKey, palette, styles }) => {
-    const scrollRef = useRef<ScrollView>(null);
+    const scrollRef = useRef<ScrollViewInstance>(null);
     const [width, setWidth] = useState(0);
     const columnWidth = width > 0 ? (width - PRO_LABEL_WIDTH) / 6 : 0;
     const all = [...yunColumns, ...pillarColumns];

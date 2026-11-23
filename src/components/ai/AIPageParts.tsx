@@ -21,27 +21,28 @@ import { SendIcon } from '../Icons';
 import AIModelPicker, { EngravedDivider } from '../AIModelSelector';
 import ThinkingSlider from './ThinkingSlider';
 import { ELEMENT_COLOR_KEYS, type AIPageStyles } from './ai-page-styles';
-import type { Chapter, ChapterStatus } from './derive-chapters';
+import type { ChapterStatus } from './derive-chapters';
 
 /* ---------- stepper ---------- */
 
-export function AIStageStepper({ chapters, currentId, styles, onPress }: {
-    chapters: Chapter[]; currentId?: string; styles: AIPageStyles; onPress: (id: Chapter['id']) => void;
+export function AIStageStepper<K extends string>({ chapters, currentId, styles, onPress }: {
+    chapters: readonly { id: K; short: string; no?: string; title?: string; status?: ChapterStatus }[];
+    currentId?: string; styles: AIPageStyles; onPress: (id: K) => void;
 }) {
     return (
         <View style={styles.stepper} accessibilityRole="tablist">
             {chapters.map((chapter) => {
                 const reachable = chapter.status !== 'todo';
-                const barStyle = chapter.status === 'done' ? styles.stepBarDone : chapter.status === 'running' ? styles.stepBarRun
-                    : chapter.status === 'failed' ? styles.stepBarFail : null;
                 const current = chapter.id === currentId;
+                const barStyle = (!chapter.status && current) || chapter.status === 'done' ? styles.stepBarDone : chapter.status === 'running' ? styles.stepBarRun
+                    : chapter.status === 'failed' ? styles.stepBarFail : null;
                 return (
                     <TouchableOpacity key={chapter.id} style={styles.step} disabled={!reachable} onPress={() => onPress(chapter.id)}
-                        accessibilityRole="tab" accessibilityState={{ selected: current, disabled: !reachable }}
-                        accessibilityLabel={`${chapter.no}${chapter.title}，${STEP_STATUS[chapter.status]}`}>
+                        accessibilityRole="tab" aria-selected={current} accessibilityState={{ selected: current, disabled: !reachable }}
+                        accessibilityLabel={chapter.status ? `${chapter.no}${chapter.title}，${STEP_STATUS[chapter.status]}` : chapter.short}>
                         <View style={[styles.stepBar, barStyle]} />
-                        <Text numberOfLines={1} style={[styles.stepLabel, reachable && styles.stepLabelActive, current && styles.stepLabelCurrent]}>
-                            {chapter.no} {chapter.short}
+                        <Text numberOfLines={1} style={[styles.stepLabel, reachable && styles.stepLabelActive, current && styles.stepLabelCurrent, !chapter.status && styles.centeredStepLabel]}>
+                            {chapter.no ? chapter.no + ' ' : ''}{chapter.short}
                         </Text>
                     </TouchableOpacity>
                 );
@@ -349,7 +350,8 @@ export function ActionButton({ label, onPress, primary, disabled, styles, small 
 
 /* ---------- composer ---------- */
 
-export function AIComposer({ value, onChange, onSend, disabledReason, busy, quickReplies, onQuickReply, styles, Colors }: {
+export function AIComposer({ value, onChange, onSend, disabledReason, busy, quickReplies, onQuickReply, styles, Colors, children, maxLength = 240 }: {
+    children?: React.ReactNode; maxLength?: number;
     value: string; onChange: (text: string) => void; onSend: () => void; disabledReason?: string; busy?: boolean;
     quickReplies: string[]; onQuickReply: (text: string) => void; styles: AIPageStyles; Colors: any;
 }) {
@@ -357,6 +359,7 @@ export function AIComposer({ value, onChange, onSend, disabledReason, busy, quic
     const canSend = !locked && !busy && value.trim().length > 0;
     return (
         <View style={styles.composer}>
+            {children}
             {!locked && quickReplies.length > 0 ? (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} keyboardShouldPersistTaps="handled">
                     {quickReplies.map((item) => (
@@ -375,7 +378,7 @@ export function AIComposer({ value, onChange, onSend, disabledReason, busy, quic
                     onChangeText={onChange}
                     editable={!locked && !busy}
                     multiline
-                    maxLength={240}
+                    maxLength={maxLength}
                     accessibilityLabel="追问"
                     accessibilityHint={disabledReason}
                 />

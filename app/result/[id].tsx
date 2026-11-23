@@ -100,6 +100,9 @@ export default function ResultPage() {
                     } else if (detail.engineType === 'baziCompatibility') {
                         router.replace(`/bazi/match/result/${id}`);
                         return;
+                    } else if (detail.engineType === 'qimen') {
+                        router.replace(`/qimen/result/${id}`);
+                        return;
                     } else if (detail.engineType === 'meihua') {
                         router.replace(`/meihua/result/${id}`);
                         return;

@@ -22,6 +22,7 @@ const PILL_H = 56;
 const BAR_R = HEIGHT / 2 - 1;
 const PILL_R = PILL_H / 2 - 1;
 const GROW = 1.18;                                  // 按住时水泡鼓多大
+const LENS_FADE = 4;                                 // 水泡扩出底栏边缘之前完成交叉淡入
 // Reanimated 4 弹簧默认 mass 是 4，不写的话阻尼比只剩一半，最远一跳（设置→排盘）会冲出栏外
 const FOLLOW = { stiffness: 900, damping: 45, mass: 1 };   // 按住时跟手要紧
 const SETTLE = { stiffness: 415, damping: 29, mass: 1 };   // 松手落位：阻尼比约 0.7、过冲约 4%，同原来的朱红指示条
@@ -63,7 +64,7 @@ const THEME = {
  * 液态玻璃底栏：选中块是一片玻璃。点页签，它弹簧滑过去、路上略拉长；
  * 按住，它鼓成透亮的水泡，折射并放大底下；按住左右拖，水泡跟手走，经过的图标放大变金，松手落到最近的页签。
  */
-export default function LiquidTabBar({ state, descriptors, navigation }: TabBarProps) {
+export default function LiquidTabBar({ state, descriptors, emitter, navigateToTab }: TabBarProps) {
     const { theme } = useTheme();
     const colors = THEME[theme];
     const insets = useSafeAreaInsets();
@@ -95,6 +96,7 @@ export default function LiquidTabBar({ state, descriptors, navigation }: TabBarP
     // 页签默认第一次点开才挂载，挂载那一下会卡住切页动画。启动稳住后把没开过的页签逐个预加载好
     useEffect(() => {
         const timers = state.routes.map((route, k) => setTimeout(() => {
+            const navigation = descriptors[route.key].navigation;
             const now = navigation.getState();
             if (now.routes[now.index].key !== route.key) navigation.preload(route.name);
         }, PRELOAD_AFTER_MS + k * PRELOAD_GAP_MS));
@@ -105,17 +107,17 @@ export default function LiquidTabBar({ state, descriptors, navigation }: TabBarP
 
     const go = useCallback((index: number) => {
         const route = state.routes[index];
-        const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
+        const event = emitter.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
         if (index !== state.index && !event.defaultPrevented) {
             // 立刻切：原来延后 180ms，连点 A→B→C 时 B 迟到落地会把玻璃拽回 B 再去 C，看着跟不上。
             // 原生同步开关打开后，挂载新页面不再卡住玻璃的动画；页签也已预加载，切过去不用现挂载
-            const navigate = () => navigation.navigate(route.name);
+            const navigate = () => navigateToTab(route.key);
             if (state.routes[state.index]?.name === 'settings') requestSettingsLeave(navigate);
             else navigate();
         }
         // 设置页有未保存的改动时会先弹确认，没切过去就把玻璃送回原位
         setTimeout(() => { if (indexRef.current !== index) settle(indexRef.current); }, 400);
-    }, [navigation, settle, state.index, state.routes]);
+    }, [emitter, navigateToTab, settle, state.index, state.routes]);
 
     const gesture = Gesture.Simultaneous(
         // 按下就鼓水泡、跟手；拖动松手由它选页签
@@ -153,11 +155,11 @@ export default function LiquidTabBar({ state, descriptors, navigation }: TabBarP
     );
 
     const pill = useAnimatedStyle(() => ({
-        opacity: 1 - press.value,
+        opacity: 1 - Math.min(1, Math.max(0, press.value * LENS_FADE)),
         transform: shape(x, aim, press, item, barWidth),
     }));
     const lens = useAnimatedStyle(() => ({
-        opacity: press.value,
+        opacity: Math.min(1, Math.max(0, press.value * LENS_FADE)),
         transform: shape(x, aim, press, item, barWidth),
     }));
 

@@ -7,6 +7,7 @@ import { BaziCompatibilityResult } from '../features/bazi/match/types';
 import { ZiweiRecordResult } from '../features/ziwei/record';
 import { ZIWEI_SUPPORTED_TIMEZONE_OFFSET_MINUTES } from '../features/ziwei/runtime-meta';
 import { MeihuaResult } from '../features/meihua/types';
+import type { QimenResult } from '../features/qimen/types';
 import {
     DivinationEngine,
     DivinationRecordEnvelope,
@@ -14,6 +15,7 @@ import {
     isDivinationMethod,
     isBaziCompatibilityResult,
     isMeihuaResult,
+    isQimenResult,
     isPanResult,
     isZiweiRecordResult,
 } from './record-types';
@@ -111,6 +113,15 @@ function validateMeihuaRecord(result: unknown, index: number): MeihuaResult {
     return sanitized;
 }
 
+function validateQimenRecord(result: unknown, index: number): QimenResult {
+    const sanitized = isObject(result) && Array.isArray(result.aiChatHistory)
+        ? { ...result, aiChatHistory: result.aiChatHistory.filter(isPersistedAIChatMessageStruct).map(item => ({ ...item, executionMeta: sanitizeAIExecutionMeta(item.executionMeta) })) }
+        : result;
+    if (!isQimenResult(sanitized)) throw new Error(`第${index + 1}条记录格式无效：奇门盘面、时间或规则版本不受支持`);
+    assertCreatedAt(sanitized.createdAt, index);
+    return sanitized;
+}
+
 function normalizeSummary(summary: unknown): DivinationRecordEnvelope['summary'] {
     if (!isObject(summary)) {
         return undefined;
@@ -165,6 +176,10 @@ function normalizeRecord(record: unknown, index: number): DivinationRecordEnvelo
                 result: validateMeihuaRecord(record.result, index),
                 summary: normalizeSummary(record.summary),
             };
+        }
+
+        if (record.engineType === 'qimen') {
+            return { engineType: 'qimen', result: validateQimenRecord(record.result, index), summary: normalizeSummary(record.summary) };
         }
 
         if (record.engineType === 'baziCompatibility') {

@@ -5,6 +5,7 @@ import {
     Modal,
     Platform,
     ScrollView,
+    type ScrollViewInstance,
     Text,
     TouchableOpacity,
     View,
@@ -55,7 +56,11 @@ import {
     getLocalZiweiVerificationActions,
     type AIDivinationResult,
 } from '../services/ai';
-import { isMeihuaResult } from '../db/record-types';
+import { isMeihuaResult, isQimenResult } from '../db/record-types';
+import { QIMEN_INITIAL_REQUEST, QIMEN_READING_TABS, type QimenReadingTab } from '../features/qimen/ai-reading';
+import { QimenQuotePreview, QimenReadingPanel, type QimenQuote } from './ai/QimenReadingPanel';
+import { linkQimenPalaces, qimenCitationText } from '../features/qimen/palace-links';
+import type { QimenPeriod } from '../features/qimen/types';
 import {
     AIAnalysisJobState,
     cancelAIAnalysisJob,
@@ -110,6 +115,11 @@ interface AIChatModalProps {
     onUpdateResult(result: AIPageResult): void;
     baziContext?: BaziFormatterContext;
     ziweiContext?: ZiweiFormatterContext;
+    initialQuestion?: string;
+    qimenPeriod?: QimenPeriod;
+    qimenBoardVisit?: boolean;
+    onQimenBoardPress?: (period: QimenPeriod) => void;
+    onLinkPress?: (url: string) => boolean;
 }
 
 type AIPageResult = AIDivinationResult | BaziCompatibilityResult;
@@ -122,7 +132,7 @@ interface UIChatMessage extends PersistedAIChatMessage {
 let messageSeq = 0;
 
 function isBaziResult(result: unknown): result is BaziResult {
-    return typeof result === 'object' && result !== null && 'fourPillars' in result && Array.isArray(result.fourPillars);
+    return typeof result === 'object' && result !== null && 'fourPillars' in result && Array.isArray(result.fourPillars) && !('kind' in result && result.kind === 'qimen');
 }
 
 function isCompatResult(result: unknown): result is BaziCompatibilityResult {
@@ -133,6 +143,7 @@ function getInitialPrompt(mode: AIPageEngine): string {
     if (mode === 'bazi') return getBaziFoundationPrompt();
     if (mode === 'ziwei') return getZiweiFoundationPrompt();
     if (mode === 'baziCompatibility') return '请进行八字合盘详批';
+    if (mode === 'qimen') return QIMEN_INITIAL_REQUEST;
     if (mode === 'meihua') return '请按体用生克帮我全面分析此卦！';
     return '请帮我全面分析一下此卦！';
 }
@@ -175,17 +186,21 @@ function areMessagesEqual(left: UIChatMessage[], right: UIChatMessage[]): boolea
             && message.hidden === other.hidden
             && message.pending === other.pending
             && message.requestContent === other.requestContent
+            && message.qimenPeriod === other.qimenPeriod
+            && message.qimenExcerpt === other.qimenExcerpt
             && message.workflowStage === other.workflowStage
             && JSON.stringify(message.executionMeta) === JSON.stringify(other.executionMeta);
     });
 }
 
 function toPersistedMessages(messages: UIChatMessage[]): PersistedAIChatMessage[] {
-    return messages.map(({ role, content, hidden, requestContent, workflowStage, executionMeta }) => ({
+    return messages.map(({ role, content, hidden, requestContent, qimenPeriod, qimenExcerpt, workflowStage, executionMeta }) => ({
         role,
         content,
         hidden,
         requestContent,
+        qimenPeriod,
+        qimenExcerpt,
         workflowStage,
         executionMeta,
     }));
@@ -251,6 +266,7 @@ function buildHeaderMeta(result: AIPageResult): { title: string; subtitle: strin
         };
     }
 
+    if (isQimenResult(result)) return { title: '奇门盘解', subtitle: `${result.form ?? '转盘'} · 四盘合读` };
     if (isMeihuaResult(result)) {
         return { title: result.ben.fullName, subtitle: result.bian.fullName };
     }
@@ -291,6 +307,7 @@ function buildZiweiStaleNotice(isStale: boolean): { title: string; body: string 
 function buildAnalysisJobPendingMessage(job: AIAnalysisJobState): UIChatMessage | null {
     const subject = job.engineType === 'liuyao'
         ? '六爻分析'
+        : job.engineType === 'qimen' ? '奇门分析'
         : job.engineType === 'meihua'
             ? '梅花分析'
         : job.engineType === 'bazi'
@@ -386,7 +403,7 @@ function getAnalysisJobNotice(job?: AIAnalysisJobState | null): string | null {
     return null;
 }
 
-export default function AIChatModal({ visible, onClose, result, onUpdateResult, baziContext, ziweiContext }: AIChatModalProps) {
+export default function AIChatModal({ visible, onClose, result, onUpdateResult, baziContext, ziweiContext, qimenPeriod, initialQuestion, qimenBoardVisit, onQimenBoardPress, onLinkPress }: AIChatModalProps) {
     const { Colors } = useTheme();
     const activeModel = useActiveAIModel(visible);
     const latestResultRef = useRef<AIPageResult>(result);
@@ -402,6 +419,20 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
 
     const [messages, setMessages] = useState<UIChatMessage[]>([]);
     const [inputText, setInputText] = useState('');
+    const [readingTab, setReadingTab] = useState<QimenReadingTab>('时盘');
+    const [readingPeriod, setReadingPeriod] = useState<QimenPeriod>('时盘');
+    const [summaryOpen, setSummaryOpen] = useState(true);
+    const returnOffset = useRef<number | null>(null);
+    const [quote, setQuote] = useState<QimenQuote>();
+    useEffect(() => {
+        if (!visible || qimenBoardVisit || !isQimenResult(latestResultRef.current)) return;
+        returnOffset.current = null;
+        setSummaryOpen(true);
+        const period = qimenPeriod ?? '时盘';
+        setReadingPeriod(period);
+        setReadingTab(initialQuestion || !latestResultRef.current.question.trim() ? '追问' : period);
+        setQuote(undefined);
+    }, [visible, result.id, qimenPeriod, initialQuestion, qimenBoardVisit]);
     const [isLoading, setIsLoading] = useState(false);
     const [kinshipSaving, setKinshipSaving] = useState(false);
     const [feedbackVisible, setFeedbackVisible] = useState(false);
@@ -420,7 +451,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     const [analysisJob, setAnalysisJob] = useState<AIAnalysisJobState | null>(null);
     const workflowMode: AIPageEngine = isBaziResult(result)
         ? 'bazi'
-        : isZiweiResult(result) ? 'ziwei' : isCompatResult(result) ? 'baziCompatibility' : isMeihuaResult(result) ? 'meihua' : 'liuyao';
+        : isZiweiResult(result) ? 'ziwei' : isCompatResult(result) ? 'baziCompatibility' : isMeihuaResult(result) ? 'meihua' : isQimenResult(result) ? 'qimen' : 'liuyao';
     const stagedMode = workflowMode === 'bazi' || workflowMode === 'ziwei';
     const kinshipWorkflow = isBaziResult(result) && getBaziWorkflowVersion(result) === 2;
     const kinshipState = isBaziResult(result) ? getCurrentKinshipVerification(result) : undefined;
@@ -596,10 +627,14 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                             ? []
                             : getQuickReplies(result),
             );
-        } else {
+        } else if (!qimenBoardVisit) {
             setInputText('');
         }
     }, [visible, result.id, stagedMode, workflowMode, result, ziweiAnalysisStale]);
+
+    useEffect(() => {
+        if (visible && !qimenBoardVisit && initialQuestion && latestMessagesRef.current.length > 0) setInputText(initialQuestion);
+    }, [visible, initialQuestion]);
 
     const saveAndSync = async (
         nextMessages: UIChatMessage[],
@@ -676,7 +711,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                 };
 
         await saveRecord({
-            engineType: isBaziResult(updatedResult) ? 'bazi' : isZiweiResult(updatedResult) ? 'ziwei' : isMeihuaResult(updatedResult) ? 'meihua' : 'liuyao',
+            engineType: isBaziResult(updatedResult) ? 'bazi' : isZiweiResult(updatedResult) ? 'ziwei' : isMeihuaResult(updatedResult) ? 'meihua' : isQimenResult(updatedResult) ? 'qimen' : 'liuyao',
             result: updatedResult,
         });
 
@@ -699,6 +734,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             hiddenUser?: boolean;
             isQuickReply?: boolean;
             requestTextOverride?: string;
+            originalMessage?: PersistedAIChatMessage;
             nextWorkflowStage?: BaziAIConversationStage;
             expectedCompletion?: AIWorkflowResponseKind;
             /** Text written before a cut-off, for 继续生成. */
@@ -730,8 +766,11 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             {
                 role: 'user',
                 content: text,
-                hidden: options.hiddenUser,
+                hidden: workflowMode === 'qimen' && text === QIMEN_INITIAL_REQUEST ? true : options.hiddenUser,
                 requestContent: rewrittenText && rewrittenText !== text ? rewrittenText : undefined,
+                qimenPeriod: options.originalMessage?.qimenPeriod ?? (workflowMode === 'qimen'
+                    ? (options.isAutoInitial ? qimenPeriod : quote?.period ?? readingPeriod) : undefined),
+                qimenExcerpt: options.originalMessage ? options.originalMessage.qimenExcerpt : options.isAutoInitial ? undefined : quote?.text,
                 uiId: generateMessageId('user'),
                 ...(isBaziResult(latestResultRef.current) && getBaziWorkflowVersion(latestResultRef.current) === 2
                     ? { workflowStage: options.expectedCompletion ?? 'followup' as const } : {}),
@@ -741,6 +780,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
 
         Keyboard.dismiss();
         setInputText('');
+        setQuote(undefined);
         setQuickReplies([]);
         setArtifactNotice(null);
         if (workflowMode !== 'ziwei') {
@@ -792,7 +832,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             }
 
             void handleSend(
-                getInitialPrompt(workflowMode),
+                (initialQuestion || getInitialPrompt(workflowMode)),
                 {
                     isAutoInitial: true,
                     hiddenUser: !isReadingEngine(workflowMode),
@@ -809,7 +849,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             CustomAlert.alert('暂无可复制内容', '当前没有助手回复可复制。');
             return;
         }
-        await Clipboard.setStringAsync(assistantText);
+        await Clipboard.setStringAsync(workflowMode === 'qimen' ? qimenCitationText(assistantText) : assistantText);
         CustomAlert.alert('复制成功', '已复制最后一条助手回复。');
     };
 
@@ -823,7 +863,9 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         latestMessagesRef.current = retryPlan.baseMessages;
         setQuickReplies([]);
         await handleSend(retryPlan.displayText, {
+            isAutoInitial: isReadingEngine(workflowMode) && retryPlan.baseMessages.length === 0,
             baseMessagesOverride: retryPlan.baseMessages,
+            originalMessage: messages[retryPlan.baseMessages.length],
             requestTextOverride: retryPlan.retryText !== retryPlan.displayText ? retryPlan.retryText : undefined,
         });
     };
@@ -1092,7 +1134,9 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
             isAutoInitial: analysisJob.phase === 'initial',
             baseMessagesOverride: baseMessages,
             hiddenUser: failedUser.hidden,
-            requestTextOverride: failedUser.requestContent,
+            requestTextOverride: analysisJob.engineType === 'qimen' && analysisJob.validation?.issues.length
+                ? failedUser.content + '\n请根据本盘资料重新作答，并修正：' + analysisJob.validation.issues.join('；') : failedUser.requestContent,
+            originalMessage: failedUser,
             expectedCompletion: analysisJob.expectedCompletion,
             nextWorkflowStage: analysisJob.nextWorkflowStage,
             continuation: continueFromDraft ? analysisJob.draftContent : undefined,
@@ -1104,7 +1148,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         if (workflowMode === 'baziCompatibility') {
             CustomAlert.alert('重新生成合盘详批？', '新的详批写完并保存后才会替换现在这份。', [
                 { text: '取消', style: 'cancel' },
-                { text: '重新生成', onPress: () => void handleSend(getInitialPrompt(workflowMode), { isAutoInitial: true, hiddenUser: true, baseMessagesOverride: [] }) },
+                { text: '重新生成', onPress: () => void handleSend((initialQuestion || getInitialPrompt(workflowMode)), { isAutoInitial: true, hiddenUser: true, baseMessagesOverride: [] }) },
             ]);
             return;
         }
@@ -1126,6 +1170,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     const performResetAnalysis = async () => {
         try {
             // 1. 立即清空所有 UI 状态
+            setQuote(undefined);
             setMessages([]);
             setQuickReplies([]);
             setArtifactNotice(null);
@@ -1184,9 +1229,12 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                     // 再次确保清空(防止 useEffect 干扰)
                     setMessages([]);
                     latestMessagesRef.current = [];
+                    if (workflowMode === 'qimen' && isQimenResult(typedResult)) {
+                        setReadingTab(typedResult.question.trim() ? (qimenPeriod ?? '时盘') : '追问');
+                    }
 
                     void handleSend(
-                        getInitialPrompt(workflowMode),
+                        workflowMode === 'qimen' ? getInitialPrompt(workflowMode) : (initialQuestion || getInitialPrompt(workflowMode)),
                         {
                             isAutoInitial: true,
                             hiddenUser: true,
@@ -1246,14 +1294,15 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     const pageStyles = useMemo(() => makeAIPageStyles(Colors), [Colors]);
     const aiMarkdownStyles = useMemo(() => makeAIMarkdownStyles(Colors), [Colors]);
     const jobFailed = analysisJob?.status === 'failed' || analysisJob?.status === 'interrupted';
-    const chapters = useMemo(() => deriveChapters(workflowMode, displayMessages, analysisJob ? {
+    const chapters = useMemo(() => workflowMode === 'qimen' ? [] : deriveChapters(workflowMode, displayMessages, analysisJob ? {
         active: jobActive, failed: jobFailed, expectedCompletion: analysisJob.expectedCompletion, phase: analysisJob.phase,
     } : null), [workflowMode, displayMessages, jobActive, jobFailed, analysisJob?.expectedCompletion, analysisJob?.phase]);
     const shownChapters = chapters.filter((chapter) => chapter.status !== 'todo');
     const anchorChapter = shownChapters.find((chapter) => chapter.status === 'running' || chapter.status === 'failed')
         ?? shownChapters[shownChapters.length - 1];
-    const runningChapter = jobActive && analysisJob ? getJobChapter(workflowMode, analysisJob) : null;
-    const getDisplayContent = useCallback((message: UIChatMessage) => message.content, []);
+    const runningChapter = workflowMode !== 'qimen' && jobActive && analysisJob ? getJobChapter(workflowMode, analysisJob) : null;
+    const getDisplayContent = useCallback((message: UIChatMessage) => workflowMode === 'qimen'
+        ? linkQimenPalaces(message.content) : message.content, [workflowMode]);
 
     /* ---------- app-side year facts ---------- */
     const yearCache = useMemo(() => new Map<number, { meta?: ChapterYearMeta; panel?: React.ReactNode }>(), [result, pageStyles]);
@@ -1321,7 +1370,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     const markCount = Object.keys(verificationMarks ?? {}).length;
 
     /* ---------- scrolling: follow only when the reader is at the bottom ---------- */
-    const scrollRef = useRef<ScrollView>(null);
+    const scrollRef = useRef<ScrollViewInstance>(null);
     const chapterYRef = useRef<Partial<Record<ChapterId, number>>>({});
     const metricsRef = useRef({ offset: 0, height: 0, content: 0 });
     const followRef = useRef(false);
@@ -1336,6 +1385,16 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
     useEffect(() => {
         if (!jobActive) setShowNewPill(false);
     }, [jobActive]);
+
+    const switchReadingTab = (tab: QimenReadingTab) => {
+        if (tab !== '追问') setReadingPeriod(tab);
+        setReadingTab(tab);
+        followRef.current = tab === '追问';
+        pendingScrollRef.current = tab === '追问' ? 'end' : null;
+        setShowNewPill(false);
+        if (tab === '追问') scrollRef.current?.scrollToEnd({ animated: false });
+        else scrollRef.current?.scrollTo({ y: 0, animated: false });
+    };
 
     const scrollToChapter = useCallback((id: ChapterId, animated = true) => {
         const y = chapterYRef.current[id];
@@ -1389,6 +1448,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         const nearBottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - 48;
         if (userScrollingRef.current) followRef.current = nearBottom;
         if (nearBottom) setShowNewPill(false);
+        if (workflowMode === 'qimen') return;
         const position = contentOffset.y + 48;
         let current: ChapterId | undefined;
         shownChapters.forEach((chapter) => {
@@ -1400,6 +1460,13 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         if (current && current !== currentChapterId) setCurrentChapterId(current);
     };
     const handleContentSizeChange = (_width: number, height: number) => {
+        if (visible && qimenBoardVisit && returnOffset.current !== null) {
+            const y = returnOffset.current;
+            requestAnimationFrame(() => scrollRef.current?.scrollTo({ y, animated: false }));
+            if (height >= y + metricsRef.current.height - 1) returnOffset.current = null;
+            return;
+        }
+        if (workflowMode === 'qimen' && readingTab !== '追问') return;
         const previous = metricsRef.current.content;
         metricsRef.current.content = height;
         if (pendingScrollRef.current === 'end' || followRef.current) {
@@ -1423,6 +1490,9 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
         // Long thinking is the usual cause of truncation and gateway timeouts, so these offer a lighter level.
         if (code === 'token_limit') return { title: '正文没写完', message: `思考占用了大部分输出额度，模型在写完前停下了。${kept}`, lighter: true };
         if (code === 'network_error' || code === 'timeout') return { title: friendly?.title ?? '连接中断', message: `${friendly?.hint ?? '和接口的连接断开了。'}${kept}`, lighter: friendly ? Boolean(friendly.thinkingRelated) : true };
+        if (job.engineType === 'qimen' && code === 'invalid_response' && job.validation?.issues.length) {
+            return { title: '盘据核对未通过', message: job.validation.issues.join('；'), lighter: false };
+        }
         if (code === 'invalid_response' || code === 'empty_response') return { title: '回复没有写完', message: `模型提前结束了回复。${kept}`, lighter: false };
         if (code === 'record_changed') return { title: '记录已变化', message: job.failure?.message ?? '', lighter: false };
         if (code === 'missing_api_key' || code === 'missing_api_url' || code === 'invalid_configuration') return { title: '接口还没配置好', message: job.failure?.message ?? '请到设置里检查接口与 Key。', lighter: false };
@@ -1590,7 +1660,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                                     <BackIcon size={24} color={Colors.text.primary} />
                                 </TouchableOpacity>
                                 <View style={pageStyles.headerTitleWrap}>
-                                    {isReadingEngine(workflowMode) ? (
+                                    {isReadingEngine(workflowMode) && workflowMode !== 'qimen' ? (
                                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                                             <Text style={pageStyles.headerTitle} numberOfLines={1}>{headerMeta.title}</Text>
                                             <GuaArrowIcon size={14} color={Colors.accent.gold} />
@@ -1609,7 +1679,9 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                                     <MoreVerticalIcon size={20} color={Colors.text.primary} />
                                 </TouchableOpacity>
                             </View>
-                            {stagedMode ? (
+                            {workflowMode === 'qimen' ? (
+                                <AIStageStepper chapters={QIMEN_READING_TABS} currentId={readingTab} styles={pageStyles} onPress={switchReadingTab} />
+                            ) : stagedMode ? (
                                 <AIStageStepper chapters={chapters} currentId={currentChapterId ?? anchorChapter?.id} styles={pageStyles}
                                     onPress={(id) => { followRef.current = false; scrollToChapter(id); }} />
                             ) : null}
@@ -1633,13 +1705,21 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                                     keyboardShouldPersistTaps="handled"
                                     showsVerticalScrollIndicator={false}
                                 >
-                                    {chartSummary}
+                                    {isQimenResult(result) ? <QimenReadingPanel result={result} tab={readingTab} messages={displayMessages}
+                                        busy={jobActive} styles={pageStyles} markdown={aiMarkdownStyles} summaryOpen={summaryOpen} onToggleSummary={() => setSummaryOpen(v => !v)}
+                                        onLinkPress={url => { if (url.startsWith('qimen:')) returnOffset.current = metricsRef.current.offset; return onLinkPress?.(url) ?? true; }}
+                                        onBoard={p => { returnOffset.current = metricsRef.current.offset; onQimenBoardPress?.(p); }} footer={footer}
+                                        onAsk={source => { setQuote(source); switchReadingTab('追问'); }}
+                                        onTab={switchReadingTab}
+                                        onRead={() => void handleSend(QIMEN_INITIAL_REQUEST, { isAutoInitial: true, hiddenUser: true })} />
+                                    : <>{chartSummary}
                                     {shownChapters.map((chapter) => (
                                         <AIChapterCard<UIChatMessage>
                                             key={chapter.id}
                                             chapter={chapter}
                                             styles={pageStyles}
                                             markdownStyles={aiMarkdownStyles}
+                                            onLinkPress={onLinkPress}
                                             Colors={Colors}
                                             getDisplayContent={getDisplayContent}
                                             yearMeta={stagedMode ? yearMeta : undefined}
@@ -1660,7 +1740,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                                             </View>
                                             {footer ?? (
                                                 <ActionButton label="开始分析" primary styles={pageStyles} onPress={() => {
-                                                    void handleSend(getInitialPrompt(workflowMode), {
+                                                    void handleSend((initialQuestion || getInitialPrompt(workflowMode)), {
                                                         isAutoInitial: true, hiddenUser: !isReadingEngine(workflowMode), baseMessagesOverride: [],
                                                         expectedCompletion: stagedMode ? 'foundation' : undefined,
                                                         nextWorkflowStage: stagedMode ? 'foundation_ready' : undefined,
@@ -1668,7 +1748,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                                                 }} />
                                             )}
                                         </View>
-                                    ) : null}
+                                    ) : null}</>}
                                 </ScrollView>
                                 {showNewPill ? (
                                     <TouchableOpacity style={pageStyles.pill} accessibilityRole="button" onPress={() => {
@@ -1680,7 +1760,7 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                                     </TouchableOpacity>
                                 ) : null}
                             </View>
-                            <AIComposer
+                            {(workflowMode !== 'qimen' || readingTab === '追问') && <AIComposer
                                 value={inputText}
                                 onChange={setInputText}
                                 onSend={() => { void handleSend(); }}
@@ -1688,9 +1768,12 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                                 busy={isLoading}
                                 quickReplies={!isLoading && (!stagedMode || workflowStage === 'followup_ready') ? quickReplies : []}
                                 onQuickReply={(text) => { void handleSend(text, { isQuickReply: stagedMode }); }}
-                                    styles={pageStyles}
+                                styles={pageStyles}
                                 Colors={Colors}
-                            />
+                                maxLength={workflowMode === 'qimen' ? 1500 : undefined}
+                            >
+                                {quote && <QimenQuotePreview quote={quote} styles={pageStyles} onRemove={() => setQuote(undefined)} />}
+                            </AIComposer>}
                         </KeyboardAvoidingView>
                         <BaziKinshipFeedbackModal visible={feedbackVisible} value={feedbackDraft} busy={kinshipSaving}
                             onChange={setFeedbackDraft} onClose={() => setFeedbackVisible(false)} onSave={saveFeedbackAndContinue} />

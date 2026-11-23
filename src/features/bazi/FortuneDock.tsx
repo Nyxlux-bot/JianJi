@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, View, type ScrollViewInstance } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import type { ResultPalette } from '../../theme/result-palette';
@@ -87,7 +87,7 @@ const GanZhiText: React.FC<{ value: string; style: any; palette: ResultPalette }
 );
 
 const DockTrack: React.FC<{ level: FortuneDockLevel; palette: ResultPalette; styles: Styles }> = ({ level, palette, styles }) => {
-    const scrollRef = useRef<ScrollView>(null);
+    const scrollRef = useRef<ScrollViewInstance>(null);
     const [viewportWidth, setViewportWidth] = useState(0);
     const hasScrolledRef = useRef(false);
     const activeIndex = level.cells.findIndex((cell) => cell.active);

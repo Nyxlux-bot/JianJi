@@ -36,13 +36,13 @@ export const makeAIPageStyles = (Colors: any) => StyleSheet.create({
     headerTitle: { fontSize: FontSize.md, fontWeight: '600', color: Colors.text.heading },
     headerSubtitle: { fontSize: FontSize.xs, color: Colors.text.secondary, marginTop: 1, letterSpacing: 1 },
     modelChip: {
-        maxWidth: 150, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 32, paddingHorizontal: 10,
+        maxWidth: 192, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 32, paddingHorizontal: 10,
         borderRadius: 999, borderWidth: 1, borderColor: Colors.border.normal, backgroundColor: Colors.bg.secondary,
     },
-    modelChipDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.accent.gold },
+    modelChipDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.accent.gold, flexShrink: 0 },
     modelChipDotIdle: { backgroundColor: Colors.text.tertiary },
     modelChipText: { fontSize: FontSize.xs, color: Colors.text.secondary, flexShrink: 1 },
-    modelChipLevel: { fontSize: FontSize.xs, color: Colors.accent.gold, fontWeight: '600' },
+    modelChipLevel: { fontSize: FontSize.xs, color: Colors.accent.gold, fontWeight: '600', flexShrink: 0 },
 
     stepper: { flexDirection: 'row', gap: 4, paddingHorizontal: 6, paddingTop: Spacing.sm, paddingBottom: Spacing.sm },
     step: { flex: 1, minWidth: 0, gap: 5, minHeight: 32, justifyContent: 'center' },
@@ -51,6 +51,7 @@ export const makeAIPageStyles = (Colors: any) => StyleSheet.create({
     stepBarRun: { backgroundColor: Colors.accent.goldDark },
     stepBarFail: { backgroundColor: Colors.accent.red },
     stepLabel: { fontSize: FontSize.xs, color: Colors.text.tertiary },
+    centeredStepLabel: { textAlign: 'center' },
     stepLabelActive: { color: Colors.text.secondary },
     stepLabelCurrent: { color: Colors.text.heading, fontWeight: '600' },
 
@@ -85,6 +86,14 @@ export const makeAIPageStyles = (Colors: any) => StyleSheet.create({
     chapName: { flex: 1, fontSize: 15, fontWeight: '600', color: Colors.text.heading },
     seal: { fontSize: FontSize.xs, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, borderWidth: 1, overflow: 'hidden' },
 
+    qimenCase: { gap: Spacing.sm },
+    caseQuestion: { color: Colors.text.heading, fontSize: 20, fontWeight: '600', lineHeight: 28 },
+    casePillars: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: Spacing.xs },
+    casePillar: { flexDirection: 'row', alignItems: 'baseline', gap: 5 },
+    casePillarValue: { fontSize: 17, fontWeight: '600' },
+    qimenVerdict: { gap: 6, borderTopWidth: 1, borderTopColor: Colors.border.subtle, paddingTop: Spacing.md },
+    readingActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: Colors.border.subtle, marginTop: Spacing.sm },
+    quotedPassage: { gap: 4, borderLeftWidth: 2, borderLeftColor: Colors.accent.goldDark, paddingLeft: Spacing.sm, marginBottom: Spacing.xs },
     intro: { fontSize: FontSize.sm, lineHeight: 21, color: Colors.text.secondary, marginBottom: Spacing.sm },
     question: {
         alignSelf: 'flex-end', maxWidth: '86%', marginVertical: Spacing.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
@@ -209,6 +218,7 @@ export const makeAIPageStyles = (Colors: any) => StyleSheet.create({
     chips: { gap: 6 },
     chip: { paddingHorizontal: Spacing.md, paddingVertical: 7, borderRadius: 999, borderWidth: 1, borderColor: Colors.accent.goldDark, backgroundColor: Colors.bg.secondary },
     chipText: { fontSize: FontSize.sm, color: Colors.accent.gold },
+    reviewInput: { padding: Spacing.sm, minHeight: 44, borderRadius: 10, borderWidth: 1, borderColor: Colors.border.normal, color: Colors.text.primary, backgroundColor: Colors.bg.secondary },
     inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.sm },
     input: {
         flex: 1, minHeight: 42, maxHeight: 120, borderRadius: 12, borderWidth: 1, borderColor: Colors.border.normal, backgroundColor: Colors.bg.secondary,

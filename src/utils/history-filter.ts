@@ -1,7 +1,10 @@
 import { DivinationMethod } from '../core/liuyao-data';
 import { DivinationEngine } from '../db/record-types';
 
-export type HistoryActiveEngine = 'liuyao' | 'bazi' | 'ziwei' | 'baziCompatibility' | 'meihua';
+import type { QimenForm } from '../features/qimen/types';
+export type QimenHistoryCategory = 'all' | 'favorite' | QimenForm;
+
+export type HistoryActiveEngine = 'liuyao' | 'bazi' | 'ziwei' | 'baziCompatibility' | 'meihua' | 'qimen';
 export type LiuyaoHistoryCategory = 'all' | DivinationMethod | 'favorite';
 export type BaziHistoryCategory = 'all' | 'kunzao' | 'qianzao' | 'favorite';
 export type ZiweiHistoryCategory = 'all' | 'male' | 'female' | 'favorite';
@@ -9,6 +12,7 @@ export type BaziCompatibilityHistoryCategory = 'all' | 'favorite';
 export type MeihuaHistoryCategory = 'all' | 'meihua_time' | 'meihua_number' | 'favorite';
 
 export interface HistoryRecordItem {
+    qimenForm?: QimenForm;
     id: string;
     createdAt?: string;
     engineType: DivinationEngine;
@@ -27,6 +31,7 @@ export interface HistoryFilterState {
     ziweiCategory: ZiweiHistoryCategory;
     baziCompatibilityCategory: BaziCompatibilityHistoryCategory;
     meihuaCategory: MeihuaHistoryCategory;
+    qimenCategory: QimenHistoryCategory;
 }
 
 export const DEFAULT_HISTORY_FILTER: HistoryFilterState = {
@@ -37,9 +42,11 @@ export const DEFAULT_HISTORY_FILTER: HistoryFilterState = {
     ziweiCategory: 'all',
     baziCompatibilityCategory: 'all',
     meihuaCategory: 'all',
+    qimenCategory: 'all',
 };
 
-export function getActiveHistoryCategory(filter: HistoryFilterState): LiuyaoHistoryCategory | BaziHistoryCategory | ZiweiHistoryCategory | BaziCompatibilityHistoryCategory | MeihuaHistoryCategory {
+export function getActiveHistoryCategory(filter: HistoryFilterState): LiuyaoHistoryCategory | BaziHistoryCategory | ZiweiHistoryCategory | BaziCompatibilityHistoryCategory | MeihuaHistoryCategory | QimenHistoryCategory {
+    if (filter.activeEngine === 'qimen') return filter.qimenCategory;
     if (filter.activeEngine === 'liuyao') {
         return filter.liuyaoCategory;
     }
@@ -88,7 +95,7 @@ function getZiweiCategory(record: Pick<HistoryRecordItem, 'engineType' | 'subtit
 }
 
 export function getHistoryMetaLabel(record: HistoryRecordItem): string {
-    if (record.engineType === 'liuyao' || record.engineType === 'meihua') {
+    if (record.engineType === 'liuyao' || record.engineType === 'meihua' || record.engineType === 'qimen') {
         return record.method || record.engineType;
     }
     if (record.engineType === 'ziwei') {
@@ -110,7 +117,10 @@ export function filterHistoryRecords<T extends HistoryRecordItem>(records: T[], 
             return false;
         }
 
-        if (filter.activeEngine === 'liuyao' || filter.activeEngine === 'meihua') {
+        if (filter.activeEngine === 'qimen') {
+            if (activeCategory === 'favorite' && !record.isFavorite) return false;
+            if (activeCategory !== 'all' && activeCategory !== 'favorite' && activeCategory !== (record.qimenForm ?? '转盘')) return false;
+        } else if (filter.activeEngine === 'liuyao' || filter.activeEngine === 'meihua') {
             if (activeCategory === 'favorite' && !record.isFavorite) {
                 return false;
             }

@@ -10,6 +10,7 @@ import { PanResult } from '../core/liuyao-calc';
 import { BaziCompatibilityResult } from '../features/bazi/match/types';
 import { ZiweiRecordResult } from '../features/ziwei/record';
 import { MeihuaResult } from '../features/meihua/types';
+import type { QimenResult } from '../features/qimen/types';
 import { recordDiagnosticLog } from '../services/diagnostics';
 import { validateImportRecords } from './import-validation';
 import { resolveImportAction } from './import-strategy';
@@ -22,6 +23,7 @@ import {
     isDivinationEngine,
     isDivinationMethod,
     isMeihuaResult,
+    isQimenResult,
     isPanResult,
     isBaziCompatibilityResult,
     isZiweiRecordResult,
@@ -31,6 +33,8 @@ import {
 // ==================== 类型定义 ====================
 
 interface RecordRow {
+    qimen_form?: QimenResult['form'];
+    cast_time?: string;
     id: string;
     created_at: string;
     engine_type: string | null;
@@ -62,7 +66,8 @@ export type RecordDetail =
     | { engineType: 'bazi'; result: BaziResult; isFavorite: boolean }
     | { engineType: 'baziCompatibility'; result: BaziCompatibilityResult; isFavorite: boolean }
     | { engineType: 'ziwei'; result: ZiweiRecordResult; isFavorite: boolean }
-    | { engineType: 'meihua'; result: MeihuaResult; isFavorite: boolean };
+    | { engineType: 'meihua'; result: MeihuaResult; isFavorite: boolean }
+    | { engineType: 'qimen'; result: QimenResult; isFavorite: boolean };
 
 export type ImportMode = 'merge' | 'replace';
 export type ImportConflictPolicy = 'skip' | 'replace';
@@ -89,6 +94,7 @@ function normalizeEngineType(
     if (typeof method === 'string' && method.startsWith('meihua_')) {
         return 'meihua';
     }
+    if (method === 'qimen_hour') return 'qimen';
     if (method === 'baziCompatibility') {
         return 'baziCompatibility';
     }
@@ -127,6 +133,7 @@ function toRecordSummary(row: RecordRow): RecordSummary {
     return {
         id: row.id,
         createdAt: row.created_at,
+        ...(engineType === 'qimen' ? { qimenForm: row.qimen_form ?? '转盘', castTime: row.cast_time } : {}),
         engineType,
         method,
         question: row.question || '',
@@ -157,6 +164,9 @@ function toRecordDetail(row: RecordDetailRow): RecordDetail | null {
         return { engineType, result: parsed, isFavorite };
     }
     if (engineType === 'meihua' && isMeihuaResult(parsed)) {
+        return { engineType, result: parsed, isFavorite };
+    }
+    if (engineType === 'qimen' && isQimenResult(parsed)) {
         return { engineType, result: parsed, isFavorite };
     }
     return null;
@@ -359,6 +369,9 @@ const webDb = {
             .map((record) => ({
                 id: record.id,
                 createdAt: record.createdAt,
+                ...(record.engineType === 'qimen' && isQimenResult(record.fullResult) ? {
+                    qimenForm: record.fullResult.form ?? '转盘', castTime: record.fullResult.inputDateTime,
+                } : {}),
                 engineType: record.engineType,
                 method: record.method || undefined,
                 question: record.question,
@@ -410,6 +423,9 @@ const webDb = {
                 result: record.fullResult,
                 isFavorite: record.isFavorite,
             };
+        }
+        if (record.engineType === 'qimen' && isQimenResult(record.fullResult)) {
+            return { engineType: 'qimen', result: record.fullResult, isFavorite: record.isFavorite };
         }
         return null;
     },
@@ -468,12 +484,12 @@ const webDb = {
                 return;
             }
 
-            if (record.engineType === 'meihua') {
-                if (!isMeihuaResult(record.fullResult)) {
+            if (record.engineType === 'meihua' || record.engineType === 'qimen') {
+                if (record.engineType === 'meihua' ? !isMeihuaResult(record.fullResult) : !isQimenResult(record.fullResult)) {
                     return;
                 }
                 exported.push({
-                    engineType: 'meihua',
+                    engineType: record.engineType,
                     result: record.fullResult,
                     summary: {
                         method: record.method || undefined,
@@ -757,7 +773,9 @@ const nativeDb = {
     async getAll(): Promise<RecordSummary[]> {
         const database = await getNativeDatabase();
         const rows = await database.getAllAsync(
-            `SELECT id, created_at, engine_type, method, question, title, subtitle, gua_name, bian_gua_name, is_favorite
+            `SELECT id, created_at, engine_type, method, question, title, subtitle, gua_name, bian_gua_name, is_favorite,
+                    CASE WHEN engine_type = 'qimen' AND json_valid(full_result) THEN json_extract(full_result, '$.form') END AS qimen_form,
+                    CASE WHEN engine_type = 'qimen' AND json_valid(full_result) THEN json_extract(full_result, '$.inputDateTime') END AS cast_time
              FROM records ORDER BY created_at DESC`
         );
         return (rows as RecordRow[]).map((row) => toRecordSummary(row));
@@ -1025,6 +1043,10 @@ export async function clearAIAnalysis(id: string): Promise<RecordDetail | null> 
         });
 
         return { engineType: 'meihua', result: clearedResult, isFavorite };
+    } else if (engineType === 'qimen') {
+        const clearedResult: QimenResult = { ...result, aiEvidence: undefined, aiAnalysis: undefined, aiChatHistory: undefined, quickReplies: undefined };
+        await saveRecord({ engineType, result: clearedResult });
+        return { engineType, result: clearedResult, isFavorite };
     } else if (engineType === 'bazi') {
         const baziResult = result as BaziResult;
         const clearedResult: BaziResult = {

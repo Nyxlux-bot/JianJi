@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
+import { StyleSheet, Text, View, type LayoutChangeEvent, type ViewInstance } from 'react-native';
 import Svg, { Circle, Line } from 'react-native-svg';
 import ZodiacPaperCut from '../../../components/ZodiacPaperCut';
 import type { ZiweiMutagen, ZiweiPalaceAnalysisView, ZiweiStarViewModel } from '../types';
@@ -224,9 +224,9 @@ const TileStars = memo(function TileStars({
     ], [palace]);
     // 右区尺寸或某颗星尺寸一变，合并到下一个任务把各星相对右区的实际位置量一遍（真机、Web 一致；
     // 不用动画帧，后台页面里它会被暂停）。按顺序取能完整放下的前缀；有隐藏时「…」占右下角，压到那一角的星也让出来
-    const wrapRef = useRef<View>(null);
+    const wrapRef = useRef<ViewInstance>(null);
     const wrapWidthRef = useRef(0);
-    const itemRefs = useRef<Array<View | null>>([]);
+    const itemRefs = useRef<Array<ViewInstance | null>>([]);
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [visibleCount, setVisibleCount] = useState(Number.POSITIVE_INFINITY);
     const remeasure = useCallback(() => {

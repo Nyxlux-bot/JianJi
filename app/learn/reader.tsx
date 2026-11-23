@@ -4,7 +4,7 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import SheetModal from '../../src/components/SheetModal';
-import { FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent, type ScrollViewInstance } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path } from 'react-native-svg';
@@ -32,7 +32,7 @@ export default function ReaderPage() {
     const [fontSize, setFontSize] = useState(1);
     const [tocOpen, setTocOpen] = useState(false);
     const stateRef = useRef<ReadingState | null>(null);
-    const scrollRef = useRef<ScrollView>(null);
+    const scrollRef = useRef<ScrollViewInstance>(null);
     const restoreRef = useRef(0);
     const viewHeight = useRef(0);
 

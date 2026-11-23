@@ -31,7 +31,7 @@ import {
     filterHistoryRecords,
     getHistoryMetaLabel,
     HistoryActiveEngine,
-    HistoryFilterState,
+    HistoryFilterState, QimenHistoryCategory,
     LiuyaoHistoryCategory,
     MeihuaHistoryCategory,
     ZiweiHistoryCategory,
@@ -44,6 +44,7 @@ const SERIF = Platform.select({ ios: 'Songti SC', android: 'serif', default: 'se
 const ENGINE_OPTIONS: Array<{ key: HistoryActiveEngine; label: string; placeholder: string }> = [
     { key: 'liuyao', label: '六爻', placeholder: '搜索卦名、占问' },
     { key: 'meihua', label: '梅花', placeholder: '搜索卦名、占问' },
+    { key: 'qimen', label: '奇门', placeholder: '搜索局数、占问' },
     { key: 'bazi', label: '八字', placeholder: '搜索姓名、出生地' },
     { key: 'baziCompatibility', label: '合盘', placeholder: '搜索双方姓名' },
     { key: 'ziwei', label: '紫微', placeholder: '搜索姓名、出生地' },
@@ -82,6 +83,11 @@ const BAZI_COMPATIBILITY_CATEGORY_OPTIONS: Array<{ key: BaziCompatibilityHistory
     { key: 'favorite', label: '收藏' },
 ];
 
+const QIMEN_CATEGORY_OPTIONS: Array<{ key: QimenHistoryCategory; label: string }> = [
+    { key: 'all', label: '全部' }, { key: '转盘', label: '转盘' }, { key: '飞盘', label: '飞盘' },
+    { key: '星飞门转', label: '星飞门转' }, { key: 'favorite', label: '收藏' },
+];
+
 const META_LABELS: Record<string, string> = {
     time: '时间',
     coin: '硬币',
@@ -89,6 +95,7 @@ const META_LABELS: Record<string, string> = {
     manual: '手动',
     meihua_time: '时间',
     meihua_number: '数字',
+    qimen_hour: '时家',
     kunzao: '坤造',
     qianzao: '乾造',
     bazi: '八字',
@@ -150,10 +157,12 @@ function describeRecord(record: RecordSummary): { title: string; sub: string; ha
         const bian = /^变 (\S+)/.exec(record.subtitle || '')?.[1];
         return { title: bian ? `${record.title} 之 ${bian}` : record.title, sub: question || '未填写占问', hasQuestion: Boolean(question) };
     }
+    if (record.engineType === 'qimen') return { title: question || record.title, sub: question ? `${record.title} · ${record.subtitle}` : record.subtitle, hasQuestion: Boolean(question) };
     return { title: record.title, sub: record.subtitle || question, hasQuestion: true };
 }
 
 function sealOf(record: RecordSummary, metaKey: string): string {
+    if (record.engineType === 'qimen') return '奇';
     if (record.engineType === 'baziCompatibility') return '合';
     if (metaKey === 'kunzao' || metaKey === 'female') return '坤';
     if (metaKey === 'qianzao' || metaKey === 'male') return '乾';
@@ -178,6 +187,7 @@ function normalizeStoredFilters(raw: unknown): HistoryFilterState {
         activeEngine,
         liuyaoCategory: pick(LIUYAO_CATEGORY_OPTIONS, parsed.liuyaoCategory, DEFAULT_HISTORY_FILTER.liuyaoCategory),
         meihuaCategory: pick(MEIHUA_CATEGORY_OPTIONS, parsed.meihuaCategory, DEFAULT_HISTORY_FILTER.meihuaCategory),
+        qimenCategory: pick(QIMEN_CATEGORY_OPTIONS, parsed.qimenCategory, 'all'),
         baziCategory: pick(BAZI_CATEGORY_OPTIONS, parsed.baziCategory, DEFAULT_HISTORY_FILTER.baziCategory),
         ziweiCategory: pick(ZIWEI_CATEGORY_OPTIONS, parsed.ziweiCategory, DEFAULT_HISTORY_FILTER.ziweiCategory),
         baziCompatibilityCategory: pick(BAZI_COMPATIBILITY_CATEGORY_OPTIONS, parsed.baziCompatibilityCategory, DEFAULT_HISTORY_FILTER.baziCompatibilityCategory),
@@ -267,11 +277,11 @@ const HistoryRow = memo(function HistoryRow({ record, first, last, palette, styl
                     </View>
                     <View style={styles.rowMain}>
                         <Text style={styles.rowTitle} numberOfLines={1}>{title}</Text>
-                        <Text style={[styles.rowSub, !hasQuestion && styles.rowSubMuted]} numberOfLines={1}>{sub}</Text>
+                        <Text style={[styles.rowSub, !hasQuestion && styles.rowSubMuted]} numberOfLines={1}>{record.castTime ? record.castTime.slice(0, 16).replace('T', ' ') + ' · ' : ''}{sub}</Text>
                     </View>
                     <View style={styles.rowSide}>
                         <Text style={styles.rowTime}>{time}</Text>
-                        <Text style={styles.rowTag}>{META_LABELS[metaKey] || ''}</Text>
+                        <Text style={styles.rowTag}>{record.engineType === 'qimen' ? record.qimenForm ?? '转盘' : META_LABELS[metaKey] || ''}</Text>
                     </View>
                 </GesturePressable>
                     <GesturePressable
@@ -394,6 +404,8 @@ export default function HistoryPage() {
         ? LIUYAO_CATEGORY_OPTIONS
         : filters.activeEngine === 'meihua'
             ? MEIHUA_CATEGORY_OPTIONS
+            : filters.activeEngine === 'qimen'
+                ? QIMEN_CATEGORY_OPTIONS
             : filters.activeEngine === 'bazi'
                 ? BAZI_CATEGORY_OPTIONS
                 : filters.activeEngine === 'baziCompatibility'
@@ -404,6 +416,7 @@ export default function HistoryPage() {
     const handleCategoryChange = (category: string) => {
         setFilters((prev) => {
             if (prev.activeEngine === 'liuyao') return { ...prev, liuyaoCategory: category as LiuyaoHistoryCategory };
+            if (prev.activeEngine === 'qimen') return { ...prev, qimenCategory: QIMEN_CATEGORY_OPTIONS.find(item => item.key === category)?.key ?? 'all' };
             if (prev.activeEngine === 'meihua') return { ...prev, meihuaCategory: category as MeihuaHistoryCategory };
             if (prev.activeEngine === 'bazi') return { ...prev, baziCategory: category as BaziHistoryCategory };
             if (prev.activeEngine === 'baziCompatibility') return { ...prev, baziCompatibilityCategory: category as BaziCompatibilityHistoryCategory };

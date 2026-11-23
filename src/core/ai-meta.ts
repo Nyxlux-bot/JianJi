@@ -1,4 +1,5 @@
 import type { AIExecutionMeta } from './ai-execution-meta';
+import type { QimenPeriod } from '../features/qimen/types';
 
 export type PersistedAIChatRole = 'system' | 'user' | 'assistant';
 export type AIConversationStage = 'foundation_pending' | 'foundation_ready' | 'verification_ready' | 'followup_ready';
@@ -10,6 +11,8 @@ export interface PersistedAIChatMessage {
     content: string;
     hidden?: boolean;
     requestContent?: string;
+    qimenPeriod?: QimenPeriod;
+    qimenExcerpt?: string;
     workflowStage?: BaziAIWorkflowStage;
     executionMeta?: AIExecutionMeta;
 }

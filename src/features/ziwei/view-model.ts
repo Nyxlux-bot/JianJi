@@ -9,7 +9,6 @@ import type { IFunctionalStar } from 'iztro/lib/star/FunctionalStar';
 import { formatLocalDateTime } from '../../core/bazi-local-time';
 import { getSolarTermDate, solarToLunar } from '../../core/lunar';
 import { measureZiweiPerf } from './perf';
-import { getCachedHoroscopeStar } from './iztro-optimizer';
 import {
     ZiweiActiveScope,
     ZiweiAlgorithm,
@@ -647,7 +646,7 @@ function buildDirectHoroscopeScopeView(
         return cached;
     }
 
-    const palaceStars = getCachedHoroscopeStar(item.heavenlyStem, item.earthlyBranch, scope)
+    const palaceStars = (item.stars ?? [])
         .map((starsAtPalace, palaceIndex) => ({
             palaceName: astrolabe.palaces[palaceIndex]?.name || `第${palaceIndex + 1}宫`,
             palaceIndex,

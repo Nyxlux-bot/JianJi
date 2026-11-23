@@ -15,14 +15,17 @@ const SENTENCE = /[^。！？!?]*[。！？!?]+[”’」』）)]*(?:\s*\[[^\]\n
 
 function splitLongLine(line: string): string[] {
     const sentences = line.match(SENTENCE) ?? [line];
+    const links = Array.from(line.matchAll(/\[[^\]\n]+\]\([^\s)]+\)/gu));
     const chunks: string[] = [];
     let current = '';
-    sentences.forEach((sentence, index) => {
+    let end = 0;
+    sentences.forEach((sentence) => {
         current += sentence;
-        const rest = sentences.slice(index + 1).join('').length;
+        end += sentence.length;
         // Never break inside **bold**: the marker count must be even.
         const balanced = (current.match(/\*\*/g)?.length ?? 0) % 2 === 0;
-        if (current.length >= TARGET_CHUNK && rest >= MIN_TAIL && balanced) {
+        const insideLink = links.some(link => link.index < end && end < link.index + link[0].length);
+        if (current.length >= TARGET_CHUNK && line.length - end >= MIN_TAIL && balanced && !insideLink) {
             chunks.push(current.trim());
             current = '';
         }

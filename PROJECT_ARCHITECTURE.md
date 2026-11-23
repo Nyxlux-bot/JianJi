@@ -24,15 +24,15 @@
 
 ### 2.1 主要栈
 
-- Expo SDK 54
-- React Native 0.81
-- React 19
-- TypeScript 5.9
+- Expo SDK 58
+- React Native 0.88.1
+- React 19.3.0
+- TypeScript 7.0.2
 - Expo Router
 - `expo-sqlite`
 - `@react-native-async-storage/async-storage`
-- `tyme4ts@1.4.4`
-- `iztro@2.5.8`
+- `tyme4ts@1.5.6`
+- `iztro@2.6.5`
 - `@province-city-china/*`
 - `react-native-reanimated`
 - `react-native-sse`

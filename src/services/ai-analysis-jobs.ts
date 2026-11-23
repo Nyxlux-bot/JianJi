@@ -1,3 +1,10 @@
+import { formatQimenForAI } from '../features/qimen/ai-serializer';
+import { resolveQimenEvidence } from '../features/qimen/ai-evidence';
+import { QIMEN_INITIAL_REQUEST } from '../features/qimen/ai-reading';
+import { isQimenResult } from '../db/record-types';
+import { QIMEN_BOARD_VERSIONS } from '../features/qimen/types';
+import type { QimenResult } from '../features/qimen/types';
+import { linkQimenPalaces } from '../features/qimen/palace-links';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { sanitizeAIExecutionMeta, type AIExecutionMeta } from '../core/ai-execution-meta';
 import { resolveAIRequestRuntime } from './ai-request-runtime';
@@ -39,6 +46,7 @@ import {
     getBaziConversationStage,
     getLocalLiuyaoQuickReplies,
     getLocalMeihuaQuickReplies,
+    getLocalQimenQuickReplies,
     getZiweiConversationStage,
     hasLiuyaoCompletionMarker,
     sanitizeBaziStreamingContent,
@@ -280,6 +288,7 @@ function cleanStreamContent(engineType: DivinationEngine, content: string, kind?
 }
 
 function cleanFinalContent(engineType: DivinationEngine, content: string, kind?: AIWorkflowResponseKind): string {
+    if (engineType === 'qimen') return linkQimenPalaces(stripLiuyaoCompletionMarker(content));
     if (engineType === 'bazi') {
         return stripBaziStageMarkers(content, isKinshipResponseKind(kind) ? undefined : kind);
     }
@@ -310,6 +319,8 @@ function arePersistedMessagesEqual(left: PersistedAIChatMessage, right: Persiste
         && left.content === right.content
         && left.hidden === right.hidden
         && left.requestContent === right.requestContent
+        && left.qimenPeriod === right.qimenPeriod
+        && left.qimenExcerpt === right.qimenExcerpt
         && left.workflowStage === right.workflowStage
         && JSON.stringify(left.executionMeta) === JSON.stringify(right.executionMeta);
 }
@@ -357,6 +368,12 @@ function validateContent(
         const validation = validateZiweiWorkflowResponse(request.expectedCompletion, rawContent);
         return { success: validation.success, issues: validation.issues };
     }
+    if (request.engineType === 'qimen') {
+        // 传输层已确认正常结束；未填写占问的提示和短追问都可能很短，不按标记或字数判失败。
+        const links = [...cleanContent.matchAll(/qimen:\/\/palace\/([^\s)]+)/g)];
+        if (links.some(link => !/^[1-9](?:\?period=[0-3])?$/.test(link[1]))) return { success: false, issues: ['宫位引用超出九宫范围'] };
+        return { success: true, issues: [], notes: links.length ? [] : ['本轮没有可回盘的宫位引用'] };
+    }
     if (request.engineType === 'meihua') {
         const validation = validateMeihuaAIContent(request.result as MeihuaResult, rawContent, request.phase);
         return { success: validation.success, issues: validation.issues, notes: validation.notes };
@@ -372,12 +389,13 @@ function validateContent(
     return { success: Boolean(cleanContent), issues: cleanContent ? [] : ['正文为空'] };
 }
 
-/** 六爻、梅花：单次解读加追问，共用完成标记与快捷追问流程。 */
+/** 六爻、梅花、奇门：单次解读加追问，共用完成标记与快捷追问流程。 */
 function isReadingEngine(engineType: DivinationEngine): boolean {
-    return engineType === 'liuyao' || engineType === 'meihua';
+    return engineType === 'liuyao' || engineType === 'meihua' || engineType === 'qimen';
 }
 
 function getLocalReadingQuickReplies(engineType: DivinationEngine, result: DivinationResult): string[] {
+    if (engineType === 'qimen') return getLocalQimenQuickReplies();
     if (engineType === 'meihua') return getLocalMeihuaQuickReplies(result as MeihuaResult);
     if (engineType === 'liuyao') return getLocalLiuyaoQuickReplies(result as PanResult);
     return [];
@@ -612,6 +630,12 @@ async function buildMessagesForRequest(request: AIAnalysisJobRequest, asOf: Date
     }
 
     let requestResult = request.result;
+    if (isQimenResult(requestResult) && !requestResult.aiEvidence) {
+        requestResult = { ...requestResult, aiEvidence: {
+            version: QIMEN_BOARD_VERSIONS[requestResult.form ?? '转盘'], capturedAt: asOf.toISOString(),
+            context: formatQimenForAI(requestResult, '时盘', true),
+        } };
+    }
     let formatterContext = request.formatterContext;
     if (request.engineType === 'bazi') {
         const bazi = request.result as BaziResult;
@@ -717,7 +741,8 @@ function buildUpdatedResult(
 ): DivinationResult | null {
     if (isReadingEngine(request.engineType)) {
         return {
-            ...(currentResult as PanResult | MeihuaResult),
+            ...(currentResult as PanResult | MeihuaResult | QimenResult),
+            ...(isQimenResult(requestResult) ? { aiEvidence: requestResult.aiEvidence } : {}),
             aiAnalysis: cleanContent,
             aiChatHistory: finalMessages,
             quickReplies: artifacts.quickReplies,
@@ -824,7 +849,7 @@ function failJob(
         // Keep already-rendered output visible when the transport or
         // validation fails after streaming has started. An explicit cancel
         // is the only path that intentionally clears it.
-        draftContent: status === 'cancelled' ? '' : (partialContent || current.draftContent),
+        draftContent: status === 'cancelled' ? '' : (validation && current.engineType === 'qimen' ? '' : partialContent || current.draftContent),
         validatedContent: '',
         failure: { code, message },
         validation,
@@ -1054,6 +1079,13 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                 } catch (error) {
                     validation = { success: false, issues: [error instanceof Error ? error.message : String(error)] };
                 }
+            } else if (isQimenResult(built.requestResult) && built.requestResult.aiEvidence) {
+                const lastQuestion = request.requestMessages.at(-1)?.content;
+                const resolved = resolveQimenEvidence(cleanContent, built.requestResult.aiEvidence.context,
+                    !!built.requestResult.question && lastQuestion === QIMEN_INITIAL_REQUEST);
+                cleanContent = resolved.content ?? '';
+                validation = resolved.issue ? { success: false, issues: [resolved.issue] }
+                    : validateContent(request, fullContent, cleanContent);
             } else {
                 validation = validateContent(request, fullContent, cleanContent);
             }
@@ -1073,7 +1105,7 @@ export function startAIAnalysisJob(request: AIAnalysisJobRequest): AIAnalysisJob
                     key,
                     job.jobId,
                     'invalid_response',
-                    `回复可能没有写完：${validation.issues.join('；')}`,
+                    `${request.engineType === 'qimen' ? '盘据核对未通过' : '回复可能没有写完'}：${validation.issues.join('；')}`,
                     validation,
                     cleanContent,
                 );

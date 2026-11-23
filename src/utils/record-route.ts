@@ -7,5 +7,6 @@ export function getRecordRoute(engineType: DivinationEngine, id: string) {
     if (engineType === 'baziCompatibility') return `/bazi/match/result/${id}`;
     if (engineType === 'ziwei') return buildZiweiHistoryRestoreRoute(id);
     if (engineType === 'meihua') return `/meihua/result/${id}`;
+    if (engineType === 'qimen') return `/qimen/result/${id}`;
     return `/result/${id}`;
 }

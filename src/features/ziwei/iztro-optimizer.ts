@@ -7,6 +7,7 @@
 
 import * as iztroI18n from 'iztro/lib/i18n';
 import { star } from 'iztro';
+import type { IFunctionalAstrolabe } from 'iztro/lib/astro/FunctionalAstrolabe';
 import type { IFunctionalStar } from 'iztro/lib/star/FunctionalStar';
 
 // ============================================================================
@@ -58,24 +59,27 @@ export function patchIztroKot(): void {
 }
 
 // ============================================================================
-// 2. star.getHoroscopeStar() 全局缓存
+// 2. star.getHoroscopeStar() 命盘缓存
 // ============================================================================
 
 /**
- * star.getHoroscopeStar() 的结果完全由 (天干, 地支, scope) 三元组决定。
- * 总共只有 10 × 12 × 5 = 600 种组合，可以全局缓存。
- *
- * 预期收益：每个 scope bundle 构建时间 -20%
+ * 流曜功能对象会绑定命盘的配置和语言，不能在不同命盘之间复用。
  */
-const horoscopeStarCache = new Map<string, IFunctionalStar[][]>();
+const horoscopeStarCache = new WeakMap<IFunctionalAstrolabe, Map<string, IFunctionalStar[][]>>();
 
 export function getCachedHoroscopeStar(
+    astrolabe: IFunctionalAstrolabe,
     heavenlyStem: string,
     earthlyBranch: string,
     scope: 'decadal' | 'yearly' | 'monthly' | 'daily' | 'hourly',
 ): IFunctionalStar[][] {
+    let cache = horoscopeStarCache.get(astrolabe);
+    if (!cache) {
+        cache = new Map();
+        horoscopeStarCache.set(astrolabe, cache);
+    }
     const key = `${heavenlyStem}|${earthlyBranch}|${scope}`;
-    const cached = horoscopeStarCache.get(key);
+    const cached = cache.get(key);
     if (cached !== undefined) {
         return cached;
     }
@@ -85,7 +89,7 @@ export function getCachedHoroscopeStar(
         earthlyBranch as any,
         scope,
     );
-    horoscopeStarCache.set(key, result);
+    cache.set(key, result);
     return result;
 }
 
@@ -106,5 +110,4 @@ export function logIztroOptimizerStats(): void {
     }
 
     console.info('[iztro-optimizer] kot cache size:', kotCache.size);
-    console.info('[iztro-optimizer] horoscope star cache size:', horoscopeStarCache.size);
 }

@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react';
-import { LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent, Pressable, ScrollView, StyleSheet, Text, View, type ScrollViewInstance } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { ZIWEI_VIEWS, ZIWEI_MUTAGEN_ORDER, type ZiweiTrack, type ZiweiTrackItem, type ZiweiView } from '../scope-layer';
 import { ZIWEI_STAGE } from './layout';
@@ -263,7 +263,7 @@ function ZiweiTimeAxisBase({
     onToday,
 }: ZiweiTimeAxisProps) {
     const styles = useMemo(() => makeAxisStyles(palette), [palette]);
-    const scrollRef = useRef<ScrollView>(null);
+    const scrollRef = useRef<ScrollViewInstance>(null);
     const trackRef = useRef(track);
     trackRef.current = track;
     const handlePressKey = useCallback((key: string) => {

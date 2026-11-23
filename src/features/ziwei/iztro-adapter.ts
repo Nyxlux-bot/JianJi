@@ -8,7 +8,7 @@ patchIztroKot();
 import { astro } from 'iztro';
 import type { IFunctionalAstrolabe } from 'iztro/lib/astro/FunctionalAstrolabe';
 import type { IFunctionalHoroscope } from 'iztro/lib/astro/FunctionalHoroscope';
-import { computeFastHoroscope } from './horoscope-fast';
+import { fastHoroscopePlugin } from './horoscope-fast';
 import {
     formatLunarDateLabel,
     getLunarLeapMonth,
@@ -367,32 +367,23 @@ function buildAstrolabe(computed: ZiweiComputedInput): IFunctionalAstrolabe {
         astroType: computed.config.astroType,
     } as const;
 
+    let astrolabe: IFunctionalAstrolabe;
     if (computed.calendarType === 'lunar') {
-        return astro.withOptions({
+        astrolabe = astro.withOptions({
             ...baseOptions,
             type: 'lunar',
             dateStr: formatLunarDateValue(computed.trueSolarLunar),
             isLeapMonth: computed.trueSolarLunar.isLeapMonth,
-        }) as IFunctionalAstrolabe;
+        });
+    } else {
+        astrolabe = astro.withOptions({
+            ...baseOptions,
+            type: 'solar',
+            dateStr: computed.solarDate,
+        });
     }
-
-    return astro.withOptions({
-        ...baseOptions,
-        type: 'solar',
-        dateStr: computed.solarDate,
-    }) as IFunctionalAstrolabe;
-}
-
-function buildCurrentHoroscope(
-    astrolabe: IFunctionalAstrolabe,
-    config: ZiweiConfigOptions,
-    targetDate?: Date,
-): IFunctionalHoroscope {
-    // 与 astrolabe.horoscope() 逐字段一致，但农历、干支、流耀全部走缓存
-    return computeFastHoroscope(astrolabe, targetDate ?? new Date(), {
-        horoscopeDivide: config.horoscopeDivide,
-        dayDivide: config.dayDivide,
-    });
+    astrolabe.use(fastHoroscopePlugin);
+    return astrolabe;
 }
 
 export function buildZiweiStaticCacheKey(payload: ZiweiInputPayload): string {
@@ -543,7 +534,7 @@ export function computeZiweiDynamicHoroscope(
     if (!staticChart.lazy.dynamicAstrolabe) {
         staticChart.lazy.dynamicAstrolabe = buildAstrolabe(staticChart.input);
     }
-    const horoscopeNow = buildCurrentHoroscope(staticChart.lazy.dynamicAstrolabe, staticChart.input.config, cursorDate);
+    const horoscopeNow = staticChart.lazy.dynamicAstrolabe.horoscope(cursorDate);
 
     return rememberZiweiDynamicHoroscope(cacheKey, {
         cursorDate,

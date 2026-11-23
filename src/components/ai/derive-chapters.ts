@@ -4,11 +4,11 @@ import type { BaziAIWorkflowStage, PersistedAIChatMessage } from '../../core/ai-
  * Groups a conversation into the chapters (卷) the AI page shows. Pure: the
  * page passes its messages and job state and renders what comes back.
  */
-export type AIPageEngine = 'liuyao' | 'bazi' | 'ziwei' | 'baziCompatibility' | 'meihua';
+export type AIPageEngine = 'liuyao' | 'bazi' | 'ziwei' | 'baziCompatibility' | 'meihua' | 'qimen';
 
 /** 六爻、梅花：一次卦象解读加追问，不走分阶段工作流。 */
 export function isReadingEngine(engine: AIPageEngine): boolean {
-    return engine === 'liuyao' || engine === 'meihua';
+    return engine === 'liuyao' || engine === 'meihua' || engine === 'qimen';
 }
 export type ChapterId = 'foundation' | 'verification' | 'five_year' | 'followup' | 'compat' | 'liuyao';
 export type ChapterStatus = 'todo' | 'running' | 'done' | 'failed';

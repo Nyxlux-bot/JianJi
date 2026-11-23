@@ -17,26 +17,30 @@ import type {
     BaziMatchProfile,
     BaziMatchReview,
 } from '../features/bazi/match/types';
-import { DivinationMethod, isLiuyaoSubject } from '../core/liuyao-data';
+import { DivinationMethod, isLiuyaoSubject, NAYIN } from '../core/liuyao-data';
 import { ZiweiRecordResult } from '../features/ziwei/record';
 import { ZIWEI_SUPPORTED_TIMEZONE_OFFSET_MINUTES } from '../features/ziwei/runtime-meta';
 import { MEIHUA_METHOD_LABEL, MeihuaResult } from '../features/meihua/types';
+import type { QimenPalace, QimenResult } from '../features/qimen/types';
+import { QIMEN_YEAR_RANGE, QIMEN_FORMS, QIMEN_JU_METHODS, QIMEN_PERIODS, QIMEN_SPIRIT_STYLES } from '../features/qimen/types';
+import { getPeriodBoard, JU_METHOD_LABELS } from '../features/qimen/period-board';
+import { QIMEN_GATES, QIMEN_PALACES, QIMEN_SPIRITS, QIMEN_STEMS } from '../features/qimen/data';
 import { isBaziAnalysisProfile } from '../core/bazi-analysis-profile';
 import { normalizeVerificationMarks } from '../core/ai-verification-marks';
 
-export type DivinationEngine = 'liuyao' | 'bazi' | 'ziwei' | 'baziCompatibility' | 'meihua';
+export type DivinationEngine = 'liuyao' | 'bazi' | 'ziwei' | 'baziCompatibility' | 'meihua' | 'qimen';
 
-export const DIVINATION_ENGINES: readonly DivinationEngine[] = ['liuyao', 'bazi', 'ziwei', 'baziCompatibility', 'meihua'];
+export const DIVINATION_ENGINES: readonly DivinationEngine[] = ['liuyao', 'bazi', 'ziwei', 'baziCompatibility', 'meihua', 'qimen'];
 
 export const DIVINATION_ENGINE_LABEL: Record<DivinationEngine, string> = {
-    liuyao: '六爻', bazi: '八字', ziwei: '紫微', baziCompatibility: '合盘', meihua: '梅花',
+    liuyao: '六爻', bazi: '八字', ziwei: '紫微', baziCompatibility: '合盘', meihua: '梅花', qimen: '奇门',
 };
 
 export function isDivinationEngine(value: unknown): value is DivinationEngine {
     return typeof value === 'string' && DIVINATION_ENGINES.includes(value as DivinationEngine);
 }
 
-export type DivinationResult = PanResult | BaziResult | ZiweiRecordResult | BaziCompatibilityResult | MeihuaResult;
+export type DivinationResult = PanResult | BaziResult | ZiweiRecordResult | BaziCompatibilityResult | MeihuaResult | QimenResult;
 
 const LIUYAO_METHODS: readonly DivinationMethod[] = ['time', 'coin', 'number', 'manual'];
 const WUXING_VALUES = ['木', '火', '土', '金', '水'] as const;
@@ -55,6 +59,8 @@ const BAZI_MATCH_RELATIONS = ['love', 'biz', 'friend', 'work', 'kin', 'sib'] as 
 const BAZI_MATCH_DIRECTIONS = ['superior', 'peer', 'subordinate', 'parent', 'child'] as const;
 
 export interface RecordSummary {
+    qimenForm?: QimenResult['form'];
+    castTime?: string;
     id: string;
     createdAt: string;
     engineType: DivinationEngine;
@@ -229,6 +235,8 @@ function isPersistedAIChatMessage(value: unknown): boolean {
         && typeof value.content === 'string'
         && (value.hidden === undefined || typeof value.hidden === 'boolean')
         && (value.requestContent === undefined || typeof value.requestContent === 'string')
+        && (value.qimenExcerpt === undefined || (typeof value.qimenExcerpt === 'string' && isOneOf(value.qimenPeriod, QIMEN_PERIODS)))
+        && (value.qimenPeriod === undefined || isOneOf(value.qimenPeriod, QIMEN_PERIODS))
         && (value.workflowStage === undefined || value.workflowStage === 'foundation' || value.workflowStage === 'kinship' || value.workflowStage === 'kinship_review' || value.workflowStage === 'verification' || value.workflowStage === 'five_year' || value.workflowStage === 'followup')
         && (value.executionMeta === undefined || Boolean(sanitizeAIExecutionMeta(value.executionMeta)));
 }
@@ -562,7 +570,87 @@ export function isMeihuaResult(value: unknown): value is MeihuaResult {
         && (candidate.quickReplies === undefined || isStringArray(candidate.quickReplies));
 }
 
+function isPalaceNumber(value: unknown): value is number {
+    return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 9;
+}
+
+function isQimenStem(value: unknown): value is string {
+    return typeof value === 'string' && value.length === 1 && QIMEN_STEMS.includes(value);
+}
+
+function isQimenDateTime(value: unknown): value is string {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}$/.test(value)) return false;
+    const normalized = value.replace(' ', 'T');
+    const stamp = Date.parse(normalized + '+08:00');
+    return Number.isFinite(stamp) && new Date(stamp + 8 * 3600000).toISOString().slice(0, 19) === normalized;
+}
+
+function isQimenPalace(value: unknown): value is QimenPalace {
+    if (!isObject(value) || !isPalaceNumber(value.number) || !isQimenStem(value.earthStem)) return false;
+    const info = QIMEN_PALACES[value.number - 1];
+    if (!(value.hostedEarthStem === null || isQimenStem(value.hostedEarthStem))
+        || !(value.hostedHeavenStem === null || isQimenStem(value.hostedHeavenStem))
+        || !isStringArray(value.voidBranches) || value.voidBranches.length > 2
+        || !value.voidBranches.every(branch => branch.length === 1 && info.branches.includes(branch))
+        || typeof value.isHorse !== 'boolean') return false;
+    if (value.number === 5) return value.heavenStem === null && value.star === null && value.gate === null && value.spirit === null
+        && value.hostedEarthStem === null && value.hostedHeavenStem === null && !value.isHorse && value.voidBranches.length === 0;
+    return isQimenStem(value.heavenStem)
+        && QIMEN_PALACES.some(info => info.star === value.star && info.number !== 5)
+        && typeof value.gate === 'string' && Object.prototype.hasOwnProperty.call(QIMEN_GATES, value.gate)
+        && typeof value.spirit === 'string' && QIMEN_SPIRITS.includes(value.spirit);
+}
+
+export function isQimenResult(value: unknown): value is QimenResult {
+    if (!isObject(value) || value.kind !== 'qimen' || value.method !== 'qimen_hour'
+        || (value.form !== undefined && !isOneOf(value.form, QIMEN_FORMS))
+        || (value.juMethod !== undefined && !isOneOf(value.juMethod, QIMEN_JU_METHODS))
+        || (value.spiritStyle !== undefined && !isOneOf(value.spiritStyle, QIMEN_SPIRIT_STYLES))
+        || (value.numberSeed !== undefined && (typeof value.numberSeed !== 'number' || !Number.isInteger(value.numberSeed) || value.numberSeed < 1 || value.numberSeed > 9999))
+        || (value.sourceId !== undefined && (typeof value.sourceId !== 'string' || !value.sourceId || value.sourceId === value.id))
+        || (value.reviews !== undefined && (!Array.isArray(value.reviews) || !value.reviews.every(entry =>
+            isObject(entry) && (entry.volume === '总断' || isOneOf(entry.volume, QIMEN_PERIODS))
+            && typeof entry.date === 'string' && /^\d{4}-\d{2}-\d{2}$/u.test(entry.date) && typeof entry.recordedAt === 'string'
+            && typeof entry.horizon === 'string' && typeof entry.forecast === 'string' && typeof entry.observation === 'string')))
+        || (value.boardVersion !== undefined && typeof value.boardVersion !== 'string')
+        || (value.aiEvidence !== undefined && (!isObject(value.aiEvidence) || typeof value.aiEvidence.version !== 'string'
+            || typeof value.aiEvidence.capturedAt !== 'string' || typeof value.aiEvidence.context !== 'string'))
+        || value.ruleVersion !== 'qimen-chaibu-1' || value.timeBasis !== 'clock'
+        || value.timezoneOffsetMinutes !== -480 || value.dayBoundary !== 'zi_start' || value.centerRule !== 'kun'
+        || typeof value.id !== 'string' || !value.id.trim() || typeof value.createdAt !== 'string'
+        || !isQimenDateTime(value.inputDateTime) || Number(value.inputDateTime.slice(0, 4)) < QIMEN_YEAR_RANGE.min || Number(value.inputDateTime.slice(0, 4)) > QIMEN_YEAR_RANGE.max
+        || value.solarDate !== value.inputDateTime.slice(0, 10) || value.solarTime !== value.inputDateTime.slice(11)
+        || typeof value.question !== 'string' || typeof value.location !== 'string' || typeof value.lunarDate !== 'string'
+        || (value.longitude !== undefined && (!isFiniteNumber(value.longitude) || Math.abs(value.longitude) > 180))
+        || (value.subject !== undefined && !isLiuyaoSubject(value.subject))
+        || (value.recentEvents !== undefined && typeof value.recentEvents !== 'string')
+        || (value.timeRange !== undefined && typeof value.timeRange !== 'string')
+        || !isStringTuple4(value.fourPillars) || !value.fourPillars.every(pillar => Object.prototype.hasOwnProperty.call(NAYIN, pillar))
+        || !isObject(value.solarTerm) || typeof value.solarTerm.name !== 'string' || typeof value.solarTerm.nextName !== 'string'
+        || !isQimenDateTime(value.solarTerm.at) || !isQimenDateTime(value.solarTerm.nextAt)
+        || !isOneOf(value.dun, ['yang', 'yin']) || !isPalaceNumber(value.ju) || !isOneOf(value.yuan, ['上元', '中元', '下元'])
+        || typeof value.fuTou !== 'string' || !/^[甲己][子丑寅卯辰巳午未申酉戌亥]$/.test(value.fuTou)
+        || !isOneOf(value.xunHead, ['甲子', '甲戌', '甲申', '甲午', '甲辰', '甲寅']) || !isQimenStem(value.hiddenStem)
+        || !isStringArray(value.voidBranches) || value.voidBranches.length !== 2 || !value.voidBranches.every(branch => /^[子丑寅卯辰巳午未申酉戌亥]$/.test(branch))
+        || !isOneOf(value.horseBranch, ['寅', '申', '巳', '亥']) || !isPalaceNumber(value.horsePalace)
+        || !QIMEN_PALACES.some(info => info.star === value.chiefStar)
+        || typeof value.chiefGate !== 'string' || !Object.prototype.hasOwnProperty.call(QIMEN_GATES, value.chiefGate)
+        || !isPalaceNumber(value.chiefOrigin) || !isPalaceNumber(value.chiefStarPalace) || value.chiefStarPalace === 5
+        || !isPalaceNumber(value.chiefGatePalace) || value.chiefGatePalace === 5 || !isPalaceNumber(value.chiefGateRawPalace)
+        || !Array.isArray(value.palaces) || value.palaces.length !== 9 || !value.palaces.every(isQimenPalace)
+        || (value.aiAnalysis !== undefined && typeof value.aiAnalysis !== 'string')
+        || (value.aiChatHistory !== undefined && !isPersistedAIChatHistory(value.aiChatHistory))
+        || (value.quickReplies !== undefined && !isStringArray(value.quickReplies))) return false;
+    return new Set(value.palaces.map(palace => palace.earthStem)).size === 9
+        && new Set(value.palaces.flatMap(palace => [palace.heavenStem, palace.hostedHeavenStem]).filter(stem => stem !== null)).size === 9
+        && value.palaces.filter(palace => palace.hostedHeavenStem !== null).length === 1
+        && value.palaces.every((palace, index) => palace.number === index + 1
+            && (palace.star === '天芮') === (palace.hostedHeavenStem !== null)
+            && (palace.number === 2) === (palace.hostedEarthStem !== null));
+}
+
 export function inferEngineFromResult(result: unknown): DivinationEngine {
+    if (isQimenResult(result)) return 'qimen';
     if (isMeihuaResult(result)) {
         return 'meihua';
     }
@@ -583,6 +671,26 @@ export function inferEngineFromResult(result: unknown): DivinationEngine {
 
 export function buildSummaryFields(envelope: DivinationRecordEnvelope): RecordSummaryFields {
     const { engineType, result, summary } = envelope;
+
+    if (engineType === 'qimen') {
+        if (!isQimenResult(result)) throw new Error('奇门记录结构非法');
+        const juChar = '一二三四五六七八九'[result.ju - 1] ?? String(result.ju);
+        if (result.form && result.form !== '转盘') {
+            const board = getPeriodBoard(result, '时盘');
+            return { method: 'qimen_hour', question: result.question, title: board.title + ' · ' + result.form,
+                subtitle: board.detail + ' · ' + board.chief.chiefStar + '值符 · ' + board.chief.chiefGate + '值使' };
+        }
+        const tag = result.numberSeed !== undefined
+            ? `报数${result.numberSeed}`
+            : result.juMethod && result.juMethod !== 'chaibu'
+                ? `${JU_METHOD_LABELS[result.juMethod]}·${result.yuan}`
+                : result.yuan;
+        return {
+            method: 'qimen_hour', question: result.question,
+            title: `${result.dun === 'yang' ? '阳' : '阴'}遁${juChar}局 · ${tag}`,
+            subtitle: `${result.fourPillars[3]}时 · ${result.chiefStar}值符 · ${result.chiefGate}值使`,
+        };
+    }
 
     if (engineType === 'liuyao') {
         if (!isPanResult(result)) {

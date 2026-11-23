@@ -38,9 +38,9 @@
 
 ## 技术栈
 
-- Expo SDK 57
-- React Native 0.86.3
-- React 19.2.3
+- Expo SDK 58
+- React Native 0.88.1
+- React 19.3.0
 - TypeScript 7.0.2
 - Expo Router
 - `expo-sqlite`
@@ -52,7 +52,7 @@
 - `react-native-svg`
 - `react-native-reanimated`
 
-当前紫微链路使用 `iztro 2.6.1`。
+当前历法计算使用 `tyme4ts 1.5.6`，紫微链路使用 `iztro 2.6.5`。
 
 ## 仓库结构
 
@@ -75,7 +75,7 @@ src/data/                    卦象、卦辞与静态资料
 
 ### 环境要求
 
-- Node.js 18+
+- Node.js 22.13+（22 系列）、24.3+（24 系列）或 26+；不支持奇数版本
 - npm 9+
 
 ### 安装依赖
@@ -89,6 +89,8 @@ npm install
 ```bash
 npm run start
 ```
+
+`npm run start` 默认使用 Expo Go，并生成直接打开 Expo Go 的二维码，不经过应用选择网页。Android 请安装支持 SDK 58 的 Expo Go；需要清理缓存时运行 `npm run start -- --clear`。自定义开发包使用 `npx expo start --dev-client`。
 
 常用命令：
 

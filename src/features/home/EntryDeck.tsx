@@ -99,8 +99,9 @@ const CardGrain = memo(function CardGrain({ grain }: { grain: EntryTheme['grain'
 
 // 安卓有原生平铺就用它：RN Image 的 repeat 在安卓上每层另生成一张整卡大的图，八层约 30MB，撑爆贴图缓存
 function GrainLayer({ source, color, opacity }: { source: ImageSourcePropType; color: string; opacity: number }) {
-    return Tile
-        ? <Tile source={Image.resolveAssetSource(source).uri} tint={processColor(color) as number} style={[deckStyles.tile, { opacity }]} />
+    const asset = Tile ? Image.resolveAssetSource(source) : undefined;
+    return Tile && asset
+        ? <Tile source={asset.uri} tint={processColor(color) as number} style={[deckStyles.tile, { opacity }]} />
         : <Image source={source} resizeMode="repeat" fadeDuration={0} style={[deckStyles.tile, { tintColor: color, opacity }]} />;
 }
 

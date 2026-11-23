@@ -18,7 +18,7 @@ import {
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
-import { useFocusEffect, useNavigation } from 'expo-router';
+import { useFocusEffect, useIsFocused, usePreventRemove } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path, Text as SvgText } from 'react-native-svg';
 import { CustomAlert } from '../../src/components/CustomAlertProvider';
@@ -67,6 +67,7 @@ const THEME_SWATCHES = [
 const RECORD_ENGINES: Array<{ engine: DivinationEngine; badge: string }> = [
     { engine: 'liuyao', badge: '卦' },
     { engine: 'meihua', badge: '梅' },
+    { engine: 'qimen', badge: '奇' },
     { engine: 'bazi', badge: '八' },
     { engine: 'ziwei', badge: '紫' },
     { engine: 'baziCompatibility', badge: '合' },
@@ -166,7 +167,7 @@ function TaijiHub({
 
 export default function SettingsPage() {
     const { Colors, theme, setTheme, saveTheme } = useTheme();
-    const navigation = useNavigation();
+    const isFocused = useIsFocused();
     const styles = React.useMemo(() => makeStyles(Colors), [Colors]);
     const insets = useSafeAreaInsets();
     const palette = React.useMemo(() => buildResultPalette(Colors), [Colors]);
@@ -193,7 +194,8 @@ export default function SettingsPage() {
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const saveChainRef = useRef<Promise<boolean>>(Promise.resolve(true));
     const aiProviderSettingsRef = useRef<AIProviderSettingsHandle>(null);
-    const bypassNavigationGuardRef = useRef(false);
+    const [hasPendingModel, setHasPendingModel] = useState(false);
+    const [allowRemoval, setAllowRemoval] = useState(false);
     const {
         settings: ganZhiRelationSettings,
         ready: ganZhiRelationSettingsReady,
@@ -347,35 +349,27 @@ export default function SettingsPage() {
         requestLeave(() => setActiveSheet(null));
     }, [activeSheet, requestLeave]);
 
-    useFocusEffect(useCallback(() => (
-        registerSettingsLeaveHandler((proceed) => {
+    const disableRemovalPrevention = usePreventRemove(
+        isFocused && !allowRemoval && (hasPendingModel || !areSettingsEqual(settings, savedSettings)),
+        ({ repeat }) => {
             requestLeave(() => {
-                bypassNavigationGuardRef.current = true;
-                setActiveSheet(null);
-                proceed();
-                setTimeout(() => {
-                    bypassNavigationGuardRef.current = false;
-                }, 0);
+                setAllowRemoval(true);
+                repeat();
             });
-        })
-    ), [requestLeave]));
+        },
+    );
 
     useFocusEffect(useCallback(() => {
-        const unsubscribe = navigation.addListener('beforeRemove', (event) => {
-            if (bypassNavigationGuardRef.current || !getHasUnsavedChanges()) {
-                return;
-            }
-            event.preventDefault();
+        setAllowRemoval(false);
+        return registerSettingsLeaveHandler((proceed) => {
             requestLeave(() => {
-                bypassNavigationGuardRef.current = true;
-                navigation.dispatch(event.data.action);
-                setTimeout(() => {
-                    bypassNavigationGuardRef.current = false;
-                }, 0);
+                setAllowRemoval(true);
+                disableRemovalPrevention();
+                setActiveSheet(null);
+                proceed();
             });
         });
-        return unsubscribe;
-    }, [getHasUnsavedChanges, navigation, requestLeave]));
+    }, [disableRemovalPrevention, requestLeave]));
 
     useFocusEffect(useCallback(() => {
         const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -686,7 +680,7 @@ export default function SettingsPage() {
 
             <SettingsSheet visible={activeSheet !== null} title={getSheetTitle(activeSheet)} Colors={Colors} onClose={requestCloseSheet} independentContent={activeSheet === 'ai'}>
                 {activeSheet === 'ai' && (
-                    <AIProviderSettings ref={aiProviderSettingsRef} settings={settings} onChange={updateSettings} saveState={saveState} />
+                    <AIProviderSettings ref={aiProviderSettingsRef} settings={settings} onChange={updateSettings} saveState={saveState} onPendingModelChange={setHasPendingModel} />
                 )}
                 {activeSheet === 'calendar' && (
                     <View style={styles.sheetBlock}>
@@ -952,7 +946,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         flex: 1,
         paddingHorizontal: Spacing.xl,
         justifyContent: 'flex-start',
-        paddingBottom: 116,
+        paddingBottom: 148,
     },
     cardGrid: {
         flexDirection: 'row',

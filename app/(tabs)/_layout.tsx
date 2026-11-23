@@ -9,11 +9,26 @@ import { GlassTarget } from '../../modules/liquid-glass';
 type ScreenOptions = NonNullable<Extract<React.ComponentProps<typeof Tabs>['screenOptions'], object>>;
 
 // 玻璃底栏得画在 GlassTarget 外面才能折射页面（放里面会折射到自己），Tabs 这里只把导航状态递出去
-function TabBarBridge({ props, onChange }: { props: TabBarProps; onChange: (props: TabBarProps) => void }) {
+function TabBarBridge({ props, onChange }: {
+    props: TabBarProps;
+    onChange: React.Dispatch<React.SetStateAction<TabBarProps | null>>;
+}) {
     useLayoutEffect(() => {
-        onChange(props);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [props.state, onChange]);
+        // Router 58 每次渲染都会重建 state，只在页签内容变化时回写，避免父子循环更新。
+        onChange((current) => {
+            if (current
+                && current.state.index === props.state.index
+                && current.state.routes.length === props.state.routes.length
+                && current.state.routes.every((route, index) => {
+                    const next = props.state.routes[index];
+                    return route.key === next.key && route.name === next.name && route.params === next.params
+                        && current.descriptors[route.key]?.options.title === props.descriptors[next.key]?.options.title;
+                })) {
+                return current;
+            }
+            return props;
+        });
+    }, [props, onChange]);
     return null;
 }
 

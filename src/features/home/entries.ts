@@ -2,7 +2,7 @@ import type { ImageSourcePropType } from 'react-native';
 import type { Href } from 'expo-router';
 import { BaGuaIcon, ClockIcon, CoinIcon, HandIcon, NumberIcon, RingsIcon, StarIcon } from '../../components/Icons';
 
-export type HomeEntryId = 'liuyao' | 'meihua' | 'bazi' | 'ziwei';
+export type HomeEntryId = 'liuyao' | 'meihua' | 'bazi' | 'ziwei' | 'qimen';
 
 export interface HomeEntry {
     id: HomeEntryId;
@@ -34,6 +34,12 @@ export const HOME_ENTRIES: HomeEntry[] = [
         ],
     },
     {
+        id: 'qimen', title: '奇门遁甲', subtitle: '九宫 · 年月日时', group: '起盘',
+        image: require('../../../assets/home/ink-brush-v6/qimen.webp'),
+        description: '一事一局，观时察位', meta: '九宫 · 八门 · 星神',
+        actions: [{ label: '起盘', accessibilityLabel: '奇门起盘', route: '/qimen/input', Icon: BaGuaIcon }],
+    },
+    {
         id: 'bazi', title: '八字命理', subtitle: '四柱 · 十神 · 大运', group: '命盘',
         image: require('../../../assets/home/ink-brush-v6/bazi.webp'),
         description: '四柱十神，大运流年', meta: '两人可合盘，五维对照',
@@ -56,12 +62,14 @@ export const ENTRY_THEMES = {
             liuyao: { fill: '#66553D', ink: '#F4E5CC', tint: '#DFCDA8', border: '#D5BC8A50' },
             meihua: { fill: '#674C49', ink: '#F7E2DC', tint: '#E6C6BF', border: '#D8A49B50' },
             bazi: { fill: '#435D5C', ink: '#E0EFEA', tint: '#C1DCD4', border: '#9CBBB250' },
+            qimen: { fill: '#4C6157', ink: '#E3EEE4', tint: '#C9DCD0', border: '#A2C2AD50' },
             ziwei: { fill: '#5C506D', ink: '#EEE4F7', tint: '#D9C8E9', border: '#BCA5D050' },
         },
         gradients: {
             liuyao: { top: '#282722', middle: '#363126', bottom: '#494033', glow: '#CAA66B' },
             meihua: { top: '#292627', middle: '#36302F', bottom: '#463737', glow: '#C0877F' },
             bazi: { top: '#232829', middle: '#2C3539', bottom: '#38464B', glow: '#91AAA7' },
+            qimen: { top: '#242B28', middle: '#2F3B34', bottom: '#414F43', glow: '#91AA92' },
             ziwei: { top: '#27262D', middle: '#322E3D', bottom: '#423B52', glow: '#A797B4' },
         },
         ink: '#F3EAD6', muted: '#B7AFA4', gold: '#E2C46E',
@@ -76,12 +84,14 @@ export const ENTRY_THEMES = {
             liuyao: { fill: '#E4D4B6', ink: '#594528', tint: '#68502D', border: '#80663850' },
             meihua: { fill: '#E5CDC8', ink: '#68453F', tint: '#784D47', border: '#98665C50' },
             bazi: { fill: '#CEDED9', ink: '#35534E', tint: '#3D5F59', border: '#587E7650' },
+            qimen: { fill: '#D6E0CB', ink: '#425C45', tint: '#4C6850', border: '#6E8B6450' },
             ziwei: { fill: '#DBD0E2', ink: '#564269', tint: '#665177', border: '#856A9D50' },
         },
         gradients: {
             liuyao: { top: '#FCF8EF', middle: '#F1E8D4', bottom: '#E3D1A9', glow: '#B18A46' },
             meihua: { top: '#FCF6F2', middle: '#F3E6E0', bottom: '#E5CBC5', glow: '#B66D69' },
             bazi: { top: '#F6F7F3', middle: '#E6ECE9', bottom: '#CAD9D9', glow: '#789592' },
+            qimen: { top: '#F7F8F0', middle: '#E7EDDD', bottom: '#CFDCC4', glow: '#859C72' },
             ziwei: { top: '#F9F6F8', middle: '#EDE7EE', bottom: '#D9CFDF', glow: '#95839F' },
         },
         ink: '#2F2A24', muted: '#655D52', gold: '#815B16',

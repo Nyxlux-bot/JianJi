@@ -68,7 +68,7 @@ export default function HomePage() {
                 <View style={styles.header}>
                     <View>
                         <Text style={styles.brand} accessibilityRole="header">见机</Text>
-                        <Text style={styles.brandSub}>六爻 · 梅花 · 八字 · 紫微</Text>
+                        <Text style={styles.brandSub}>六爻 · 梅花 · 奇门 · 八字 · 紫微</Text>
                     </View>
                     <View style={styles.headerRight}>
                         <Text style={styles.pillars}>

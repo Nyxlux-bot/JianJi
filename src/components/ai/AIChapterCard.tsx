@@ -18,6 +18,7 @@ export interface AIChapterCardProps<M extends ChapterMessage> {
     chapter: Chapter<M>;
     styles: AIPageStyles;
     markdownStyles: AIMarkdownStyles;
+    onLinkPress?: (url: string) => boolean;
     Colors: any;
     /** Display text for an assistant message (kinship JSON → prose, display cleanup). */
     getDisplayContent: (message: M) => string;
@@ -41,9 +42,9 @@ function Seal({ status, styles, Colors }: { status: ChapterStatus; styles: AIPag
 }
 
 /** 核验、五年卷每次推送都整卷重解析；文字没变的段落别跟着重排 Markdown */
-const Md = memo(function Md({ children, markdownStyles }: { children: string; markdownStyles: AIMarkdownStyles }) {
+const Md = memo(function Md({ children, markdownStyles, onLinkPress }: { children: string; markdownStyles: AIMarkdownStyles; onLinkPress?: (url: string) => boolean }) {
     const text = useMemo(() => reflowLongParagraphs(children), [children]);
-    return text.trim() ? <Markdown style={markdownStyles}>{text}</Markdown> : null;
+    return text.trim() ? <Markdown style={markdownStyles} onLinkPress={onLinkPress}>{text}</Markdown> : null;
 });
 
 const REVEAL_FRAME_MS = 33;
@@ -118,12 +119,14 @@ function useRevealedText(text: string, streaming: boolean): { text: string; tail
             tail.push(1 - Math.pow(1 - age / FADE_MS, 3));
         }
     }
-    return { text: shown >= text.length ? text : closeOpenMarkup(text.slice(0, shown)), tail };
+    return { text: streaming || shown < text.length ? closeOpenMarkup(text.slice(0, shown)) : text, tail };
 }
 
 /** 吐到一半的标记先收好：半个「**」、只有井号的标题行不露出来，未闭合的粗体临时补上结尾 */
 function closeOpenMarkup(slice: string): string {
-    let text = slice.endsWith('*') && !slice.endsWith('**') ? slice.slice(0, -1) : slice;
+    // 地址还在逐字到达时先显示链接文字，右括号到齐才交给 Markdown。
+    let text = slice.replace(/\[([^\]\n]+)\]\([^\s)]*$/u, '$1');
+    if (text.endsWith('*') && !text.endsWith('**')) text = text.slice(0, -1);
     const lineStart = text.lastIndexOf('\n') + 1;
     const line = text.slice(lineStart);
     if (/^\s*#{1,6}\s*$/.test(line)) return text.slice(0, lineStart);
@@ -150,8 +153,8 @@ function splitBlocks(text: string): string[] {
 }
 
 /** 已写完的段落文字不变，不随末段每次推送重新解析 */
-const MdBlock = memo(function MdBlock({ text, markdownStyles }: { text: string; markdownStyles: AIMarkdownStyles }) {
-    return <Markdown style={markdownStyles}>{text}</Markdown>;
+const MdBlock = memo(function MdBlock({ text, markdownStyles, onLinkPress }: { text: string; markdownStyles: AIMarkdownStyles; onLinkPress?: (url: string) => boolean }) {
+    return <Markdown style={markdownStyles} onLinkPress={onLinkPress}>{text}</Markdown>;
 });
 
 /** 末尾还在淡入的字从后往前的不透明度，由 AssistantBody 提供给写在最后的那段 */
@@ -204,9 +207,9 @@ function parseSimple(block: string): Part[] | null {
 }
 
 /** 正在写的段落：版式与 Markdown 库渲染的一致，末尾的字按不透明度上色 */
-function FadeBlock({ text, alphas, markdownStyles }: { text: string; alphas: number[]; markdownStyles: AIMarkdownStyles }) {
+function FadeBlock({ text, alphas, markdownStyles, onLinkPress }: { text: string; alphas: number[]; markdownStyles: AIMarkdownStyles; onLinkPress?: (url: string) => boolean }) {
     const parts = useMemo(() => parseSimple(text), [text]);
-    if (!parts) return <MdBlock text={text} markdownStyles={markdownStyles} />;
+    if (!parts) return <MdBlock text={text} markdownStyles={markdownStyles} onLinkPress={onLinkPress} />;
     const styles = markdownStyles as Record<string, any>;
     const body = splitStyle(styles.body);
     let remaining = parts.reduce((sum, part) => sum + part.runs.reduce((count, run) => count + visibleLength(run.text), 0), 0);
@@ -243,7 +246,7 @@ function FadeBlock({ text, alphas, markdownStyles }: { text: string; alphas: num
 }
 
 /** 按段渲染：写完的段落缓存不重排；末尾正在淡入的一两段交给 FadeBlock */
-function TailBlocks({ text, markdownStyles, tail }: { text: string; markdownStyles: AIMarkdownStyles; tail: number[] }) {
+function TailBlocks({ text, markdownStyles, tail, onLinkPress }: { text: string; markdownStyles: AIMarkdownStyles; tail: number[]; onLinkPress?: (url: string) => boolean }) {
     const blocks = useMemo(() => splitBlocks(reflowLongParagraphs(text)), [text]);
     const fading: Array<number[] | null> = blocks.map(() => null);
     let offset = 0;
@@ -256,8 +259,8 @@ function TailBlocks({ text, markdownStyles, tail }: { text: string; markdownStyl
         <View>
             {blocks.map((block, index) => {
                 const alphas = fading[index];
-                return alphas ? <FadeBlock key={index} text={block} alphas={alphas} markdownStyles={markdownStyles} />
-                    : <MdBlock key={index} text={block} markdownStyles={markdownStyles} />;
+                return alphas ? <FadeBlock key={index} text={block} alphas={alphas} markdownStyles={markdownStyles} onLinkPress={onLinkPress} />
+                    : <MdBlock key={index} text={block} markdownStyles={markdownStyles} onLinkPress={onLinkPress} />;
             })}
         </View>
     );
@@ -273,12 +276,21 @@ function FadeMd({ children, markdownStyles }: { children: string; markdownStyles
  * 流式正文：每段各自渲染，写完的段落不跟着重排；末尾的字逐个淡入，不再整段上浮。
  * 从没流式过的消息按整篇渲染。
  */
-function StreamMd({ children, markdownStyles, streaming }: { children: string; markdownStyles: AIMarkdownStyles; streaming: boolean }) {
+function StreamMd({ children, markdownStyles, streaming, onLinkPress }: { children: string; markdownStyles: AIMarkdownStyles; streaming: boolean; onLinkPress?: (url: string) => boolean }) {
     const tail = useContext(TailContext);
     const streamed = useRef(streaming);
     if (streaming) streamed.current = true;
-    if (!streamed.current) return <Md markdownStyles={markdownStyles}>{children}</Md>;
-    return <TailBlocks text={children} markdownStyles={markdownStyles} tail={tail} />;
+    if (!streamed.current) return <Md markdownStyles={markdownStyles} onLinkPress={onLinkPress}>{children}</Md>;
+    return <TailBlocks text={children} markdownStyles={markdownStyles} tail={tail} onLinkPress={onLinkPress} />;
+}
+
+export function AIReadingText({ text, streaming = false, markdownStyles, onLinkPress }: {
+    text: string; streaming?: boolean; markdownStyles: AIMarkdownStyles; onLinkPress?: (url: string) => boolean;
+}) {
+    const revealed = useRevealedText(text, streaming);
+    return <TailContext.Provider value={revealed.tail}>
+        <StreamMd streaming={streaming} markdownStyles={markdownStyles} onLinkPress={onLinkPress}>{revealed.text}</StreamMd>
+    </TailContext.Provider>;
 }
 
 const MARK_ORDER: AIVerificationMark[] = ['yes', 'no', 'unsure'];
@@ -506,7 +518,7 @@ function renderBody<M extends ChapterMessage>(item: ChapterItem<M>, props: AICha
     if (id === 'verification') return <VerificationView content={content} streaming={streaming} props={props} />;
     if (id === 'five_year') return <FiveYearView content={content} streaming={streaming} props={props} />;
     if (id === 'compat') return <CompatView content={content} streaming={streaming} props={props} />;
-    return <StreamMd markdownStyles={props.markdownStyles} streaming={streaming}>{content}</StreamMd>;
+    return <StreamMd markdownStyles={props.markdownStyles} streaming={streaming} onLinkPress={props.onLinkPress}>{content}</StreamMd>;
 }
 
 function Superseded<M extends ChapterMessage>({ item, props }: { item: ChapterItem<M>; props: AIChapterCardProps<M> }) {
@@ -574,6 +586,7 @@ export const AIChapterCard = memo(AIChapterCardInner, (prev, next) =>
     && prev.marks === next.marks
     && prev.footer === next.footer
     && prev.minHeight === next.minHeight
+    && prev.onLinkPress === next.onLinkPress
     && prev.onMark === next.onMark
     && prev.yearMeta === next.yearMeta
     && prev.renderYearPanel === next.renderYearPanel
