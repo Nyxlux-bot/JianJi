@@ -169,10 +169,16 @@ jobs:
           rm -f "$KEYSTORE"
 
           # 证书不对的包装不上老用户的手机（不能覆盖升级），宁可失败
-          ACTUAL=$("$SIGNER" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          # 各版本 apksigner 的签名者标题写法不同（如 37.0.0 不再是固定的「Signer #1」），
+          # 只取所有签名者的证书 SHA-256 摘要，去重后必须恰好是这一把
+          CERTS=$("$SIGNER" verify --print-certs "$APK")
+          ACTUAL=$(printf '%s\n' "$CERTS" \
+            | awk 'tolower($0) ~ /certificate sha-256 digest/ && tolower($0) !~ /stamp/ { v = tolower($NF); gsub(/[^0-9a-f]/, "", v); print v }' \
+            | sort -u)
           EXPECTED=$(printf '%s' "$EXPECTED_CERT" | tr -d ': ' | tr 'A-F' 'a-f')
           if [ "$ACTUAL" != "$EXPECTED" ]; then
-            echo "签名证书指纹 ${ACTUAL} 与 ANDROID_CERT_SHA256 不符，停止发布。"
+            printf '%s\n' "$CERTS"
+            echo "签名证书指纹 ${ACTUAL:-（未读到）} 与 ANDROID_CERT_SHA256 不符，停止发布。"
             exit 1
           fi
           echo "签名证书核对通过：${ACTUAL}"
