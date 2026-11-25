@@ -9,7 +9,8 @@ import {
     createModelProfile, createProviderProfile, getActiveModel, getActiveProvider, getDefaultReasoning, getProviderDisplayName,
     sameProviderConfig, toProviderConfig, updateModelProfile, updateProviderProfile, type AISettings,
 } from '../services/settings';
-import { describeEndpointPreview, getProtocolCandidates, getProtocolLabel, isRawEndpointUrl } from '../services/ai-endpoints';
+import { describeEndpointPreview, getProtocolCandidates, getProtocolLabel, getProtocolShortLabel, isRawEndpointUrl } from '../services/ai-endpoints';
+import { AI_PROVIDER_PROTOCOLS } from '../core/ai-execution-meta';
 import { fetchProviderDiscovery } from '../services/ai-models';
 import { describeProviderFailure, testProviderConnection, type AIProviderConnectionAttempt } from '../services/ai-provider-client';
 import { clearCompatQuirks } from '../services/ai-compat-memory';
@@ -405,11 +406,11 @@ export default function AIProviderSettings({ settings, onChange, saveState, onPe
                                 onChangeText={(apiUrl) => changeProvider((entry) => ({ ...entry, apiUrl }))}
                                 actions={<Pressable accessibilityRole="button" accessibilityLabel="粘贴 Base URL" onPress={() => { void paste('apiUrl'); }} style={styles.textButton}><Text style={{ color: Colors.accent.gold }}>粘贴</Text></Pressable>} />
                             {preview ? <View style={styles.preview} accessibilityLabel="实际请求地址">
-                                {(['responses', 'anthropic_messages'] as const).map((protocol) => {
+                                {AI_PROVIDER_PROTOCOLS.map((protocol) => {
                                     const dim = verifiedProtocol !== undefined && verifiedProtocol !== protocol;
                                     return <View key={protocol} style={styles.previewRow}>
                                         <Text style={[styles.previewLabel, muted, verifiedProtocol === protocol && { color: Colors.accent.jade }]}>
-                                            {verifiedProtocol === protocol ? '✓ ' : ''}{protocol === 'responses' ? 'Responses' : 'Anthropic'}
+                                            {verifiedProtocol === protocol ? '✓ ' : ''}{getProtocolShortLabel(protocol)}
                                         </Text>
                                         <Text selectable numberOfLines={2} style={[styles.previewUrl, muted, dim && { opacity: 0.55 }]}>{preview[protocol]}</Text>
                                     </View>;
@@ -469,7 +470,7 @@ export default function AIProviderSettings({ settings, onChange, saveState, onPe
                                     {modelOptions.map((entry) => <Pressable key={entry.id} accessibilityRole="button" onPress={() => addModel(entry.id, entry)}
                                         style={({ pressed }) => [styles.modelOption, { borderBottomColor: Colors.border.subtle, backgroundColor: pressed ? Colors.bg.card : 'transparent' }]}>
                                         <Text style={[styles.optionName, { color: Colors.text.primary }]}>{entry.id}</Text>
-                                        {entry.endpoints?.length ? <Text style={muted}>{entry.endpoints.map((protocol) => protocol === 'responses' ? 'Responses' : 'Anthropic').join(' / ')}</Text> : null}
+                                        {entry.endpoints?.length ? <Text style={muted}>{entry.endpoints.map(getProtocolShortLabel).join(' / ')}</Text> : null}
                                     </Pressable>)}
                                 </ScrollView>
                             </View>

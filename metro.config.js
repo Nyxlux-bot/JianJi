@@ -12,6 +12,7 @@ const FORWARDED_REQUEST_HEADERS = [
   'content-length',
   'content-type',
   'x-api-key',
+  'x-goog-api-key',
 ];
 
 const FORWARDED_RESPONSE_HEADERS = [
@@ -37,6 +38,7 @@ function isAllowedTarget(targetUrl) {
   const pathname = targetUrl.pathname.replace(/\/+$/, '');
   return pathname.endsWith('/responses')
     || pathname.endsWith('/messages')
+    || pathname.endsWith('/interactions')
     || pathname.endsWith('/models');
 }
 

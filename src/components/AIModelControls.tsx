@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { getCachedCompatQuirks } from '../services/ai-compat-memory';
 import { getProtocolLabel } from '../services/ai-endpoints';
+import { AI_PROVIDER_PROTOCOLS } from '../core/ai-execution-meta';
 import { isReasoningEnabled, resolveModelBehavior, resolveOutputBudget } from '../services/ai-model-capabilities';
 import { getProviderCapabilities } from '../services/ai-provider-discovery';
 import type { AIModelProfile, AIProviderCapabilities, AIProviderProfile, AIProviderProtocolPreference } from '../services/ai-provider-types';
@@ -112,7 +113,7 @@ export default function AIModelControls({ provider, model, onChange, capabilitie
         <View style={styles.block}>
             <View style={styles.group}>
                 <Text style={[styles.label, { color: Colors.text.secondary }]}>连接协议</Text>
-                <View style={styles.choices}>{(['auto', 'responses', 'anthropic_messages'] as const).map((preference) => (
+                <View style={styles.choices}>{(['auto', ...AI_PROVIDER_PROTOCOLS] as const).map((preference) => (
                     <AIChoice key={preference} label={preference === 'auto' ? '自动' : getProtocolLabel(preference)}
                         selected={model.protocolPreference === preference} onPress={() => changeProtocol(preference)} />
                 ))}</View>

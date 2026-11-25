@@ -177,6 +177,10 @@ function getAuthHeaders(
         }
         return headers;
     }
+    if (protocol === 'gemini_interactions') {
+        // No Authorization header: Google reads a Bearer value as an OAuth token and rejects the key.
+        return { 'Content-Type': 'application/json', Accept: 'text/event-stream', 'x-goog-api-key': apiKey.trim() };
+    }
     return {
         'Content-Type': 'application/json',
         Accept: 'text/event-stream',
@@ -218,6 +222,20 @@ function buildRequestBody(
             max_output_tokens: maxOutputTokens,
             ...(temperature === undefined ? {} : { temperature }),
             ...runtime.parameters,
+            stream: true,
+        };
+    }
+    if (capabilities.protocol === 'gemini_interactions') {
+        return {
+            model: capabilities.model,
+            ...(normalized.instructions ? { system_instruction: normalized.instructions } : {}),
+            input: normalized.messages.map(({ role, content }) => ({
+                type: role === 'assistant' ? 'model_output' : 'user_input',
+                content: [{ type: 'text', text: content }],
+            })),
+            generation_config: { max_output_tokens: maxOutputTokens, ...runtime.parameters },
+            // Interactions are stored server-side by default; charts and questions are private.
+            store: false,
             stream: true,
         };
     }
@@ -272,7 +290,20 @@ function extractResponsesText(payload: Record<string, unknown>): string {
     }).join('');
 }
 
+function extractInteractionText(interaction: Record<string, unknown>): string {
+    if (!Array.isArray(interaction.steps)) {
+        return '';
+    }
+    return interaction.steps
+        .map((step) => (isRecord(step) && step.type === 'model_output' ? extractTextContent(step.content) : ''))
+        .join('');
+}
+
 function parseProviderErrorDetail(data: unknown): AIProviderErrorDetail | undefined {
+    // Google can wrap an error body in a one-element array.
+    if (Array.isArray(data)) {
+        return parseProviderErrorDetail(data[0]);
+    }
     if (!isRecord(data)) {
         return undefined;
     }
@@ -290,7 +321,9 @@ function parseProviderErrorDetail(data: unknown): AIProviderErrorDetail | undefi
     return {
         message,
         ...(typeof error?.param === 'string' && error.param ? { param: error.param } : {}),
-        ...(typeof error?.type === 'string' ? { type: error.type } : typeof error?.code === 'string' ? { type: error.code } : {}),
+        ...(typeof error?.type === 'string' ? { type: error.type }
+            : typeof error?.code === 'string' ? { type: error.code }
+            : typeof error?.status === 'string' ? { type: error.status } : {}),
     };
 }
 
@@ -308,6 +341,9 @@ export function readProviderErrorBody(text: string): AIProviderErrorDetail | und
 }
 
 function parseProviderError(data: unknown): string {
+    if (Array.isArray(data)) {
+        return parseProviderError(data[0]);
+    }
     if (!isRecord(data)) {
         return '';
     }
@@ -634,6 +670,56 @@ function handleStreamPayload(
         return {};
     }
 
+    if (protocol === 'gemini_interactions') {
+        const geminiType = typeof payload.event_type === 'string' ? payload.event_type : payloadType;
+        if (geminiType === 'step.delta') {
+            const delta = isRecord(payload.delta) ? payload.delta : undefined;
+            if (delta?.type === 'text' && typeof delta.text === 'string') {
+                appendChunk(state, delta.text, options);
+            } else if ((delta?.type === 'thought_summary' || delta?.type === 'thought_signature') && !state.reasoningStarted) {
+                state.reasoningStarted = true;
+                options.onReasoning?.();
+            }
+            return {};
+        }
+        if (geminiType === 'interaction.completed') {
+            const interaction = isRecord(payload.interaction) ? payload.interaction : payload;
+            if (!state.content) {
+                appendChunk(state, extractInteractionText(interaction), options);
+            }
+            const usage = isRecord(interaction.usage) ? interaction.usage : undefined;
+            const outputTokens = [usage?.total_output_tokens, usage?.total_thought_tokens]
+                .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0);
+            if (outputTokens.length) {
+                state.reportedOutputTokens = Math.floor(outputTokens.reduce((total, value) => total + value, 0));
+            }
+            state.finishReason = typeof interaction.status === 'string' ? interaction.status : 'completed';
+            state.terminalEventReceived = true;
+            if (state.finishReason === 'completed') {
+                return { done: true };
+            }
+            // The docs give hitting max_output_tokens as the example of "incomplete".
+            if (state.finishReason === 'incomplete') {
+                return { done: true, code: 'token_limit', error: '模型输出达到上限，内容未完整生成' };
+            }
+            state.providerError = parseProviderErrorDetail(interaction);
+            return {
+                done: true,
+                code: 'invalid_response',
+                error: 'Gemini Interactions 返回 ' + state.finishReason + ' 状态'
+                    + (state.providerError ? '：' + state.providerError.message : ''),
+            };
+        }
+        if (geminiType === 'error') {
+            state.providerError = parseProviderErrorDetail(payload);
+            return {
+                error: parseProviderError(payload) || 'Gemini Interactions 返回失败事件',
+                code: 'http_error',
+            };
+        }
+        return {};
+    }
+
     if (payloadType === 'message_start') {
         const message = isRecord(payload.message) ? payload.message : undefined;
         recordOutputTokenCount(state, message);
@@ -685,6 +771,48 @@ function handleStreamPayload(
     }
     return {};
 }
+
+// The 'error' event is subscribed separately, since it also carries transport failures.
+const STREAM_EVENT_TYPES: Record<AIProviderProtocol, string[]> = {
+    responses: [
+        'message',
+        'response.created',
+        'response.in_progress',
+        'response.output_item.added',
+        'response.output_item.done',
+        'response.content_part.added',
+        'response.content_part.done',
+        'response.output_text.delta',
+        'response.output_text.done',
+        'response.reasoning_text.delta',
+        'response.reasoning_summary_text.delta',
+        'response.reasoning_summary_part.added',
+        'response.reasoning_summary_part.done',
+        'response.completed',
+        'response.incomplete',
+        'response.failed',
+    ],
+    anthropic_messages: [
+        'message',
+        'message_start',
+        'content_block_start',
+        'content_block_delta',
+        'content_block_stop',
+        'message_delta',
+        'message_stop',
+        'ping',
+    ],
+    gemini_interactions: [
+        'message',
+        'interaction.created',
+        'interaction.status_update',
+        'step.start',
+        'step.delta',
+        'step.stop',
+        'interaction.completed',
+        'done',
+    ],
+};
 
 function runStreamRequest(
     runtime: AIRequestRuntime,
@@ -881,36 +1009,7 @@ function runStreamRequest(
             }));
         }, STREAM_TIMEOUTS.totalTimeoutMs);
 
-        const eventTypes = capabilities.protocol === 'responses'
-            ? [
-                'message',
-                'response.created',
-                'response.in_progress',
-                'response.output_item.added',
-                'response.output_item.done',
-                'response.content_part.added',
-                'response.content_part.done',
-                'response.output_text.delta',
-                'response.output_text.done',
-                'response.reasoning_text.delta',
-                'response.reasoning_summary_text.delta',
-                'response.reasoning_summary_part.added',
-                'response.reasoning_summary_part.done',
-                'response.completed',
-                'response.incomplete',
-                'response.failed',
-            ]
-            : [
-                'message',
-                'message_start',
-                'content_block_start',
-                'content_block_delta',
-                'content_block_stop',
-                'message_delta',
-                'message_stop',
-                'ping',
-            ];
-        eventTypes.forEach((eventType) => {
+        STREAM_EVENT_TYPES[capabilities.protocol].forEach((eventType) => {
             eventSource!.addEventListener(eventType, (event) => {
                 handleEvent(eventType, event as ProviderStreamEvent);
             });
@@ -977,13 +1076,14 @@ function runStreamRequest(
 
 /* ---------- compat fallback ---------- */
 
-const REASONING_PARAM = /\b(?:thinking|output_config|effort|budget_tokens|reasoning(?:[._]effort)?)\b/i;
-const SUMMARY_PARAM = /\bsummary\b|reasoning summar/i;
+const REASONING_PARAM = /\b(?:thinking|thinking_level|output_config|effort|budget_tokens|reasoning(?:[._]effort)?)\b/i;
+const SUMMARY_PARAM = /\bsummary\b|reasoning summar|thinking_summar/i;
 const TEMPERATURE_PARAM = /\btemperature\b/i;
 const MAX_TOKENS_PARAM = /\bmax_(?:output_|completion_)?tokens\b|output tokens|maximum (?:allowed )?(?:number of )?tokens/i;
 const REJECTION_HINT = /unrecogni[sz]ed|unknown|unsupported|not supported|not allowed|not permitted|extra inputs|invalid|does not support|no longer supported|must be|exceed|greater than|less than|too large|expected/i;
 
 function readSentEffort(parameters: Record<string, unknown>): string | undefined {
+    if (typeof parameters.thinking_level === 'string') return parameters.thinking_level;
     const reasoning = isRecord(parameters.reasoning) ? parameters.reasoning : undefined;
     if (typeof reasoning?.effort === 'string') return reasoning.effort;
     const output = isRecord(parameters.output_config) ? parameters.output_config : undefined;
@@ -1011,11 +1111,12 @@ export function deriveCompatQuirk(result: AIProviderResult, runtime: AIRequestRu
     const reasoning = isRecord(parameters.reasoning) ? parameters.reasoning : undefined;
     const thinking = isRecord(parameters.thinking) ? parameters.thinking : undefined;
     const sentEffort = readSentEffort(parameters);
+    const thinkingLevel = typeof parameters.thinking_level === 'string';
     let learned: AICompatQuirks | null = null;
 
-    if (reasoning?.summary && SUMMARY_PARAM.test(text)) {
+    if ((reasoning?.summary || parameters.thinking_summaries) && SUMMARY_PARAM.test(text)) {
         learned = { dropReasoningSummary: true };
-    } else if ((reasoning || thinking) && REASONING_PARAM.test(text)) {
+    } else if ((reasoning || thinking || thinkingLevel) && REASONING_PARAM.test(text)) {
         if (sentEffort && mentionsValue(text, sentEffort)) {
             learned = { unsupportedEfforts: [sentEffort as NonNullable<AICompatQuirks['unsupportedEfforts']>[number]] };
         } else if (thinking?.type === 'disabled') {
@@ -1161,7 +1262,7 @@ export interface ProviderFailureSummary {
 export function describeProviderFailure(status: number | undefined, message = ''): ProviderFailureSummary | null {
     if (status === 401 || status === 403) return { title: 'API Key 无效或没有权限', hint: '核对 Key 是否填对、是否有这个模型的使用权限。' };
     if (status === 404) return { title: '该地址下没有这个接口', hint: '核对 Base URL；如果是中转站，确认它开放了这个协议，或模型名是否正确。' };
-    if (status === 429) return { title: '额度不足或请求过快', hint: '稍后再试，或检查账户余额与限速。' };
+    if (status === 402 || status === 429) return { title: '额度不足或请求过快', hint: '稍后再试，或检查账户余额与限速。' };
     if (status === 524 || status === 504 || status === 408) return { title: '网关等待超时', hint: '思考时间过长时容易发生，可以调低思考强度后重试。', thinkingRelated: true };
     if ((status === 502 || status === 503) && /无法连接|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|connect(?:ion)? (?:refused|failed)|getaddrinfo/i.test(message)) {
         return { title: '连不上这个地址', hint: '核对 Base URL 是否正确、服务是否在线。' };

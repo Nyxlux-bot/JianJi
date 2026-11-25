@@ -1,7 +1,6 @@
-import type { AIExecutionMeta, AIReasoningEffort, AIReasoningSetting, AIThinkingMode } from '../core/ai-execution-meta';
+import type { AIExecutionMeta, AIProviderProtocol, AIReasoningEffort, AIReasoningSetting, AIThinkingMode } from '../core/ai-execution-meta';
 
-export type { AIReasoningEffort, AIReasoningSetting, AIThinkingMode } from '../core/ai-execution-meta';
-export type AIProviderProtocol = 'responses' | 'anthropic_messages';
+export type { AIProviderProtocol, AIReasoningEffort, AIReasoningSetting, AIThinkingMode } from '../core/ai-execution-meta';
 
 export type AIProviderProtocolPreference = 'auto' | AIProviderProtocol;
 
@@ -63,9 +62,9 @@ export interface AIModelMetadata {
  * behaves differently behind different gateways.
  */
 export interface AICompatQuirks {
-    /** Anthropic side: adaptive → budget → none. */
+    /** Anthropic side: adaptive → budget → none. Gemini side: thinking_level → none. */
     reasoningFormat?: 'adaptive' | 'budget' | 'none';
-    /** Responses side: effort values the gateway refused (e.g. 'xhigh', 'none'). */
+    /** Effort values the gateway refused (e.g. 'xhigh', 'none'). */
     unsupportedEfforts?: Array<AIReasoningEffort | 'none'>;
     dropReasoningSummary?: boolean;
     dropTemperature?: boolean;

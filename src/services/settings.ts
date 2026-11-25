@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { isAIReasoningEffort, isAIReasoningSetting, isAIThinkingMode } from '../core/ai-execution-meta';
+import { isAIProviderProtocol, isAIReasoningEffort, isAIReasoningSetting, isAIThinkingMode } from '../core/ai-execution-meta';
 import { budgetToLevel, DEFAULT_OUTPUT_TOKENS, DEFAULT_REASONING_OUTPUT_TOKENS, DEFAULT_THINKING_BUDGET, getBuiltInModelMetadata, getThinkingStops } from './ai-model-capabilities';
 import { RAW_URL_MARKER, wasLegacyRawEndpoint } from './ai-endpoints';
 import type { AIModelCapabilityOverrides, AIModelProfile, AIProviderConfig, AIProviderProfile, AIProviderProtocol, AIReasoningSetting } from './ai-provider-types';
@@ -159,9 +159,9 @@ function parseOverrides(value: unknown): AIModelCapabilityOverrides | undefined 
 
 function parseModel(value: unknown): AIModelProfile {
     const raw = object(value, '模型');
-    if (raw.protocol !== 'responses' && raw.protocol !== 'anthropic_messages') throw new Error('模型协议无效');
+    if (!isAIProviderProtocol(raw.protocol)) throw new Error('模型协议无效');
     if (raw.protocolPreference !== undefined && raw.protocolPreference !== 'auto'
-        && raw.protocolPreference !== 'responses' && raw.protocolPreference !== 'anthropic_messages') throw new Error('协议选择无效');
+        && !isAIProviderProtocol(raw.protocolPreference)) throw new Error('协议选择无效');
     if (!isAIReasoningSetting(raw.reasoning)) throw new Error('思考设置无效');
     if (typeof raw.temperature !== 'number' || !Number.isFinite(raw.temperature) || raw.temperature < 0 || raw.temperature > 2) throw new Error('温度须在 0 到 2 之间');
     if (typeof raw.protocolVerified !== 'boolean') throw new Error('模型验证状态无效');

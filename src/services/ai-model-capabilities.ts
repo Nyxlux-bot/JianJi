@@ -19,11 +19,26 @@ const NO_QUIRKS: AICompatQuirks = {};
 const ALWAYS_THINKING = /(?:^|[-_/])(?:reasoner|thinking|r1)(?:$|[-_])|^qwq(?:$|[-_])|-(?:minimal|low|medium|high|xhigh)$/i;
 const NEVER_THINKING = /(?:^|[-_])no-?thinking(?:$|[-_])/i;
 
+/**
+ * thinking_level values per the Gemini thinking docs (2026-11), listing only
+ * models that differ from the low/medium/high default; any other Gemini model
+ * keeps the default and learns from rejections.
+ */
+const GEMINI_LEVELS: Array<[RegExp, AIReasoningEffort[]]> = [
+    [/^gemini-4-(?:hydrogen|neon)(?:-preview)?$/, ['low', 'medium', 'high', 'xhigh']],
+    [/^gemini-3-pro(?:-preview)?$/, ['low', 'high']],
+    [/^gemini-(?:3-flash|3\.6-flash|3\.5-flash-lite|3\.1-flash-lite)(?:-preview)?$/, ['minimal', 'low', 'medium', 'high']],
+];
+
 /** Only documented IDs match; gateway aliases need metadata, probing or fallback. */
 export function getBuiltInModelMetadata(model: string, protocol: AIProviderProtocol): AIModelMetadata | undefined {
     const id = model.trim();
     if (NEVER_THINKING.test(id)) return { id, reasoning: { mode: 'unsupported', efforts: [], supportsOff: false, defaultEnabled: false } };
     if (ALWAYS_THINKING.test(id)) return { id, reasoning: { mode: 'always', efforts: [], supportsOff: false, defaultEnabled: true } };
+    if (protocol === 'gemini_interactions') {
+        const efforts = GEMINI_LEVELS.find(([pattern]) => pattern.test(id))?.[1];
+        return efforts ? { id, reasoning: { mode: 'adaptive', efforts, supportsOff: false, defaultEnabled: true } } : undefined;
+    }
     if (protocol === 'responses') {
         if (id === 'gpt-6-astra') return {
             id, maxOutputTokens: 128_000,
@@ -67,7 +82,9 @@ export function resolveModelBehavior(config: AIProviderConfig, metadata?: AIMode
         reasoningSource: overrides?.reasoning ? 'override' : metadata?.reasoning ? 'metadata' : rules?.reasoning ? 'model_rules' : 'unknown',
         modelMaxOutputTokens: overrides?.maxOutputTokens ?? metadata?.maxOutputTokens ?? rules?.maxOutputTokens,
         maxOutputTokensSource: overrides?.maxOutputTokens !== undefined ? 'override' : metadata?.maxOutputTokens !== undefined ? 'model_metadata' : rules?.maxOutputTokens !== undefined ? 'model_rules' : 'default',
-        supportsTemperature: overrides?.supportsTemperature ?? metadata?.supportsTemperature ?? rules?.supportsTemperature ?? false,
+        // Interactions has no temperature field in generation_config.
+        supportsTemperature: config.protocol === 'gemini_interactions' ? false
+            : overrides?.supportsTemperature ?? metadata?.supportsTemperature ?? rules?.supportsTemperature ?? false,
         temperatureSource: overrides?.supportsTemperature !== undefined ? 'override' : metadata?.supportsTemperature !== undefined ? 'metadata' : rules?.supportsTemperature !== undefined ? 'model_rules' : 'omitted',
         temperatureWithReasoning: overrides?.temperatureWithReasoning ?? metadata?.temperatureWithReasoning ?? rules?.temperatureWithReasoning ?? false,
     } as const;
@@ -76,11 +93,12 @@ export function resolveModelBehavior(config: AIProviderConfig, metadata?: AIMode
 /* ---------- thinking levels ---------- */
 
 /** How thinking is expressed on the wire for this protocol, after what the gateway taught us. */
-export type ThinkingFormat = 'responses' | 'adaptive' | 'budget' | 'none';
+export type ThinkingFormat = 'responses' | 'adaptive' | 'budget' | 'thinking_level' | 'none';
 
 export function resolveThinkingFormat(protocol: AIProviderProtocol, mode: AIThinkingMode, quirks: AICompatQuirks = NO_QUIRKS): ThinkingFormat {
     if (quirks.reasoningFormat === 'none' || mode === 'unsupported' || mode === 'always') return 'none';
     if (protocol === 'responses') return 'responses';
+    if (protocol === 'gemini_interactions') return 'thinking_level';
     if (quirks.reasoningFormat) return quirks.reasoningFormat;
     return mode === 'adaptive' ? 'adaptive' : 'budget';
 }
@@ -104,7 +122,9 @@ export function getThinkingStops(protocol: AIProviderProtocol, capability: AIRea
     const format = resolveThinkingFormat(protocol, capability.mode, quirks);
     if (format === 'none') return [];
     // 'none' in the rejected list means this gateway refused "thinking off" on either protocol.
-    const offAllowed = (capability.mode === 'unknown' || capability.supportsOff) && !quirks.unsupportedEfforts?.includes('none');
+    // thinking_level has no "off" value; "minimal" is the lightest it goes.
+    const offAllowed = format !== 'thinking_level'
+        && (capability.mode === 'unknown' || capability.supportsOff) && !quirks.unsupportedEfforts?.includes('none');
     return [...(offAllowed ? ['off' as const] : []), ...getAllowedEfforts(format, capability, quirks)];
 }
 
@@ -234,6 +254,13 @@ export function buildReasoningRequest(
     }
     if (format === 'adaptive') {
         return { parameters: { thinking: { type: 'adaptive' }, output_config: { effort } }, format, sent: effort };
+    }
+    if (format === 'thinking_level') {
+        // Goes into generation_config; summaries stream while the model thinks.
+        return {
+            parameters: { thinking_level: effort, ...(quirks.dropReasoningSummary ? {} : { thinking_summaries: 'auto' }) },
+            format, sent: effort,
+        };
     }
     const budgetTokens = resolveThinkingBudget(effort, maxOutputTokens);
     if (!budgetTokens) return none;

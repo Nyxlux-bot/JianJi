@@ -1,3 +1,5 @@
+export const AI_PROVIDER_PROTOCOLS = ['responses', 'anthropic_messages', 'gemini_interactions'] as const;
+export type AIProviderProtocol = typeof AI_PROVIDER_PROTOCOLS[number];
 export const AI_REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 export type AIReasoningEffort = typeof AI_REASONING_EFFORTS[number];
 export type AIReasoningSetting = 'default' | 'off' | 'budget' | AIReasoningEffort;
@@ -14,13 +16,17 @@ export interface AIExecutionMeta {
     providerId: string;
     providerName: string;
     model: string;
-    protocol: 'responses' | 'anthropic_messages';
+    protocol: AIProviderProtocol;
     reasoning: AIReasoningSetting;
     thinkingMode: AIThinkingMode;
     thinkingBudgetTokens?: number;
     temperature?: number;
     maxOutputTokens: number;
     skills: AISkillVersion[];
+}
+
+export function isAIProviderProtocol(value: unknown): value is AIProviderProtocol {
+    return AI_PROVIDER_PROTOCOLS.some((protocol) => protocol === value);
 }
 
 export function isAIReasoningEffort(value: unknown): value is AIReasoningEffort {
@@ -40,7 +46,7 @@ export function sanitizeAIExecutionMeta(value: unknown): AIExecutionMeta | undef
     if (!value || typeof value !== 'object') return undefined;
     const raw = value as Record<string, unknown>;
     if (typeof raw.providerId !== 'string' || typeof raw.providerName !== 'string' || typeof raw.model !== 'string'
-        || (raw.protocol !== 'responses' && raw.protocol !== 'anthropic_messages')
+        || !isAIProviderProtocol(raw.protocol)
         || !isAIReasoningSetting(raw.reasoning) || !isAIThinkingMode(raw.thinkingMode)
         || typeof raw.maxOutputTokens !== 'number' || !Number.isSafeInteger(raw.maxOutputTokens) || raw.maxOutputTokens <= 0
         || !Array.isArray(raw.skills)) return undefined;

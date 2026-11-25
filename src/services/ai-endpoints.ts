@@ -4,11 +4,23 @@ import type { AIProviderProtocol } from './ai-provider-types';
 // the same base URL may be an official API, a new-api / sub2api relay or a
 // self-hosted gateway.
 
+const PROTOCOL_LABELS: Record<AIProviderProtocol, { full: string; short: string }> = {
+    responses: { full: 'Responses', short: 'Responses' },
+    anthropic_messages: { full: 'Anthropic Messages', short: 'Anthropic' },
+    gemini_interactions: { full: 'Gemini Interactions', short: 'Gemini' },
+};
+
 export function getProtocolLabel(protocol: AIProviderProtocol): string {
-    return protocol === 'responses' ? 'Responses' : 'Anthropic Messages';
+    return PROTOCOL_LABELS[protocol].full;
+}
+
+export function getProtocolShortLabel(protocol: AIProviderProtocol): string {
+    return PROTOCOL_LABELS[protocol].short;
 }
 
 const DEFAULT_API_BASE_PATH = '/v1';
+// Gemini's native API lives under v1beta; v1 is only used when typed.
+const PROTOCOL_BASE_PATHS: Partial<Record<AIProviderProtocol, string>> = { gemini_interactions: '/v1beta' };
 
 /** A trailing "#" means "use this URL exactly as typed". */
 export const RAW_URL_MARKER = '#';
@@ -16,6 +28,7 @@ export const RAW_URL_MARKER = '#';
 const PROTOCOL_PATHS: Record<AIProviderProtocol, string> = {
     responses: '/responses',
     anthropic_messages: '/messages',
+    gemini_interactions: '/interactions',
 };
 
 // '/chat/completions' is not a supported protocol; it is listed so a pasted
@@ -23,6 +36,7 @@ const PROTOCOL_PATHS: Record<AIProviderProtocol, string> = {
 const KNOWN_ENDPOINT_PATHS = [
     PROTOCOL_PATHS.responses,
     PROTOCOL_PATHS.anthropic_messages,
+    PROTOCOL_PATHS.gemini_interactions,
     '/models',
     '/chat/completions',
 ] as const;
@@ -47,22 +61,23 @@ function findKnownEndpoint(path: string): string | undefined {
 
 /**
  * Base-URL rules:
- * - empty path → /v1/<endpoint>
+ * - empty path → /v1/<endpoint> (Gemini: /v1beta/<endpoint>)
  * - already ends with a known endpoint → swap in the target endpoint
  * - last segment is a version (v1, v4, v1beta) → <path>/<endpoint>
- * - anything else (/anthropic, /api, /proxy …) → <path>/v1/<endpoint>
+ * - anything else (/anthropic, /api, /proxy …) → <path>/v1/<endpoint> (Gemini: /v1beta)
  */
-function joinEndpointPath(pathname: string, endpointPath: string): string {
+function joinEndpointPath(pathname: string, endpointPath: string, basePath: string): string {
     const path = normalizeTrailingSlash(pathname);
     const known = findKnownEndpoint(path);
     if (known) return `${normalizeTrailingSlash(path.slice(0, -known.length))}${endpointPath}`;
-    if (!path) return `${DEFAULT_API_BASE_PATH}${endpointPath}`;
+    if (!path) return `${basePath}${endpointPath}`;
     const lastSegment = path.slice(path.lastIndexOf('/') + 1);
     if (VERSION_SEGMENT.test(lastSegment)) return `${path}${endpointPath}`;
-    return `${path}${DEFAULT_API_BASE_PATH}${endpointPath}`;
+    return `${path}${basePath}${endpointPath}`;
 }
 
-function resolveEndpointUrl(apiUrl: string, endpointPath: string): string {
+function resolveEndpointUrl(apiUrl: string, endpointPath: string, protocol: AIProviderProtocol): string {
+    const basePath = PROTOCOL_BASE_PATHS[protocol] ?? DEFAULT_API_BASE_PATH;
     const trimmedUrl = apiUrl.trim();
     if (!trimmedUrl) {
         return trimmedUrl;
@@ -79,23 +94,24 @@ function resolveEndpointUrl(apiUrl: string, endpointPath: string): string {
 
     try {
         const url = new URL(trimmedUrl);
-        url.pathname = joinEndpointPath(url.pathname, endpointPath);
+        url.pathname = joinEndpointPath(url.pathname, endpointPath, basePath);
         url.hash = '';
         return url.toString();
     } catch {
         const suffixIndex = trimmedUrl.search(/[?#]/u);
         const path = suffixIndex >= 0 ? trimmedUrl.slice(0, suffixIndex) : trimmedUrl;
         const suffix = suffixIndex >= 0 ? trimmedUrl.slice(suffixIndex) : '';
-        return `${joinEndpointPath(path, endpointPath)}${suffix}`;
+        return `${joinEndpointPath(path, endpointPath, basePath)}${suffix}`;
     }
 }
 
 export function resolveProviderEndpoint(apiUrl: string, protocol: AIProviderProtocol): string {
-    return resolveEndpointUrl(apiUrl, PROTOCOL_PATHS[protocol]);
+    return resolveEndpointUrl(apiUrl, PROTOCOL_PATHS[protocol], protocol);
 }
 
-export function resolveModelsUrl(apiUrl: string): string {
-    return resolveEndpointUrl(apiUrl, '/models');
+/** The model list sits next to the protocol endpoint, so Gemini's defaults to /v1beta/models. */
+export function resolveModelsUrl(apiUrl: string, protocol: AIProviderProtocol = 'responses'): string {
+    return resolveEndpointUrl(apiUrl, '/models', protocol);
 }
 
 /** What the form shows under the Base URL field. */
@@ -104,6 +120,7 @@ export function describeEndpointPreview(apiUrl: string): Record<AIProviderProtoc
     return {
         responses: resolveProviderEndpoint(apiUrl, 'responses'),
         anthropic_messages: resolveProviderEndpoint(apiUrl, 'anthropic_messages'),
+        gemini_interactions: resolveProviderEndpoint(apiUrl, 'gemini_interactions'),
     };
 }
 
@@ -114,6 +131,7 @@ function getExplicitProtocol(apiUrl: string): AIProviderProtocol | undefined {
     path = normalizeTrailingSlash(path);
     if (path.endsWith(PROTOCOL_PATHS.responses)) return 'responses';
     if (path.endsWith(PROTOCOL_PATHS.anthropic_messages) || /\/anthropic(\/|$)/i.test(path)) return 'anthropic_messages';
+    if (path.endsWith(PROTOCOL_PATHS.gemini_interactions) || /\/v1beta$/i.test(path)) return 'gemini_interactions';
     return undefined;
 }
 
@@ -130,8 +148,10 @@ export function getProtocolCandidates(apiUrl: string, model = '', catalogEndpoin
     add(getExplicitProtocol(apiUrl));
     catalogEndpoints?.forEach(add);
     if (/^claude-/i.test(model.trim())) add('anthropic_messages');
+    if (/^gemini-/i.test(model.trim())) add('gemini_interactions');
     add('responses');
     add('anthropic_messages');
+    add('gemini_interactions');
     return order;
 }
 

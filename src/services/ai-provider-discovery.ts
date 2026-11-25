@@ -3,6 +3,7 @@ import { isAIReasoningEffort, isAIThinkingMode } from '../core/ai-execution-meta
 import { resolveModelBehavior } from './ai-model-capabilities';
 import {
     getEndpointLogMeta,
+    inferProviderProtocol,
     resolveModelsUrl,
     resolveProviderEndpoint,
 } from './ai-endpoints';
@@ -150,10 +151,15 @@ function parseModelMetadata(item: unknown): AIModelMetadata | null {
     if (!isRecord(item)) {
         return null;
     }
+    // Gemini lists names as "models/<id>".
     const id = typeof item.id === 'string'
         ? item.id.trim()
-        : (typeof item.name === 'string' ? item.name.trim() : '');
+        : (typeof item.name === 'string' ? item.name.trim().replace(/^models\//, '') : '');
     if (!id) {
+        return null;
+    }
+    // Gemini also lists embedding and media models that cannot generate text.
+    if (Array.isArray(item.supportedGenerationMethods) && !item.supportedGenerationMethods.includes('generateContent')) {
         return null;
     }
     const supportedParameters = findSupportedParameters(item);
@@ -180,7 +186,9 @@ function parseModelMetadata(item: unknown): AIModelMetadata | null {
         supportedParameters: supportedParameters.length > 0 ? supportedParameters : undefined,
         supportsTemperature,
         temperatureWithReasoning: findExplicitBoolean(item, ['temperatureWithReasoning', 'temperature_with_reasoning']),
-        reasoning: parseReasoningMetadata(item),
+        reasoning: item.thinking === false
+            ? { mode: 'unsupported', efforts: [], supportsOff: false, defaultEnabled: false }
+            : parseReasoningMetadata(item),
         endpoints: parseEndpointHints(item),
     };
 }
@@ -222,6 +230,9 @@ function getAuthHeaders(
         }
         return headers;
     }
+    if (protocol === 'gemini_interactions') {
+        return { 'Content-Type': 'application/json', Accept: 'application/json', 'x-goog-api-key': apiKey.trim() };
+    }
     return {
         'Content-Type': 'application/json',
         Accept: 'application/json',
@@ -240,8 +251,38 @@ function validateConfig(config: AIProviderConfig, requireModel = true): void {
     if (url.username || url.password) throw new Error('请将凭据填写到 API Key 字段，不要放入接口地址。');
 }
 
+/** The server answered, but not with a model list this request style can use. */
+class CatalogRejectedError extends Error {}
+
+/**
+ * Relays list models at /v1/models with a Bearer key; Google's own list needs
+ * x-goog-api-key under /v1beta. Try the likelier style first, the other only
+ * when the server answered with a rejection.
+ */
 async function fetchModelCatalog(config: AIProviderConfig, signal?: AbortSignal): Promise<AIModelMetadata[]> {
-    const endpoint = resolveModelsUrl(config.apiUrl);
+    const standard: AIProviderProtocol = config.protocol === 'gemini_interactions' ? 'responses' : config.protocol;
+    const geminiFirst = config.protocol === 'gemini_interactions' || inferProviderProtocol(config.apiUrl) === 'gemini_interactions';
+    const order: AIProviderProtocol[] = geminiFirst ? ['gemini_interactions', standard] : [standard, 'gemini_interactions'];
+    let firstRejection: unknown;
+    for (const protocol of order) {
+        try {
+            return await fetchCatalogAs(config, protocol, signal);
+        } catch (error) {
+            if (!(error instanceof CatalogRejectedError)) throw error;
+            firstRejection ??= error;
+        }
+    }
+    throw firstRejection;
+}
+
+async function fetchCatalogAs(config: AIProviderConfig, protocol: AIProviderProtocol, signal?: AbortSignal): Promise<AIModelMetadata[]> {
+    let endpoint = resolveModelsUrl(config.apiUrl, protocol);
+    if (protocol === 'gemini_interactions') {
+        // shortcut: one page of up to 1000 models, no nextPageToken paging; add paging if a key ever lists more.
+        const url = new URL(endpoint);
+        url.searchParams.set('pageSize', '1000');
+        endpoint = url.toString();
+    }
     const transport = resolveAIWebTransport(endpoint);
     const controller = new AbortController();
     const abort = () => controller.abort();
@@ -253,7 +294,7 @@ async function fetchModelCatalog(config: AIProviderConfig, signal?: AbortSignal)
         try {
             response = await fetch(transport.endpoint, {
                 method: 'GET',
-                headers: getAuthHeaders(config.protocol, config.apiKey, endpoint),
+                headers: getAuthHeaders(protocol, config.apiKey, endpoint),
                 signal: controller.signal,
             });
         } catch (error) {
@@ -263,18 +304,21 @@ async function fetchModelCatalog(config: AIProviderConfig, signal?: AbortSignal)
         }
         if (!response.ok) {
             const message = (await response.text()).slice(0, 300);
-            throw new Error(`模型列表请求失败（HTTP ${response.status}）${message ? ': ' + message : ''}`);
+            const text = `模型列表请求失败（HTTP ${response.status}）${message ? ': ' + message : ''}`;
+            throw response.status >= 400 && response.status < 500 ? new CatalogRejectedError(text) : new Error(text);
         }
         const body: unknown = await response.json();
         const source = isRecord(body) ? body : {};
         const items = Array.isArray(source.data) ? source.data : Array.isArray(source.models) ? source.models : undefined;
-        if (!items) throw new Error('接口返回的内容不是模型列表，请检查 API 地址；也可手动填写模型名称。');
-        const models = items.map(parseModelMetadata).filter((item): item is AIModelMetadata => Boolean(item));
+        if (!items) throw new CatalogRejectedError('接口返回的内容不是模型列表，请检查 API 地址；也可手动填写模型名称。');
+        const models = items.map(parseModelMetadata).filter((item): item is AIModelMetadata => Boolean(item))
+            // Models from Google's own list are served on its native protocol; this only orders probing.
+            .map((model) => (protocol === 'gemini_interactions' && !model.endpoints ? { ...model, endpoints: [protocol] } : model));
         return [...new Map(models.map((model) => [model.id, model])).values()];
     } catch (error) {
         if (signal?.aborted) throw new Error('获取模型已取消');
         if (controller.signal.aborted) throw new Error('获取模型列表超时（8 秒）');
-        if (error instanceof SyntaxError) throw new Error('接口未返回有效 JSON 模型列表，请检查 API 地址。');
+        if (error instanceof SyntaxError) throw new CatalogRejectedError('接口未返回有效 JSON 模型列表，请检查 API 地址。');
         throw error;
     } finally {
         clearTimeout(timeoutId);
