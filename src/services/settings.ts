@@ -18,6 +18,7 @@ const LEGACY_KEYS = ['settings_api_url', 'settings_api_key', 'settings_model', '
 const LEGACY_PROMPT_KEYS = ['settings_prompt_liuyao_system', 'settings_prompt_liuyao_version', 'settings_prompt_liuyao_is_custom', 'settings_prompt_bazi_system', 'settings_prompt_bazi_version', 'settings_prompt_bazi_is_custom', 'settings_system_prompt', 'settings_ai_unlocked', 'settings_prompt_version', 'settings_prompt_is_custom'];
 export const DEFAULT_SETTINGS: AISettings = { version: 2, providers: [], activeProviderId: null, geocoderApiKey: '' };
 const listeners = new Set<(settings: AISettings) => void>();
+let cachedSettings: AISettings | undefined;
 let migration: Promise<AISettings> | undefined;
 let writeQueue: Promise<void> = Promise.resolve();
 let idSequence = 0;
@@ -256,10 +257,19 @@ async function loadSettings(): Promise<AISettings> {
     return migrateEndpointRules(settings);
 }
 
+export function getCachedSettings(): AISettings | null {
+    return cachedSettings ? parseSettings(cachedSettings) : null;
+}
+
 export async function getSettings(): Promise<AISettings> {
     await writeQueue;
+    if (cachedSettings !== undefined) return parseSettings(cachedSettings);
     const pending = migration ?? (migration = loadSettings());
-    try { return parseSettings(await pending); }
+    try {
+        const loaded = parseSettings(await pending);
+        cachedSettings = loaded;
+        return parseSettings(loaded);
+    }
     finally { migration = undefined; }
 }
 
@@ -268,6 +278,7 @@ export async function saveSettings(settings: AISettings): Promise<void> {
     const save = writeQueue.then(async () => {
         if (migration) await migration;
         await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(normalized));
+        cachedSettings = normalized;
         listeners.forEach((listener) => listener(parseSettings(normalized)));
     });
     // Callers receive this failure; later independent saves may still proceed.

@@ -1,19 +1,118 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
-import type { Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
+import Animated, { cancelAnimation, runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import { GlassView, liquidGlassSupported } from '../../modules/liquid-glass';
 import { useTheme } from '../theme/ThemeContext';
 import { webLiquidGlass } from '../theme/web-enhance';
 import { HistoryIcon, HomeIcon, ReadIcon, SettingsIcon } from './Icons';
-import { requestSettingsLeave } from '../services/settings-leave-guard';
+import { getSettingsLeaveGuarded, requestSettingsLeave, subscribeSettingsLeaveGuarded } from '../services/settings-leave-guard';
 
-export type TabBarProps = Parameters<NonNullable<React.ComponentProps<typeof Tabs>['tabBar']>>[0];
+export interface LiquidTabItem {
+    key: string;
+    name: string;
+    label: string;
+}
+
+export interface LiquidTabBarProps {
+    items: LiquidTabItem[];
+    activeIndex: number;
+    activeSlot: SharedValue<number>;
+    slotPositions: SharedValue<number>[];
+    onSelect: (index: number, alreadySlid: boolean) => boolean;
+    onPreload: (name: string) => void;
+}
 
 /** 底栏折射的是 (tabs)/_layout 里 GlassTarget 包住的页面 */
 export const TAB_GLASS_TARGET = 'tabs';
+
+// 页签整屏横滑：临界阻尼弹簧（ζ ≈ 1.00），无过冲不露缝，连续快切折返时保留速度丝滑接力
+const PAGE_SPRING = { stiffness: 380, damping: 39, mass: 1, overshootClamping: true, energyThreshold: 1e-4 };
+// 按住底栏拖动时的跟手弹簧（ζ = 1.00）：与水泡 FOLLOW 同刚度、无过冲，页面紧贴手指连续横滚
+const PAGE_FOLLOW = { stiffness: 900, damping: 60, mass: 1, overshootClamping: true, energyThreshold: 1e-4 };
+
+/** 在 UI 线程直接驱动四个页签的横向位移：只滑动离开页与进入页，中间跨过的页在屏外静默归位不闪过 */
+export function slideTabPanels(
+    activeSlot: SharedValue<number>,
+    slotPositions: SharedValue<number>[],
+    target: number,
+    reduceMotion: boolean,
+) {
+    'worklet';
+    const from = activeSlot.value;
+    if (from === target || target < 0 || target >= slotPositions.length) return;
+    activeSlot.value = target;
+    for (let k = 0; k < slotPositions.length; k++) {
+        const to = k === target ? 0 : k > target ? 1 : -1;
+        if (reduceMotion) {
+            cancelAnimation(slotPositions[k]);
+            slotPositions[k].value = to;
+            continue;
+        }
+        if (k === target || k === from) {
+            slotPositions[k].value = withSpring(to, PAGE_SPRING);
+            continue;
+        }
+        const cur = slotPositions[k].value;
+        if (Math.abs(cur) < 0.99 && cur * to >= 0) {
+            slotPositions[k].value = withSpring(to, PAGE_SPRING);
+        } else {
+            cancelAnimation(slotPositions[k]);
+            slotPositions[k].value = to;
+        }
+    }
+}
+
+/** 按住底栏连续拖动时，把四个页签按画卷顺序在 UI 线程实时跟手横移（不触发 JS 路由） */
+function scrubTabPanels(
+    activeSlot: SharedValue<number>,
+    slotPositions: SharedValue<number>[],
+    progress: number,
+    prepareStrip: boolean,
+) {
+    'worklet';
+    if (prepareStrip) {
+        const base = activeSlot.value;
+        for (let k = 0; k < slotPositions.length; k++) {
+            // 仅把已在屏外的页签静默排到画卷对应槽位，屏内页签保持原位不跳变
+            if (Math.abs(slotPositions[k].value) >= 0.99) {
+                cancelAnimation(slotPositions[k]);
+                slotPositions[k].value = k - base;
+            }
+        }
+    }
+    for (let k = 0; k < slotPositions.length; k++) {
+        slotPositions[k].value = withSpring(k - progress, PAGE_FOLLOW);
+    }
+}
+
+/** 拖动松手（或手势取消）后，将画卷平滑吸附到目标页签并把屏外页签归位到 ±1 */
+function settleTabPanels(
+    activeSlot: SharedValue<number>,
+    slotPositions: SharedValue<number>[],
+    target: number,
+    reduceMotion: boolean,
+) {
+    'worklet';
+    if (target < 0 || target >= slotPositions.length) return;
+    activeSlot.value = target;
+    for (let k = 0; k < slotPositions.length; k++) {
+        const to = k === target ? 0 : k > target ? 1 : -1;
+        if (reduceMotion) {
+            cancelAnimation(slotPositions[k]);
+            slotPositions[k].value = to;
+            continue;
+        }
+        // 目标页及仍在屏内可见的页签全部平滑滑到落位，已在屏外的直接静默复位到 ±1
+        if (k === target || Math.abs(slotPositions[k].value) < 0.99) {
+            slotPositions[k].value = withSpring(to, PAGE_SPRING);
+        } else {
+            cancelAnimation(slotPositions[k]);
+            slotPositions[k].value = to;
+        }
+    }
+}
 
 const ICONS: Record<string, typeof HomeIcon> = { index: HomeIcon, learn: ReadIcon, history: HistoryIcon, settings: SettingsIcon };
 const HEIGHT = 64;
@@ -66,22 +165,43 @@ const THEME = {
  * 液态玻璃底栏：选中块是一片玻璃。点页签，它弹簧滑过去、路上略拉长；
  * 按住，它鼓成透亮的水泡，折射并放大底下；按住左右拖，水泡跟手走，经过的图标放大变金，松手落到最近的页签。
  */
-export default function LiquidTabBar({ state, descriptors, emitter, navigateToTab }: TabBarProps) {
+export default function LiquidTabBar({ items, activeIndex, activeSlot, slotPositions, onSelect, onPreload }: LiquidTabBarProps) {
     const { theme } = useTheme();
     const colors = THEME[theme];
     const insets = useSafeAreaInsets();
     const { width } = useWindowDimensions();
     const reduce = useReducedMotion();
-    const count = state.routes.length;
+    const count = items.length;
     const barWidth = width * 0.85;
     const item = barWidth / count;
-    const start = (state.index + 0.5) * item;
+    const start = (activeIndex + 0.5) * item;
     const x = useSharedValue(start);
     const aim = useSharedValue(start);
     const press = useSharedValue(0);
     const swollen = useSharedValue(false);
-    const indexRef = useRef(state.index);
-    indexRef.current = state.index;
+    const scrubbing = useSharedValue(false);
+    const picked = useSharedValue(false);
+    const settingsGuarded = useSharedValue(getSettingsLeaveGuarded());
+    const settingsIndex = items.findIndex((tab) => tab.name === 'settings');
+    const indexRef = useRef(activeIndex);
+    indexRef.current = activeIndex;
+    const rollbackTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+    useEffect(() => {
+        settingsGuarded.value = getSettingsLeaveGuarded();
+        return subscribeSettingsLeaveGuarded((guarded) => {
+            settingsGuarded.value = guarded;
+        });
+    }, [settingsGuarded]);
+
+    const clearRollback = useCallback(() => {
+        if (rollbackTimerRef.current !== undefined) {
+            clearTimeout(rollbackTimerRef.current);
+            rollbackTimerRef.current = undefined;
+        }
+    }, []);
+
+    useEffect(() => clearRollback, [clearRollback]);
 
     const settle = useCallback((index: number) => {
         const to = (index + 0.5) * item;
@@ -92,39 +212,63 @@ export default function LiquidTabBar({ state, descriptors, emitter, navigateToTa
     }, [aim, item, reduce, x]);
 
     useEffect(() => {
-        settle(state.index);
-    }, [settle, state.index]);
+        settle(activeIndex);
+    }, [activeIndex, settle]);
 
     // 页签默认第一次点开才挂载，挂载那一下会卡住切页动画。启动稳住后把没开过的页签逐个预加载好
+    const onPreloadRef = useRef(onPreload);
+    onPreloadRef.current = onPreload;
     useEffect(() => {
-        const timers = state.routes.map((route, k) => setTimeout(() => {
-            const navigation = descriptors[route.key].navigation;
-            const now = navigation.getState();
-            if (now.routes[now.index].key !== route.key) navigation.preload(route.name);
+        const timers = items.map((tab, k) => setTimeout(() => {
+            if (indexRef.current !== k) onPreloadRef.current(tab.name);
         }, PRELOAD_AFTER_MS + k * PRELOAD_GAP_MS));
         return () => timers.forEach(clearTimeout);
         // 只在启动时排一次
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    const go = useCallback((index: number) => {
-        const route = state.routes[index];
-        const event = emitter.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
-        if (index !== state.index && !event.defaultPrevented) {
-            // 立刻切：原来延后 180ms，连点 A→B→C 时 B 迟到落地会把玻璃拽回 B 再去 C，看着跟不上。
-            // 原生同步开关打开后，挂载新页面不再卡住玻璃的动画；页签也已预加载，切过去不用现挂载
-            const navigate = () => navigateToTab(route.key);
-            if (state.routes[state.index]?.name === 'settings') requestSettingsLeave(navigate);
+    const preloadAll = useCallback(() => {
+        items.forEach((tab) => onPreloadRef.current(tab.name));
+    }, [items]);
+
+    const go = useCallback((index: number, alreadySlid: boolean) => {
+        const target = items[index];
+        if (!target) return;
+        if (index !== indexRef.current) {
+            const navigate = () => {
+                const switched = onSelect(index, alreadySlid);
+                if (!switched) {
+                    slideTabPanels(activeSlot, slotPositions, indexRef.current, reduce);
+                    settle(indexRef.current);
+                }
+            };
+            if (items[indexRef.current]?.name === 'settings') requestSettingsLeave(navigate);
             else navigate();
         }
-        // 设置页有未保存的改动时会先弹确认，没切过去就把玻璃送回原位
-        setTimeout(() => { if (indexRef.current !== index) settle(indexRef.current); }, 400);
-    }, [emitter, navigateToTab, settle, state.index, state.routes]);
+        // 设置页有未保存的改动时会先弹确认，没切过去就把玻璃送回原位；仅保留最新一次回弹计时
+        clearRollback();
+        rollbackTimerRef.current = setTimeout(() => {
+            rollbackTimerRef.current = undefined;
+            if (indexRef.current !== index) {
+                slideTabPanels(activeSlot, slotPositions, indexRef.current, reduce);
+                settle(indexRef.current);
+            }
+        }, 400);
+    }, [activeSlot, clearRollback, items, onSelect, reduce, settle, slotPositions]);
 
-    const gesture = Gesture.Simultaneous(
-        // 按下就鼓水泡、跟手；拖动松手由它选页签
+    const goRef = useRef(go);
+    goRef.current = go;
+    const triggerGo = useCallback((index: number, alreadySlid: boolean) => {
+        goRef.current(index, alreadySlid);
+    }, []);
+
+    const gesture = useMemo(() => Gesture.Simultaneous(
+        // 按下就鼓水泡、跟手；拖动时四页排成画卷在 UI 线程连续跟手滑，松手吸附并只切一次路由
         Gesture.Pan().minDistance(0)
             .onBegin((event) => {
+                picked.value = false;
+                scrubbing.value = false;
+                runOnJS(clearRollback)();
                 const to = Math.max(item / 2, Math.min(barWidth - item / 2, event.x));
                 aim.value = to;
                 // 按下时用落位弹簧：点按 80ms 就松手，若先用跟手弹簧冲起来再交接，会带着高速冲过头来回晃
@@ -141,6 +285,15 @@ export default function LiquidTabBar({ state, descriptors, emitter, navigateToTa
                     swollen.value = true;
                     press.value = reduce ? 1 : withSpring(1, SWELL);
                 }
+                if (swollen.value && !reduce && !(activeSlot.value === settingsIndex && settingsGuarded.value)) {
+                    const firstFrame = !scrubbing.value;
+                    if (firstFrame) {
+                        scrubbing.value = true;
+                        runOnJS(preloadAll)();
+                    }
+                    const progress = Math.max(0, Math.min(count - 1, (to - item / 2) / item));
+                    scrubTabPanels(activeSlot, slotPositions, progress, firstFrame);
+                }
             })
             .onFinalize((_, moved) => {
                 press.value = reduce ? 0 : withSpring(0, SWELL);
@@ -148,13 +301,33 @@ export default function LiquidTabBar({ state, descriptors, emitter, navigateToTa
                 const to = (index + 0.5) * item;
                 aim.value = to;
                 x.value = reduce ? to : withSpring(to, SETTLE);
-                if (moved) runOnJS(go)(index);
+                const wasScrubbing = scrubbing.value;
+                scrubbing.value = false;
+                if (moved && !picked.value) {
+                    picked.value = true;
+                    const canSlideNow = !(activeSlot.value === settingsIndex && settingsGuarded.value);
+                    if (wasScrubbing) {
+                        settleTabPanels(activeSlot, slotPositions, index, reduce);
+                    } else if (canSlideNow) {
+                        slideTabPanels(activeSlot, slotPositions, index, reduce);
+                    }
+                    runOnJS(triggerGo)(index, wasScrubbing || canSlideNow);
+                } else if (wasScrubbing) {
+                    // 手势被系统打断时把画卷平滑收回到当前页，避免半截停在屏中
+                    settleTabPanels(activeSlot, slotPositions, activeSlot.value, reduce);
+                }
             }),
-        // 没拖动的点按（含按住不动再松开）由它选
-        Gesture.Tap().maxDuration(10000).onEnd((event, success) => {
-            if (success) runOnJS(go)(Math.max(0, Math.min(count - 1, Math.floor(event.x / item))));
+        // 没拖动的点按（含按住不动再松开）由它选；进入画卷拖动后交由 Pan.onFinalize 统一吸附收尾
+        Gesture.Tap().maxDuration(10000).maxDistance(12).onEnd((event, success) => {
+            if (success && !picked.value && !scrubbing.value) {
+                picked.value = true;
+                const index = Math.max(0, Math.min(count - 1, Math.floor(event.x / item)));
+                const canSlideNow = !(activeSlot.value === settingsIndex && settingsGuarded.value);
+                if (canSlideNow) slideTabPanels(activeSlot, slotPositions, index, reduce);
+                runOnJS(triggerGo)(index, canSlideNow);
+            }
         }),
-    );
+    ), [activeSlot, aim, barWidth, clearRollback, count, item, picked, preloadAll, press, reduce, scrubbing, settingsGuarded, settingsIndex, slotPositions, swollen, triggerGo, x]);
 
     const pill = useAnimatedStyle(() => ({
         opacity: 1 - Math.min(1, Math.max(0, press.value * LENS_FADE)),
@@ -177,19 +350,23 @@ export default function LiquidTabBar({ state, descriptors, emitter, navigateToTa
                         <GlassView targetId={TAB_GLASS_TARGET} style={styles.fill} cornerRadius={PILL_R} refraction={14} bevel={18} magnify={0.12} blurRadius={0} />
                         <View style={[styles.fill, styles.pillRound, styles.edge, { backgroundColor: colors.lens, borderColor: colors.lensEdge, boxShadow: colors.lensShadow }]} />
                     </Animated.View>
-                    {state.routes.map((route, index) => (
+                    {items.map((tab, index) => (
                         <TabIcon
-                            key={route.key}
+                            key={tab.key}
                             index={index}
                             item={item}
                             x={x}
                             press={press}
-                            Icon={ICONS[route.name] ?? HomeIcon}
+                            Icon={ICONS[tab.name] ?? HomeIcon}
                             idle={colors.idle}
                             on={colors.on}
-                            label={descriptors[route.key]?.options.title ?? route.name}
-                            selected={index === state.index}
-                            onActivate={() => go(index)}
+                            label={tab.label}
+                            selected={index === activeIndex}
+                            onActivate={() => {
+                                const canSlideNow = !(activeSlot.value === settingsIndex && settingsGuarded.value);
+                                if (canSlideNow) slideTabPanels(activeSlot, slotPositions, index, reduce);
+                                go(index, canSlideNow);
+                            }}
                         />
                     ))}
                 </View>

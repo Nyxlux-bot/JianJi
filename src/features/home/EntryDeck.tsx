@@ -169,7 +169,7 @@ function TiltSensor({ tiltX, tiltY }: { tiltX: SharedValue<number>; tiltY: Share
     return null;
 }
 
-const EntryCard = memo(function EntryCard({ entry, index, selected, rotation, tiltX, tiltY, dragged, width, height, spread, artSize, colors, description, meta, onSelect, reduceMotion, fontScale }: {
+const EntryCard = memo(function EntryCard({ entry, index, selected, rotation, tiltX, tiltY, dragged, width, height, spread, artSize, colors, description, meta, onSelect, reduceMotion, paused, fontScale }: {
     entry: HomeEntry;
     index: number;
     selected: boolean;
@@ -186,6 +186,7 @@ const EntryCard = memo(function EntryCard({ entry, index, selected, rotation, ti
     meta: string;
     onSelect: (index: number) => void;
     reduceMotion: boolean;
+    paused: boolean;
     fontScale: number;
 }) {
     const styles = useMemo(() => makeStyles(colors, entry.id), [colors, entry.id]);
@@ -299,7 +300,7 @@ const EntryCard = memo(function EntryCard({ entry, index, selected, rotation, ti
             accessibilityElementsHidden={!selected}
             importantForAccessibility={selected ? 'auto' : 'no-hide-descendants'}
         >
-            <Animated.View style={[styles.float, float, { animationPlayState: reduceMotion ? 'paused' : 'running' }]}>
+            <Animated.View style={[styles.float, float, { animationPlayState: reduceMotion || paused ? 'paused' : 'running' }]}>
                 <Animated.View style={[styles.card, cardMotion]}>
                     <View pointerEvents="none" style={[styles.shadow, { boxShadow: colors.shadow }]} />
                     <View
@@ -379,7 +380,8 @@ export default function EntryDeck({ liuyaoMeta, meihuaDescription, meihuaMeta }:
     const reduceMotion = useReducedMotion();
     const [deckWidth, setDeckWidth] = useState(Math.min(620, width - 32));
     const [open, setOpen] = useState<HomeEntryId>('liuyao');
-    const [focused, setFocused] = useState(false);
+    const [focused, setFocused] = useState(true);
+    const focusTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const hasSelected = useRef(false);
     const rotation = useSharedValue(0);
     const dragFrom = useSharedValue(0);
@@ -405,11 +407,16 @@ export default function EntryDeck({ liuyaoMeta, meihuaDescription, meihuaMeta }:
         return () => { cancelled = true; };
     }, [rotation]);
 
-    // 只在首页聚焦时读手机倾斜
+    // 只在首页聚焦并滑稳后读手机倾斜与浮动：避免切页首帧重渲染四张卡，快速来回切页时不反复拆装传感器
     useFocusEffect(useCallback(() => {
-        setFocused(true);
-        return () => setFocused(false);
+        clearTimeout(focusTimerRef.current);
+        focusTimerRef.current = setTimeout(() => setFocused(true), 320);
+        return () => {
+            clearTimeout(focusTimerRef.current);
+            focusTimerRef.current = setTimeout(() => setFocused(false), 320);
+        };
     }, []));
+    useEffect(() => () => clearTimeout(focusTimerRef.current), []);
 
     // 离开首页时轮盘可能还亮着，别让其他页的经幡一直退暗
     useEffect(() => () => {
@@ -513,7 +520,8 @@ export default function EntryDeck({ liuyaoMeta, meihuaDescription, meihuaMeta }:
                             description={entry.id === 'meihua' ? meihuaDescription : entry.description}
                             meta={entry.id === 'liuyao' ? liuyaoMeta : entry.id === 'meihua' ? meihuaMeta : entry.meta}
                             onSelect={select}
-                            reduceMotion={reduceMotion || !focused}
+                            reduceMotion={reduceMotion}
+                            paused={!focused}
                             fontScale={fontScale}
                         />
                     ))}

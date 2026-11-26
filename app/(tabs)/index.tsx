@@ -4,7 +4,7 @@ import { useFocusEffect } from 'expo-router';
 import { withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import StatusBarDecor from '../../src/components/StatusBarDecor';
-import { YunZhuanForeground, bannerLevel } from '../../src/components/YunZhuanBanners';
+import { bannerLevel } from '../../src/components/YunZhuanBanners';
 import EntryDeck from '../../src/features/home/EntryDeck';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { buildResultPalette, type ResultPalette } from '../../src/theme/result-palette';
@@ -23,9 +23,12 @@ export default function HomePage() {
     const styles = useMemo(() => makeStyles(palette, Colors), [palette, Colors]);
     const [now, setNow] = useState(() => new Date());
 
-    // 经幡只在首页全亮，其他页退到六成
+    // 经幡只在首页全亮，其他页退到六成；分钟未变时不重建日期对象，避免快速切回首页白白重算四柱与重渲染
     useFocusEffect(useCallback(() => {
-        setNow(new Date());
+        setNow((prev) => {
+            const next = new Date();
+            return Math.floor(prev.getTime() / 60_000) === Math.floor(next.getTime() / 60_000) ? prev : next;
+        });
         bannerLevel.value = withTiming(1, { duration: 300 });
         return () => {
             bannerLevel.value = withTiming(0.6, { duration: 300 });
@@ -95,7 +98,6 @@ export default function HomePage() {
                     meihuaMeta={`${today.lunar.yearGanZhi}年 ${today.lunar.lunarMonthCN}${today.lunar.lunarDayCN} ${today.lunar.hourGanZhi[1]}时`}
                 />
             </ScrollView>
-            <YunZhuanForeground />
         </View>
     );
 }

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo } from 'react';
 import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useFonts } from 'expo-font';
 import { useIsFocused } from 'expo-router';
-import Animated, { css, makeMutable, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { css, makeMutable, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useTheme } from '../theme/ThemeContext';
 
 // 《度人经》开篇。字体子集只含这些字，改字要重跑 scripts/build-yunzhuan-font.py
@@ -93,14 +93,14 @@ function Column({ index, x, size, layer, theme, screenHeight, still }: {
     );
 }
 
-function Field({ layers }: { layers: Layer[] }) {
+function Field({ layers, homePos, active = true }: { layers: Layer[]; homePos?: SharedValue<number>; active?: boolean }) {
     const { theme } = useTheme();
     const [loaded] = useFonts(FONT_SOURCE);
     const { width, height } = useWindowDimensions();
     // 被新页面盖住或切到别的页签时停下：栈里每页各有一套经幡，不停的话会叠着一起跑
     const reduceMotion = useReducedMotion();
     const focused = useIsFocused();
-    const still = reduceMotion || !focused;
+    const still = reduceMotion || !focused || !active;
     const shown = useSharedValue(0);
     const scaleX = width / 390;
     const scaleSize = Math.min(1.25, Math.max(0.9, scaleX));
@@ -109,9 +109,13 @@ function Field({ layers }: { layers: Layer[] }) {
         if (loaded) shown.value = withTiming(1, { duration: still ? 0 : 600 });
     }, [loaded, still, shown]);
 
-    const fade = useAnimatedStyle(() => ({
-        opacity: shown.value * bannerLevel.value * (1 - 0.65 * ringLevel.value),
-    }));
+    const fade = useAnimatedStyle(() => {
+        // 首页近景符文固定贴在视口两侧，离开首页前 50% 位移时在 UI 线程顺滑淡出，避免横滑把右侧裁切边拖进屏中
+        const t = homePos ? Math.max(0, 1 - Math.abs(homePos.value) * 2) : 1;
+        return {
+            opacity: shown.value * bannerLevel.value * (1 - 0.65 * ringLevel.value) * (t * t),
+        };
+    }, [homePos]);
 
     // 字体到之前不画：否则会先用系统字体闪出普通汉字
     if (!loaded) return null;
@@ -143,9 +147,9 @@ export function YunZhuanBanners() {
     return <Field layers={['far', 'mid', 'focus']} />;
 }
 
-/** 首页压在界面之上的前景层：贴屏幕两边、最虚最快 */
-export function YunZhuanForeground() {
-    return <Field layers={['near']} />;
+/** 首页压在界面之上的前景层：贴屏幕两边、最虚最快；固定在视口层并随首页位移淡出，不拖出页面边界线 */
+export function YunZhuanForeground({ homePos, active = true }: { homePos?: SharedValue<number>; active?: boolean } = {}) {
+    return <Field layers={['near']} homePos={homePos} active={active} />;
 }
 
 const styles = StyleSheet.create({

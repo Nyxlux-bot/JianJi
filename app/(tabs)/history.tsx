@@ -304,6 +304,27 @@ const HistoryRow = memo(function HistoryRow({ record, first, last, palette, styl
     );
 });
 
+function areRecordSummariesEqual(left: RecordSummary[], right: RecordSummary[]): boolean {
+    if (left.length !== right.length) return false;
+    for (let i = 0; i < left.length; i++) {
+        const a = left[i];
+        const b = right[i];
+        if (a.id !== b.id
+            || a.engineType !== b.engineType
+            || a.isFavorite !== b.isFavorite
+            || a.createdAt !== b.createdAt
+            || a.title !== b.title
+            || a.subtitle !== b.subtitle
+            || a.question !== b.question
+            || a.castTime !== b.castTime
+            || a.qimenForm !== b.qimenForm
+            || a.method !== b.method) {
+            return false;
+        }
+    }
+    return true;
+}
+
 export default function HistoryPage() {
     const { Colors } = useTheme();
     const insets = useSafeAreaInsets();
@@ -347,15 +368,34 @@ export default function HistoryPage() {
         void AsyncStorage.setItem(HISTORY_FILTER_STORAGE_KEY, persisted);
     }, [persisted, filtersReady]);
 
+    const hasLoadedRecordsRef = useRef(false);
     const loadRecords = useCallback(async () => {
         const data = await getAllRecords();
-        setRecords(data);
+        hasLoadedRecordsRef.current = true;
+        setRecords((prev) => (areRecordSummariesEqual(prev, data) ? prev : data));
     }, []);
 
     useFocusEffect(
         useCallback(() => {
-            void loadRecords();
-        }, [loadRecords]),
+            let active = true;
+            const refresh = () => {
+                getAllRecords().then((data) => {
+                    if (!active) return;
+                    hasLoadedRecordsRef.current = true;
+                    setRecords((prev) => (areRecordSummariesEqual(prev, data) ? prev : data));
+                }).catch(() => undefined);
+            };
+            if (!hasLoadedRecordsRef.current) {
+                refresh();
+                return () => { active = false; };
+            }
+            // 已有列表时等切页滑稳再查库，快速划过历史页时不打扰 SQLite 也不在转场中重渲染
+            const timer = setTimeout(refresh, 200);
+            return () => {
+                active = false;
+                clearTimeout(timer);
+            };
+        }, []),
     );
 
     const confirmDelete = async () => {

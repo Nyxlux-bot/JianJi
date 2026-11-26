@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../theme/ThemeContext';
@@ -22,7 +22,7 @@ export function withPageBackground({ route, children }: { route: { name: string 
     );
 }
 
-export default function PageBackground({ plain = false }: { plain?: boolean }) {
+const PageBackground = memo(function PageBackground({ plain = false }: { plain?: boolean }) {
     const { Colors, theme } = useTheme();
     const bg = Colors.bg.primary as string;
 
@@ -46,7 +46,9 @@ export default function PageBackground({ plain = false }: { plain?: boolean }) {
             {theme === 'yin' ? <Vignette /> : null}
         </View>
     );
-}
+});
+
+export default PageBackground;
 
 // 阴面四周压暗。原来是 120px 模糊的全屏内阴影，GPU 性能条显示它每帧都要整屏重算模糊，底栏玻璃还会再画一遍；
 // 换成四条边上的渐变，深浅大致相同：边上约 0.3，120dp 内淡到 0

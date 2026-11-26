@@ -40,6 +40,7 @@ import ImportPreviewModal from '../../src/components/ImportPreviewModal';
 import {
     AISettings,
     DEFAULT_SETTINGS,
+    getCachedSettings,
     getSettings,
     mergeImportedSettings,
     saveSettings,
@@ -55,7 +56,7 @@ import { CloseIcon, ChevronRightIcon, LocationIcon, SparkleIcon } from '../../sr
 import { buildResultPalette, type ResultPalette } from '../../src/theme/result-palette';
 import { DIVINATION_ENGINE_LABEL, type DivinationEngine } from '../../src/db/record-types';
 import appConfig from '../../app.json';
-import { registerSettingsLeaveHandler } from '../../src/services/settings-leave-guard';
+import { registerSettingsLeaveHandler, setSettingsLeaveGuarded } from '../../src/services/settings-leave-guard';
 import { useGanZhiRelationSettings } from '../../src/features/bazi/ganzhi-relation-settings';
 
 type SheetType = 'ai' | 'calendar' | null;
@@ -94,7 +95,7 @@ function getAIHubMeta(settings: AISettings): string {
 }
 
 function areSettingsEqual(left: AISettings, right: AISettings): boolean {
-    return JSON.stringify(left) === JSON.stringify(right);
+    return left === right || JSON.stringify(left) === JSON.stringify(right);
 }
 
 const SETTINGS_AUTOSAVE_DELAY_MS = 600;
@@ -103,7 +104,7 @@ const SETTINGS_AUTOSAVE_DELAY_MS = 600;
 const HUB_SIZE = 112;
 const TAIJI_SIZE = Math.round(124 * HUB_SIZE / 192);
 
-function TaijiHub({
+const TaijiHub = React.memo(function TaijiHub({
     progress,
     Colors,
     onToggle,
@@ -112,8 +113,14 @@ function TaijiHub({
     Colors: any;
     onToggle: () => void;
 }) {
-    const rotate = progress.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] });
-    const ringRotate = progress.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '22.5deg'] });
+    const rotate = React.useMemo(
+        () => progress.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] }),
+        [progress],
+    );
+    const ringRotate = React.useMemo(
+        () => progress.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '22.5deg'] }),
+        [progress],
+    );
     const yinColor = '#111111';
     const yangColor = '#f7f1e4';
     const ringColor = Colors.accent.gold;
@@ -165,7 +172,7 @@ function TaijiHub({
             </Pressable>
         </View>
     );
-}
+});
 
 export default function SettingsPage() {
     const { Colors, theme, setTheme, saveTheme } = useTheme();
@@ -177,10 +184,11 @@ export default function SettingsPage() {
     const layout = React.useMemo(() => makeLayoutStyles(palette, Colors), [palette, Colors]);
     const [recordCounts, setRecordCounts] = useState<{ total: number; byEngine: Partial<Record<DivinationEngine, number>> }>({ total: 0, byEngine: {} });
     const themeProgress = useRef(new Animated.Value(theme === 'yang' ? 1 : 0)).current;
-    const [settings, setSettings] = useState<AISettings>(DEFAULT_SETTINGS);
-    const [savedSettings, setSavedSettings] = useState<AISettings>(DEFAULT_SETTINGS);
+    const initialSettings = React.useMemo(() => getCachedSettings(), []);
+    const [settings, setSettings] = useState<AISettings>(initialSettings ?? DEFAULT_SETTINGS);
+    const [savedSettings, setSavedSettings] = useState<AISettings>(initialSettings ?? DEFAULT_SETTINGS);
     const [saveState, setSaveState] = useState<SettingsSaveState>({ status: 'saved' });
-    const [isInitializing, setIsInitializing] = useState(true);
+    const [isInitializing, setIsInitializing] = useState(initialSettings === null);
     const [initializationError, setInitializationError] = useState('');
     const [isBackingUp, setIsBackingUp] = useState(false);
     const [isRestoring, setIsRestoring] = useState(false);
@@ -195,6 +203,10 @@ export default function SettingsPage() {
     const settingsRef = useRef(settings);
     const savedSettingsRef = useRef(savedSettings);
     const themeRef = useRef(theme);
+    const activeSheetRef = useRef(activeSheet);
+    activeSheetRef.current = activeSheet;
+    const isSavingRef = useRef(false);
+    const hasLoadedCountsRef = useRef(false);
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const saveChainRef = useRef<Promise<boolean>>(Promise.resolve(true));
     const aiProviderSettingsRef = useRef<AIProviderSettingsHandle>(null);
@@ -215,14 +227,17 @@ export default function SettingsPage() {
             savedSettingsRef.current = nextSettings;
             setSettings(nextSettings);
             setSavedSettings(nextSettings);
-            setSaveState({ status: 'saved' });
+            setSaveState((prev) => (prev.status === 'saved' ? prev : { status: 'saved' }));
         } catch (error: unknown) {
             setInitializationError(error instanceof Error ? error.message : '读取设置失败');
         } finally {
             setIsInitializing(false);
         }
     };
-    useEffect(() => { void loadSettings(); }, []);
+    useEffect(() => {
+        if (!initialSettings) void loadSettings();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
     useEffect(() => () => clearTimeout(saveTimerRef.current), []);
 
     useEffect(() => subscribeSettings((nextSettings) => {
@@ -264,19 +279,23 @@ export default function SettingsPage() {
         const run = async (): Promise<boolean> => {
             const snapshot = settingsRef.current;
             if (areSettingsEqual(snapshot, savedSettingsRef.current)) {
-                setSaveState({ status: 'saved' });
+                setSaveState((prev) => (prev.status === 'saved' ? prev : { status: 'saved' }));
                 return true;
             }
-            setSaveState({ status: 'saving' });
+            isSavingRef.current = true;
+            setSaveState((prev) => (prev.status === 'saving' ? prev : { status: 'saving' }));
             try {
                 await saveSettings(snapshot);
                 savedSettingsRef.current = snapshot;
                 setSavedSettings(snapshot);
-                setSaveState(areSettingsEqual(settingsRef.current, snapshot) ? { status: 'saved' } : { status: 'pending' });
+                const nextStatus = areSettingsEqual(settingsRef.current, snapshot) ? 'saved' : 'pending';
+                setSaveState((prev) => (prev.status === nextStatus ? prev : { status: nextStatus }));
                 return true;
             } catch (error: unknown) {
                 setSaveState({ status: 'error', message: error instanceof Error ? error.message : '保存设置失败' });
                 return false;
+            } finally {
+                isSavingRef.current = false;
             }
         };
         saveChainRef.current = saveChainRef.current.then(run, run);
@@ -289,7 +308,7 @@ export default function SettingsPage() {
         setSettings(next);
         clearTimeout(saveTimerRef.current);
         if (areSettingsEqual(next, savedSettingsRef.current)) return;
-        setSaveState({ status: 'pending' });
+        setSaveState((prev) => (prev.status === 'pending' ? prev : { status: 'pending' }));
         saveTimerRef.current = setTimeout(() => { void persistSettings(); }, SETTINGS_AUTOSAVE_DELAY_MS);
     }, [persistSettings]);
 
@@ -300,12 +319,30 @@ export default function SettingsPage() {
 
     useFocusEffect(useCallback(() => {
         let active = true;
-        getRecordCounts().then((byEngine) => {
-            if (!active) return;
-            const total = Object.values(byEngine).reduce((sum, count) => sum + (count ?? 0), 0);
-            setRecordCounts({ total, byEngine });
-        }).catch(() => undefined);
-        return () => { active = false; };
+        const refreshCounts = () => {
+            getRecordCounts().then((byEngine) => {
+                if (!active) return;
+                hasLoadedCountsRef.current = true;
+                const total = Object.values(byEngine).reduce((sum, count) => sum + (count ?? 0), 0);
+                setRecordCounts((prev) => {
+                    if (prev.total === total
+                        && RECORD_ENGINES.every((item) => (prev.byEngine[item.engine] ?? 0) === (byEngine[item.engine] ?? 0))) {
+                        return prev;
+                    }
+                    return { total, byEngine };
+                });
+            }).catch(() => undefined);
+        };
+        if (!hasLoadedCountsRef.current) {
+            refreshCounts();
+            return () => { active = false; };
+        }
+        // 已有计数时等切页滑稳再刷新，快速划过设置页时不打扰 SQLite 也不在转场中重渲染
+        const timer = setTimeout(refreshCounts, 200);
+        return () => {
+            active = false;
+            clearTimeout(timer);
+        };
     }, []));
 
     const aiProvider = getActiveProvider(settings);
@@ -314,12 +351,12 @@ export default function SettingsPage() {
         ? { label: '未配置', good: false }
         : aiModel?.protocolVerified ? { label: '已连通', good: true } : { label: aiModel ? '未检测' : '待选模型', good: false };
 
-    const handleToggleTheme = () => {
+    const handleToggleTheme = useCallback(() => {
         const nextTheme = themeRef.current === 'yang' ? 'yin' : 'yang';
         themeRef.current = nextTheme;
         setTheme(nextTheme);
         saveTheme(nextTheme).catch(() => undefined);
-    };
+    }, [setTheme, saveTheme]);
 
     const discardDraft = useCallback(() => {
         clearTimeout(saveTimerRef.current);
@@ -357,6 +394,16 @@ export default function SettingsPage() {
         requestLeave(() => setActiveSheet(null));
     }, [activeSheet, requestLeave]);
 
+    const hasBlockingLeaveState = isFocused && (
+        hasPendingModel
+        || !areSettingsEqual(settings, savedSettings)
+        || activeSheet !== null
+        || saveState.status === 'saving'
+    );
+    useEffect(() => {
+        setSettingsLeaveGuarded(hasBlockingLeaveState);
+    }, [hasBlockingLeaveState]);
+
     const disableRemovalPrevention = usePreventRemove(
         isFocused && !allowRemoval && (hasPendingModel || !areSettingsEqual(settings, savedSettings)),
         ({ repeat }) => {
@@ -368,8 +415,14 @@ export default function SettingsPage() {
     );
 
     useFocusEffect(useCallback(() => {
-        setAllowRemoval(false);
+        setAllowRemoval((prev) => (prev ? false : prev));
         return registerSettingsLeaveHandler((proceed) => {
+            // 没有未保存改动、无在途落盘、无弹层时直接同步放行，
+            // 避免快速切页离开设置页走异步 Promise 链或触发多余重渲染与导航拦截状态更新
+            if (!getHasUnsavedChanges() && !isSavingRef.current && activeSheetRef.current === null) {
+                proceed();
+                return;
+            }
             requestLeave(() => {
                 setAllowRemoval(true);
                 disableRemovalPrevention();
@@ -377,7 +430,7 @@ export default function SettingsPage() {
                 proceed();
             });
         });
-    }, [disableRemovalPrevention, requestLeave]));
+    }, [disableRemovalPrevention, getHasUnsavedChanges, requestLeave]));
 
     useFocusEffect(useCallback(() => {
         const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -764,7 +817,7 @@ function getSheetTitle(sheet: SheetType): string {
     }
 }
 
-function SettingsSheet({
+const SettingsSheet = React.memo(function SettingsSheet({
     visible,
     title,
     Colors,
@@ -779,7 +832,7 @@ function SettingsSheet({
     onClose: () => void;
     independentContent?: boolean;
 }) {
-    const sheetStyles = makeSheetStyles(Colors);
+    const sheetStyles = React.useMemo(() => makeSheetStyles(Colors), [Colors]);
     const insets = useSafeAreaInsets();
     return (
         <SheetModal visible={visible} onRequestClose={onClose}>
@@ -803,7 +856,7 @@ function SettingsSheet({
             </KeyboardAvoidingView>
         </SheetModal>
     );
-}
+});
 
 function FieldLabel({ label }: { label: string }) {
     const { Colors } = useTheme();
