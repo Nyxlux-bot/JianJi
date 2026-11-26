@@ -8,6 +8,7 @@ import { router, useFocusEffect } from 'expo-router';
 import React, { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useFieldFocus } from '../../src/components/FocusTextInput';
+import { webFocusFieldProps } from '../../src/theme/web-enhance';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 // 滑动区内用手势库的 Pressable：左滑开始后点按会被取消，不会误开记录
@@ -467,6 +468,7 @@ export default function HistoryPage() {
                         <Path d="M16 16l4 4" stroke={palette.muted} strokeWidth={1.8} strokeLinecap="round" />
                     </Svg>
                     <TextInput
+                        {...webFocusFieldProps}
                         style={styles.searchInput}
                         value={filters.keyword}
                         onChangeText={(text) => setFilters((prev) => ({ ...prev, keyword: text }))}

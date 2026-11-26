@@ -1,8 +1,12 @@
 import React, { useRef, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import DialogModal from './DialogModal';
+import PressableScale from './PressableScale';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { KINSHIP_ACTUAL_FIELDS, type KinshipActualFacts, type KinshipActualField } from '../core/bazi-kinship';
+import { BorderRadius } from '../theme/colors';
 import { useTheme } from '../theme/ThemeContext';
+import { webFocusFieldProps } from '../theme/web-enhance';
 
 interface Props {
     visible: boolean;
@@ -27,7 +31,7 @@ export default function BaziKinshipFeedbackModal({ visible, value, busy, onChang
         try { await onSave(); }
         catch (reason: unknown) { setError(reason instanceof Error ? reason.message : '反馈保存失败'); }
     };
-    return <Modal visible={visible} transparent animationType="fade" onRequestClose={() => { if (!busy) onClose(); }}
+    return <DialogModal visible={visible} onRequestClose={() => { if (!busy) onClose(); }}
         onShow={() => { setError(''); triggerRef.current?.focus(); }}>
         <SafeAreaView style={styles.overlay}>
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboard}>
@@ -36,37 +40,37 @@ export default function BaziKinshipFeedbackModal({ visible, value, busy, onChang
                     <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.fields}>
                         {fields.map((field) => <View key={field} style={styles.field}>
                             <Text style={{ color: Colors.text.primary }}>{KINSHIP_ACTUAL_FIELDS[field]}</Text>
-                            <TextInput ref={field === 'siblings' ? triggerRef : undefined} accessibilityLabel={KINSHIP_ACTUAL_FIELDS[field]}
+                            <TextInput {...webFocusFieldProps} ref={field === 'siblings' ? triggerRef : undefined} accessibilityLabel={KINSHIP_ACTUAL_FIELDS[field]}
                                 multiline maxLength={600} editable={!busy} value={value[field]} placeholder="选填"
                                 placeholderTextColor={Colors.text.tertiary} onFocus={() => setFocused(field)} onBlur={() => setFocused(null)}
                                 onChangeText={(text) => onChange({ ...value, [field]: text })}
                                 style={[styles.input, { color: Colors.text.primary, backgroundColor: Colors.bg.input,
                                     borderColor: focused === field ? Colors.accent.gold : Colors.border.input }]} />
                         </View>)}
-                        <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => setExpanded(!expanded)} style={styles.button}>
+                        <PressableScale accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => setExpanded(!expanded)} style={styles.button}>
                             <Text style={{ color: Colors.accent.gold }}>{expanded ? '收起补充信息' : '补充信息'}</Text>
-                        </Pressable>
+                        </PressableScale>
                         {!!error && <Text accessibilityRole="alert" style={{ color: Colors.accent.red }}>{error}</Text>}
                     </ScrollView>
                     <View style={styles.actions}>
-                        <Pressable accessibilityRole="button" disabled={busy} accessibilityState={{ disabled: busy }} onPress={onClose} style={styles.button}>
+                        <PressableScale accessibilityRole="button" disabled={busy} accessibilityState={{ disabled: busy }} onPress={onClose} style={styles.button}>
                             <Text style={{ color: Colors.text.secondary }}>取消</Text>
-                        </Pressable>
-                        <Pressable accessibilityRole="button" disabled={busy || !canSave} accessibilityState={{ disabled: busy || !canSave }} onPress={() => { void save(); }}
+                        </PressableScale>
+                        <PressableScale accessibilityRole="button" disabled={busy || !canSave} accessibilityState={{ disabled: busy || !canSave }} onPress={() => { void save(); }}
                             style={[styles.button, styles.primary, { backgroundColor: Colors.accent.gold, opacity: busy || !canSave ? 0.6 : 1 }]}>
                             {busy ? <ActivityIndicator color={Colors.text.inverse} /> : <Text style={{ color: Colors.text.inverse, fontWeight: '600' }}>保存并继续</Text>}
-                        </Pressable>
+                        </PressableScale>
                     </View>
                 </View>
             </KeyboardAvoidingView>
         </SafeAreaView>
-    </Modal>;
+    </DialogModal>;
 }
 
 const styles = StyleSheet.create({
-    overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
+    overlay: { flex: 1 },
     keyboard: { flex: 1, padding: 16, justifyContent: 'center', alignItems: 'center' },
-    dialog: { width: '100%', maxWidth: 520, maxHeight: '100%', borderRadius: 8, borderWidth: 1, padding: 20, gap: 16 },
+    dialog: { width: '100%', maxWidth: 520, maxHeight: '100%', borderRadius: BorderRadius.lg, borderWidth: 1, padding: 20, gap: 16 },
     title: { fontSize: 18, fontWeight: '600' }, fields: { gap: 16 }, field: { gap: 8 },
     input: { minHeight: 64, maxHeight: 160, borderWidth: 1, borderRadius: 6, padding: 12, fontSize: 16, textAlignVertical: 'top' },
     actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12, flexWrap: 'wrap' },

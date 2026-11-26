@@ -4,7 +4,8 @@
  */
 
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
+import PressableScale from './PressableScale';
 import { Spacing, FontSize, BorderRadius } from '../theme/colors';
 import { buildRegionDisplayName, RegionSelection } from '../core/city-data';
 import { LocationIcon, ChevronRightIcon } from './Icons';
@@ -30,7 +31,7 @@ export default function LocationBar({
     const { Colors } = useTheme();
     const styles = React.useMemo(() => makeStyles(Colors), [Colors]);
     return (
-        <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.7}>
+        <PressableScale scaleTo={0.985} style={styles.container} onPress={onPress}>
             <View style={styles.iconContainer}>
                 <LocationIcon size={20} color={Colors.accent.red} />
             </View>
@@ -53,7 +54,7 @@ export default function LocationBar({
                 </View>
             )}
             <ChevronRightIcon size={20} color={Colors.text.tertiary} />
-        </TouchableOpacity>
+        </PressableScale>
     );
 }
 
@@ -86,6 +87,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         fontSize: FontSize.xs,
         color: Colors.text.tertiary,
         marginTop: 2,
+        fontVariant: ['tabular-nums'],
     },
     arrow: {
         fontSize: FontSize.lg,

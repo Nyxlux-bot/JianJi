@@ -4,9 +4,9 @@ import {
     View,
     Text,
     StyleSheet,
-    TouchableOpacity,
     FlatList,
 } from 'react-native';
+import PressableScale from './PressableScale';
 import Svg, { Path } from 'react-native-svg';
 import { BorderRadius, FontSize, Spacing } from '../theme/colors';
 import { useTheme } from '../theme/ThemeContext';
@@ -81,7 +81,7 @@ export default function ImportPreviewModal({
         const summary = buildSummaryFields(item);
         const engineLabel = DIVINATION_ENGINE_LABEL[item.engineType];
         return (
-            <TouchableOpacity
+            <PressableScale scaleTo={0.985}
                 style={styles.recordRow}
                 onPress={() => toggleRecord(item.result.id)}
                 accessibilityRole="checkbox"
@@ -103,7 +103,7 @@ export default function ImportPreviewModal({
                     </Text>
                     {summary.subtitle ? <Text style={styles.recordQuestion} numberOfLines={1}>{summary.subtitle}</Text> : null}
                 </View>
-            </TouchableOpacity>
+            </PressableScale>
         );
     };
 
@@ -119,22 +119,22 @@ export default function ImportPreviewModal({
                     <View style={styles.policyBox}>
                         <Text style={styles.policyTitle}>重复记录处理</Text>
                         <View style={styles.policyRow}>
-                            <TouchableOpacity
+                            <PressableScale
                                 style={[styles.policyBtn, conflictPolicy === 'skip' && styles.policyBtnActive]}
                                 onPress={() => setConflictPolicy('skip')}
                             >
                                 <Text style={[styles.policyBtnText, conflictPolicy === 'skip' && styles.policyBtnTextActive]}>
                                     跳过重复
                                 </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
+                            </PressableScale>
+                            <PressableScale
                                 style={[styles.policyBtn, conflictPolicy === 'replace' && styles.policyBtnActive]}
                                 onPress={() => setConflictPolicy('replace')}
                             >
                                 <Text style={[styles.policyBtnText, conflictPolicy === 'replace' && styles.policyBtnTextActive]}>
                                     覆盖重复
                                 </Text>
-                            </TouchableOpacity>
+                            </PressableScale>
                         </View>
                     </View>
 
@@ -149,14 +149,14 @@ export default function ImportPreviewModal({
                     <Text style={styles.selectionText}>已选择 {selectedRecords.length} / {records.length} 条</Text>
 
                     <View style={styles.footer}>
-                        <TouchableOpacity
+                        <PressableScale
                             style={[styles.footerBtn, styles.cancelBtn]}
                             onPress={onCancel}
                             disabled={loading}
                         >
                             <Text style={styles.cancelBtnText}>取消</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
+                        </PressableScale>
+                        <PressableScale
                             style={[
                                 styles.footerBtn,
                                 styles.confirmBtn,
@@ -166,7 +166,7 @@ export default function ImportPreviewModal({
                             disabled={!canConfirm}
                         >
                             <Text style={styles.confirmBtnText}>{loading ? '导入中...' : '开始导入'}</Text>
-                        </TouchableOpacity>
+                        </PressableScale>
                     </View>
                 </View>
             </View>
@@ -231,8 +231,8 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         backgroundColor: Colors.bg.elevated,
     },
     policyBtnActive: {
-        borderColor: Colors.accent.gold,
-        backgroundColor: Colors.bg.card,
+        borderColor: Colors.accent.goldBorder,
+        backgroundColor: Colors.accent.goldSoft,
     },
     policyBtnText: {
         fontSize: FontSize.sm,

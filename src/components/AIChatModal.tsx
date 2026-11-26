@@ -7,9 +7,9 @@ import {
     ScrollView,
     type ScrollViewInstance,
     Text,
-    TouchableOpacity,
     View,
 } from 'react-native';
+import PressableScale from './PressableScale';
 import * as Clipboard from 'expo-clipboard';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -1586,11 +1586,11 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                                     const disabled = kinshipSaving || (choice === 'matched' && kinshipUndetermined);
                                     const on = feedbackChoice === choice;
                                     return (
-                                        <TouchableOpacity key={choice} accessibilityRole="radio" accessibilityState={{ checked: on, disabled }} disabled={disabled}
+                                        <PressableScale key={choice} accessibilityRole="radio" accessibilityState={{ checked: on, disabled }} disabled={disabled}
                                             style={[pageStyles.segBtn, on && pageStyles.segBtnOn, disabled && pageStyles.btnDisabled]}
                                             onPress={() => { setFeedbackChoice(choice); if (choice === 'mismatched') setFeedbackVisible(true); }}>
                                             <Text style={[pageStyles.segText, on && pageStyles.segTextOn]}>{KINSHIP_FEEDBACK_LABELS[choice]}</Text>
-                                        </TouchableOpacity>
+                                        </PressableScale>
                                     );
                                 })}
                             </View>
@@ -1605,9 +1605,9 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                             <ActionButton label="六亲初验" small disabled={kinshipSaving} styles={pageStyles} onPress={() => { void runKinshipAction(handleStartKinship); }} />
                         </View>
                     ) : null}
-                    <TouchableOpacity style={pageStyles.linkBtn} disabled={kinshipSaving} onPress={() => setFeedbackVisible(true)}>
+                    <PressableScale style={pageStyles.linkBtn} disabled={kinshipSaving} onPress={() => setFeedbackVisible(true)}>
                         <Text style={pageStyles.linkText}>{kinshipState?.actualFeedback ? '修改实际家庭情况' : '填写实际家庭情况'}</Text>
-                    </TouchableOpacity>
+                    </PressableScale>
                 </View>
             );
         }
@@ -1656,9 +1656,9 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                     <SafeAreaView style={pageStyles.container}>
                         <View style={pageStyles.header} onLayout={({ nativeEvent: { layout } }) => setHeaderBottom(layout.y + layout.height)}>
                             <View style={pageStyles.headerRow}>
-                                <TouchableOpacity onPress={handleClose} style={pageStyles.headerBtn} accessibilityRole="button" accessibilityLabel="关闭 AI 分析">
+                                <PressableScale onPress={handleClose} style={pageStyles.headerBtn} accessibilityRole="button" accessibilityLabel="关闭 AI 分析">
                                     <BackIcon size={24} color={Colors.text.primary} />
-                                </TouchableOpacity>
+                                </PressableScale>
                                 <View style={pageStyles.headerTitleWrap}>
                                     {isReadingEngine(workflowMode) && workflowMode !== 'qimen' ? (
                                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -1674,10 +1674,10 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                                     )}
                                 </View>
                                 <AIModelChip visible={visible} running={jobActive ? analysisJob?.executionMeta : undefined} styles={pageStyles} Colors={Colors} />
-                                <TouchableOpacity onPress={() => setMenuVisible((prev) => !prev)} style={pageStyles.headerBtn}
+                                <PressableScale onPress={() => setMenuVisible((prev) => !prev)} style={pageStyles.headerBtn}
                                     accessibilityRole="button" accessibilityLabel="更多操作" accessibilityState={{ expanded: menuVisible }}>
                                     <MoreVerticalIcon size={20} color={Colors.text.primary} />
-                                </TouchableOpacity>
+                                </PressableScale>
                             </View>
                             {workflowMode === 'qimen' ? (
                                 <AIStageStepper chapters={QIMEN_READING_TABS} currentId={readingTab} styles={pageStyles} onPress={switchReadingTab} />
@@ -1751,13 +1751,13 @@ export default function AIChatModal({ visible, onClose, result, onUpdateResult, 
                                     ) : null}</>}
                                 </ScrollView>
                                 {showNewPill ? (
-                                    <TouchableOpacity style={pageStyles.pill} accessibilityRole="button" onPress={() => {
+                                    <PressableScale style={pageStyles.pill} accessibilityRole="button" onPress={() => {
                                         followRef.current = true;
                                         setShowNewPill(false);
                                         scrollRef.current?.scrollToEnd({ animated: true });
                                     }}>
                                         <Text style={pageStyles.pillText}>↓ 新内容</Text>
-                                    </TouchableOpacity>
+                                    </PressableScale>
                                 ) : null}
                             </View>
                             {(workflowMode !== 'qimen' || readingTab === '追问') && <AIComposer

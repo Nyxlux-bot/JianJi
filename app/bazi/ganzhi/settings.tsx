@@ -4,9 +4,9 @@ import {
     StyleSheet,
     Switch,
     Text,
-    TouchableOpacity,
     View,
 } from 'react-native';
+import PressableScale from '../../../src/components/PressableScale';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BackIcon } from '../../../src/components/Icons';
@@ -119,15 +119,14 @@ export default function GanZhiRelationSettingsPage() {
         <View style={styles.container}>
             <StatusBarDecor />
             <View style={styles.header}>
-                <TouchableOpacity
+                <PressableScale
                     style={styles.backButton}
                     onPress={() => router.back()}
                     accessibilityRole="button"
                     accessibilityLabel="返回"
-                    activeOpacity={0.75}
                 >
                     <BackIcon size={25} />
-                </TouchableOpacity>
+                </PressableScale>
                 <Text style={styles.headerTitle}>干支关系</Text>
                 <View style={styles.headerSpacer} />
             </View>
@@ -152,14 +151,14 @@ export default function GanZhiRelationSettingsPage() {
                                 <View style={styles.rowLabelWrap}>
                                     <Text style={styles.rowLabel}>{item.label}</Text>
                                     {item.help ? (
-                                        <TouchableOpacity
+                                        <PressableScale
                                             style={styles.helpButton}
                                             onPress={() => showHelp(item)}
                                             accessibilityRole="button"
                                             accessibilityLabel={`查看${item.label}说明`}
                                         >
                                             <Text style={styles.helpText}>?</Text>
-                                        </TouchableOpacity>
+                                        </PressableScale>
                                     ) : null}
                                 </View>
                                 <View style={styles.valueWrap}>
@@ -179,14 +178,13 @@ export default function GanZhiRelationSettingsPage() {
                         ))}
                     </View>
                 ))}
-                <TouchableOpacity
+                <PressableScale
                     style={styles.resetButton}
                     onPress={confirmReset}
-                    activeOpacity={0.78}
                     accessibilityRole="button"
                 >
                     <Text style={styles.resetText}>恢复默认设置</Text>
-                </TouchableOpacity>
+                </PressableScale>
             </ScrollView>
         </View>
     );

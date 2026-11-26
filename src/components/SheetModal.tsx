@@ -6,6 +6,7 @@ import React, { useEffect, useState } from 'react';
 import { Modal, StyleSheet, useWindowDimensions } from 'react-native';
 import Animated, { Easing, runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { useTheme } from '../theme/ThemeContext';
+import { webScrimBlur, webScrimProps } from '../theme/web-enhance';
 
 /** 过冲部分只上移这么多倍，免得底部露出缝 */
 const OVERSHOOT_PX = 150;
@@ -25,12 +26,12 @@ export default function SheetModal({ visible, onRequestClose, children }: {
         if (visible) {
             setMounted(true);
             progress.value = reduceMotion ? 1 : withSpring(1, { damping: 20, stiffness: 220, mass: 0.9 });
-        } else {
+        } else if (mounted) {
             progress.value = withTiming(0, { duration: reduceMotion ? 0 : 240, easing: Easing.in(Easing.cubic) }, (finished) => {
                 if (finished) runOnJS(setMounted)(false);
             });
         }
-    }, [visible, reduceMotion, progress]);
+    }, [visible, mounted, reduceMotion, progress]);
 
     const scrim = useAnimatedStyle(() => ({ opacity: Math.min(progress.value, 1) }));
     const sheet = useAnimatedStyle(() => ({
@@ -39,7 +40,7 @@ export default function SheetModal({ visible, onRequestClose, children }: {
 
     return (
         <Modal visible={mounted} transparent animationType="none" onRequestClose={onRequestClose}>
-            <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: Colors.bg.overlay }, scrim]} />
+            <Animated.View {...webScrimProps} pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: Colors.bg.overlay }, webScrimBlur, scrim]} />
             <Animated.View style={[styles.fill, sheet]}>{children}</Animated.View>
         </Modal>
     );

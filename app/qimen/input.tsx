@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import PressableScale from '../../src/components/PressableScale';
 import FocusTextInput from '../../src/components/FocusTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, Polyline, Text as SvgText } from 'react-native-svg';
@@ -80,7 +81,7 @@ export default function QimenInputPage() {
     }, [key, sourceId, offset]);
     if (sourceId && (loaded?.key !== key || !loaded.source)) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
         <Text style={{ color: Colors.text.primary }}>{loaded?.key === key ? loaded.error : '读取来源盘…'}</Text>
-        <Pressable accessibilityRole="button" onPress={() => router.back()}><Text style={{ color: Colors.accent.gold }}>返回</Text></Pressable>
+        <PressableScale accessibilityRole="button" onPress={() => router.back()}><Text style={{ color: Colors.accent.gold }}>返回</Text></PressableScale>
     </View>;
     return <QimenCastForm key={key} source={sourceId ? loaded?.source : undefined} />;
 }
@@ -159,14 +160,14 @@ function QimenCastForm({ source }: { source?: QimenResult }) {
         <View style={styles.container}>
             <StatusBarDecor />
             <View style={styles.header}>
-                <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="返回">
+                <PressableScale onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="返回">
                     <BackIcon size={22} color={palette.ink} />
-                </Pressable>
+                </PressableScale>
                 <Text style={styles.title}>奇门遁甲</Text>
                 <View style={styles.headerButton} />
             </View>
             <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-                <Pressable accessibilityRole="button" accessibilityLabel={`排盘设置，当前${form}`} onPress={() => setDraft({ form, juMethod, spiritStyle })} style={styles.cover}>
+                <PressableScale scaleTo={0.985} accessibilityRole="button" accessibilityLabel={`排盘设置，当前${form}`} onPress={() => setDraft({ form, juMethod, spiritStyle })} style={styles.cover}>
                     <View style={styles.grow}>
                         <Text style={styles.muted}><Text style={{ color: palette.vermilion }}>◆ </Text> 排盘设置</Text>
                         <Text style={styles.coverTitle}>{form}</Text>
@@ -174,15 +175,15 @@ function QimenCastForm({ source }: { source?: QimenResult }) {
                     </View>
                     <Image source={require('../../assets/home/ink-brush-v6/qimen.webp')} accessible={false} resizeMode="contain" style={styles.art} />
                     <ChevronRightIcon size={16} color={palette.muted} />
-                </Pressable>
+                </PressableScale>
 
                 <View style={styles.modeTabs} accessibilityRole="tablist">
                     {([['time', '时间起局'], ['number', '报数起局']] as const).map(([key, label]) => {
                         const active = castMode === key;
-                        return <Pressable key={key} onPress={() => setCastMode(key)} style={[styles.modeTab, active && styles.modeTabActive]}
+                        return <PressableScale key={key} onPress={() => setCastMode(key)} style={[styles.modeTab, active && styles.modeTabActive]}
                             accessibilityRole="tab" aria-selected={active}>
                             <Text style={[styles.modeTabText, active && styles.modeTabTextActive]}>{label}</Text>
-                        </Pressable>;
+                        </PressableScale>;
                     })}
                 </View>
 
@@ -190,9 +191,9 @@ function QimenCastForm({ source }: { source?: QimenResult }) {
                     <View style={styles.numberBox}>
                         <View style={styles.numberHeader}>
                             <Text style={styles.label}>所报数字（1–9999）</Text>
-                            <Pressable onPress={() => setNumberInput(String(Math.floor(Math.random() * 999) + 1))} style={styles.textButton} accessibilityRole="button">
+                            <PressableScale onPress={() => setNumberInput(String(Math.floor(Math.random() * 999) + 1))} style={styles.textButton} accessibilityRole="button">
                                 <Text style={styles.link}>随机取数</Text>
-                            </Pressable>
+                            </PressableScale>
                         </View>
                         <FocusTextInput
                             value={numberInput}
@@ -211,25 +212,25 @@ function QimenCastForm({ source }: { source?: QimenResult }) {
 
                 <View style={styles.labelRow}>
                     <Text style={styles.label}>起盘时间</Text>
-                    <Pressable onPress={() => setDate(beijingNow())} style={styles.textButton} accessibilityRole="button" accessibilityLabel="使用当前北京时间">
+                    <PressableScale onPress={() => setDate(beijingNow())} style={styles.textButton} accessibilityRole="button" accessibilityLabel="使用当前北京时间">
                         <Text style={styles.link}>当前时刻</Text>
-                    </Pressable>
+                    </PressableScale>
                 </View>
                 <View style={styles.clockCard}>
-                    <Pressable onPress={() => setPickerVisible(true)} style={styles.clockRow} accessibilityRole="button" accessibilityLabel="选择起盘时间">
+                    <PressableScale scaleTo={0.985} onPress={() => setPickerVisible(true)} style={styles.clockRow} accessibilityRole="button" accessibilityLabel="选择起盘时间">
                         <View style={styles.grow}><Text style={styles.fieldText}>{date.getFullYear()}年{date.getMonth() + 1}月{date.getDate()}日</Text><Text style={styles.muted}>{lunar} · 北京时间</Text></View>
                         <Text style={styles.fieldText}>{formatDate(date).slice(11, 16)}</Text>
                         <ChevronRightIcon size={18} color={palette.muted} />
-                    </Pressable>
-                    <Pressable onPress={place.openPicker} style={styles.placeRow} accessibilityRole="button"><LocationIcon size={16} color={palette.gold} /><Text style={[styles.muted, styles.grow]}>{location || '选择地点（选填）'}</Text><ChevronRightIcon size={16} color={palette.muted} /></Pressable>
+                    </PressableScale>
+                    <PressableScale scaleTo={0.985} onPress={place.openPicker} style={styles.placeRow} accessibilityRole="button"><LocationIcon size={16} color={palette.gold} /><Text style={[styles.muted, styles.grow]}>{location || '选择地点（选填）'}</Text><ChevronRightIcon size={16} color={palette.muted} /></PressableScale>
                 </View>
                 <Text style={styles.label}>占问事项（选填）</Text>
                 <FocusTextInput value={question} onChangeText={setQuestion} maxLength={300} multiline placeholder="一局问一事，把具体问题写在这里" placeholderTextColor={palette.muted} style={[styles.field, styles.multiline]} accessibilityLabel="占问事项" />
                 <Text style={styles.label}>关注期限（选填）</Text>
                 <FocusTextInput value={timeRange} onChangeText={setTimeRange} maxLength={80} placeholder="关注的时间范围，如未来一个月" placeholderTextColor={palette.muted} style={[styles.field, styles.range]} accessibilityLabel="关注时间范围" />
-                <Pressable onPress={() => setBackgroundOpen(!backgroundOpen)} style={styles.disclosure} accessibilityRole="button" accessibilityState={{ expanded: backgroundOpen }}>
+                <PressableScale onPress={() => setBackgroundOpen(!backgroundOpen)} style={styles.disclosure} accessibilityRole="button" accessibilityState={{ expanded: backgroundOpen }}>
                     <Text style={styles.label}>补充占问背景</Text><Text style={styles.muted}>选填 {backgroundOpen ? '⌃' : '⌄'}</Text>
-                </Pressable>
+                </PressableScale>
                 {backgroundOpen ? <>
                     <FocusTextInput value={recentEvents} onChangeText={setRecentEvents} maxLength={600} multiline placeholder="近期事件、相关人物与已经发生的情况" placeholderTextColor={palette.muted} style={[styles.field, styles.multiline]} accessibilityLabel="近期事件" />
                     <LiuyaoSubjectSelector value={subject} onChange={setSubject} style={styles.subject} labelStyle={styles.label} />
@@ -243,15 +244,15 @@ function QimenCastForm({ source }: { source?: QimenResult }) {
             {draft !== null && <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setDraft(null)}>
                 <View style={[styles.container, { backgroundColor: palette.page }]}>
                     <StatusBarDecor />
-                    <View style={styles.header}><Pressable style={styles.headerButton} accessibilityRole="button" accessibilityLabel="返回起盘" onPress={() => setDraft(null)}><BackIcon size={22} color={palette.ink} /></Pressable><Text style={styles.title}>排盘设置</Text><View style={styles.headerButton} /></View>
+                    <View style={styles.header}><PressableScale style={styles.headerButton} accessibilityRole="button" accessibilityLabel="返回起盘" onPress={() => setDraft(null)}><BackIcon size={22} color={palette.ink} /></PressableScale><Text style={styles.title}>排盘设置</Text><View style={styles.headerButton} /></View>
                     <ScrollView contentContainerStyle={styles.content}>
                         <Text style={styles.label}>盘式</Text>
                         <View accessibilityRole="radiogroup" style={styles.options}>{QIMEN_FORMS.map(option => {
                             const on = option === draft.form;
-                            return <Pressable key={option} accessibilityRole="radio" aria-checked={on} onPress={() => setDraft(d => d ? { ...d, form: option } : d)} style={[styles.mode, on && styles.activeMode]}>
+                            return <PressableScale key={option} accessibilityRole="radio" aria-checked={on} onPress={() => setDraft(d => d ? { ...d, form: option } : d)} style={[styles.mode, on && styles.activeMode]}>
                                 <View style={styles.grow}><Text style={[styles.modeName, on && { color: palette.gold }]}>{option}</Text><Text style={styles.muted}>{FORM_DESCRIPTIONS[option]}</Text></View>
                                 <View style={[styles.radio, on && { borderColor: palette.gold }]}>{on && <View style={styles.dot} />}</View>
-                            </Pressable>;
+                            </PressableScale>;
                         })}</View>
 
                         {draft.form === '转盘' ? <>
@@ -259,11 +260,11 @@ function QimenCastForm({ source }: { source?: QimenResult }) {
                             <View accessibilityRole="radiogroup" style={styles.pillRow}>
                                 {QIMEN_JU_METHODS.map(option => {
                                     const on = option === draft.juMethod;
-                                    return <Pressable key={option} accessibilityRole="radio" aria-checked={on}
+                                    return <PressableScale key={option} accessibilityRole="radio" aria-checked={on}
                                         onPress={() => setDraft(d => d ? { ...d, juMethod: option } : d)}
                                         style={[styles.pillOption, on && styles.activeMode]}>
                                         <Text style={[styles.pillText, on && { color: palette.gold, fontWeight: '600' }]}>{JU_METHOD_LABELS[option]}</Text>
-                                    </Pressable>;
+                                    </PressableScale>;
                                 })}
                             </View>
                             <Text style={styles.optionHint}>{JU_METHOD_DESCRIPTIONS[draft.juMethod]}</Text>
@@ -272,11 +273,11 @@ function QimenCastForm({ source }: { source?: QimenResult }) {
                             <View accessibilityRole="radiogroup" style={styles.pillRow}>
                                 {QIMEN_SPIRIT_STYLES.map(option => {
                                     const on = option === draft.spiritStyle;
-                                    return <Pressable key={option} accessibilityRole="radio" aria-checked={on}
+                                    return <PressableScale key={option} accessibilityRole="radio" aria-checked={on}
                                         onPress={() => setDraft(d => d ? { ...d, spiritStyle: option } : d)}
                                         style={[styles.pillOption, on && styles.activeMode]}>
                                         <Text style={[styles.pillText, on && { color: palette.gold, fontWeight: '600' }]}>{SPIRIT_STYLE_LABELS[option]}</Text>
-                                    </Pressable>;
+                                    </PressableScale>;
                                 })}
                             </View>
                         </> : null}
@@ -287,7 +288,7 @@ function QimenCastForm({ source }: { source?: QimenResult }) {
                             return <View key={name} style={styles.figure}><PalacePath fly={fly} palette={palette} /><Text style={styles.muted}>{name} · {fly ? '飞布' : '转排'}</Text></View>;
                         })}</View>
                     </ScrollView>
-                    <View style={footerStyle}><Pressable accessibilityRole="button" onPress={() => { setForm(draft.form); setJuMethod(draft.juMethod); setSpiritStyle(draft.spiritStyle); setDraft(null); }} style={[styles.castButton, { backgroundColor: palette.gold }]}><Text style={[styles.castText, { color: Colors.text.inverse }]}>完成</Text></Pressable></View>
+                    <View style={footerStyle}><PressableScale accessibilityRole="button" onPress={() => { setForm(draft.form); setJuMethod(draft.juMethod); setSpiritStyle(draft.spiritStyle); setDraft(null); }} style={[styles.castButton, { backgroundColor: palette.gold }]}><Text style={[styles.castText, { color: Colors.text.inverse }]}>完成</Text></PressableScale></View>
                 </View>
             </Modal>}
             <DateTimePicker yearRange={QIMEN_YEAR_RANGE} visible={pickerVisible} initialDate={date} onClose={() => setPickerVisible(false)} onConfirm={(value) => { setDate(value); setPickerVisible(false); }} />
@@ -298,7 +299,7 @@ function QimenCastForm({ source }: { source?: QimenResult }) {
 
 function makeStyles(palette: ResultPalette) {
     return StyleSheet.create({
-        container: { flex: 1 },
+        container: { flex: 1, backgroundColor: 'transparent' },
         header: { height: 50, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 4 },
         headerButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
         title: { fontSize: 17, fontWeight: '700', color: palette.heading },

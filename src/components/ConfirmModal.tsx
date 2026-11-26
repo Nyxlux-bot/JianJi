@@ -1,7 +1,10 @@
 import React from 'react';
-import { Modal, View, Text, TouchableOpacity, StyleSheet, TouchableWithoutFeedback } from 'react-native';
+import { View, Text, StyleSheet, TouchableWithoutFeedback } from 'react-native';
+import DialogModal from './DialogModal';
+import PressableScale from './PressableScale';
 import { Spacing, FontSize, BorderRadius } from '../theme/colors';
 import { useTheme } from "../theme/ThemeContext";
+import { webTextWrapBalance, webTextWrapPretty } from '../theme/web-enhance';
 
 interface ConfirmModalProps {
     visible: boolean;
@@ -27,48 +30,40 @@ export default function ConfirmModal({
     const { Colors } = useTheme();
     const styles = React.useMemo(() => makeStyles(Colors), [Colors]);
     return (
-        <Modal
-            visible={visible}
-            transparent={true}
-            animationType="fade"
-            onRequestClose={onCancel}
-        >
+        <DialogModal visible={visible} onRequestClose={onCancel}>
             <TouchableWithoutFeedback onPress={onCancel}>
                 <View style={styles.overlay}>
                     <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-                        <View style={styles.modalContent}>
-                            <Text style={styles.title}>{title}</Text>
-                            <Text style={styles.message}>{message}</Text>
+                        <View accessibilityViewIsModal style={styles.modalContent}>
+                            <Text {...webTextWrapBalance} style={styles.title}>{title}</Text>
+                            <Text {...webTextWrapPretty} style={styles.message}>{message}</Text>
 
                             <View style={styles.buttonContainer}>
-                                <TouchableOpacity
+                                <PressableScale
                                     style={[styles.button, styles.cancelButton]}
                                     onPress={onCancel}
-                                    activeOpacity={0.7}
                                 >
                                     <Text style={styles.cancelButtonText}>{cancelText}</Text>
-                                </TouchableOpacity>
+                                </PressableScale>
 
-                                <TouchableOpacity
+                                <PressableScale
                                     style={[styles.button, destructive ? styles.destructiveButton : styles.confirmButton]}
                                     onPress={onConfirm}
-                                    activeOpacity={0.7}
                                 >
-                                    <Text style={styles.confirmButtonText}>{confirmText}</Text>
-                                </TouchableOpacity>
+                                    <Text style={destructive ? styles.destructiveButtonText : styles.confirmButtonText}>{confirmText}</Text>
+                                </PressableScale>
                             </View>
                         </View>
                     </TouchableWithoutFeedback>
                 </View>
             </TouchableWithoutFeedback>
-        </Modal>
+        </DialogModal>
     );
 }
 
 const makeStyles = (Colors: any) => StyleSheet.create({
         overlay: {
             flex: 1,
-            backgroundColor: 'rgba(0, 0, 0, 0.6)',
             justifyContent: 'center',
             alignItems: 'center',
             padding: Spacing.xl,
@@ -122,7 +117,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
             borderColor: Colors.border.subtle,
         },
         confirmButton: {
-            backgroundColor: Colors.accent.jade,
+            backgroundColor: Colors.accent.gold,
         },
         destructiveButton: {
             backgroundColor: Colors.accent.red,
@@ -133,6 +128,11 @@ const makeStyles = (Colors: any) => StyleSheet.create({
             fontWeight: '500',
         },
         confirmButtonText: {
+            fontSize: FontSize.md,
+            color: Colors.text.inverse,
+            fontWeight: '500',
+        },
+        destructiveButtonText: {
             fontSize: FontSize.md,
             color: '#fff',
             fontWeight: '500',

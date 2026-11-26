@@ -3,7 +3,9 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import PressableScale from '../../src/components/PressableScale';
 import FocusTextInput, { useFieldFocus } from '../../src/components/FocusTextInput';
+import { webFocusFieldProps } from '../../src/theme/web-enhance';
 import { router, useLocalSearchParams } from 'expo-router';
 import StatusBarDecor from '../../src/components/StatusBarDecor';
 import { CustomAlert } from '../../src/components/CustomAlertProvider';
@@ -115,9 +117,9 @@ export default function MeihuaInputPage() {
         <View style={styles.container}>
             <StatusBarDecor />
             <View style={styles.header}>
-                <Pressable onPress={() => router.back()} style={styles.headerBtn} accessibilityRole="button" accessibilityLabel="返回">
+                <PressableScale onPress={() => router.back()} style={styles.headerBtn} accessibilityRole="button" accessibilityLabel="返回">
                     <BackIcon size={22} color={palette.ink} />
-                </Pressable>
+                </PressableScale>
                 <Text style={styles.headerTitle}>梅花易数</Text>
                 <View style={styles.headerBtn} />
             </View>
@@ -130,7 +132,7 @@ export default function MeihuaInputPage() {
                     {MODES.map((item) => {
                         const on = item.key === mode;
                         return (
-                            <Pressable
+                            <PressableScale
                                 key={item.key}
                                 onPress={() => setMode(item.key)}
                                 style={[styles.modeCard, on && styles.modeCardOn]}
@@ -140,7 +142,7 @@ export default function MeihuaInputPage() {
                             >
                                 <Text style={[styles.modeTitle, on && styles.modeTitleOn]}>{item.label}</Text>
                                 <Text style={styles.modeDesc}>{item.desc}</Text>
-                            </Pressable>
+                            </PressableScale>
                         );
                     })}
                 </View>
@@ -148,10 +150,10 @@ export default function MeihuaInputPage() {
                 {mode === 'meihua_time' ? (
                     <>
                         <Text style={styles.label}>起卦时间</Text>
-                        <Pressable style={styles.field} onPress={() => setPickerVisible(true)} accessibilityRole="button" accessibilityLabel="选择起卦时间">
+                        <PressableScale style={styles.field} onPress={() => setPickerVisible(true)} accessibilityRole="button" accessibilityLabel="选择起卦时间">
                             <Text style={styles.fieldText}>{formatDateTime(castDate)}</Text>
                             <ChevronRightIcon size={16} color={palette.muted} />
-                        </Pressable>
+                        </PressableScale>
                     </>
                 ) : (
                     <>
@@ -295,6 +297,7 @@ function NumberField({ label, value, onChange, palette, styles }: {
         <View style={[styles.numberField, { borderColor: focus.borderColor }]}>
             <Text style={styles.numberLabel}>{label}</Text>
             <TextInput
+                {...webFocusFieldProps}
                 value={value}
                 onChangeText={(text) => onChange(text.replace(/\D/g, '').slice(0, 6))}
                 keyboardType="number-pad"

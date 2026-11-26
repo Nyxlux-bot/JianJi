@@ -4,7 +4,8 @@
  */
 
 import React, { useState, useRef, useCallback, useEffect, memo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated, Easing } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Animated, Easing } from 'react-native';
+import PressableScale from '../../src/components/PressableScale';
 import FocusTextInput from '../../src/components/FocusTextInput';
 import Svg, { Path, Text as SvgText } from 'react-native-svg';
 
@@ -285,13 +286,13 @@ export default function CoinDivination() {
         <View style={styles.container}>
             <StatusBarDecor />
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+                <PressableScale onPress={() => router.back()} style={styles.backBtn}>
                     <BackIcon size={24} />
-                </TouchableOpacity>
+                </PressableScale>
                 <Text style={styles.headerTitle}>硬币排卦</Text>
-                <TouchableOpacity onPress={handleReset} style={styles.backBtn}>
+                <PressableScale onPress={handleReset} style={styles.backBtn}>
                     <Text style={styles.resetText}>重置</Text>
-                </TouchableOpacity>
+                </PressableScale>
             </View>
 
             <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -322,28 +323,26 @@ export default function CoinDivination() {
                             <Text style={styles.throwHint}>
                                 第 {currentYao + 1} 爻 ({YAO_NAMES[currentYao]})
                             </Text>
-                            <TouchableOpacity
+                            <PressableScale
                                 style={[styles.throwButton, shaking && styles.throwButtonDisabled]}
-                                activeOpacity={0.8}
                                 onPress={handleThrow}
                                 disabled={shaking}
                             >
                                 <Text style={styles.throwButtonText}>
                                     {shaking ? '摇晃中...' : '抛掷求卦'}
                                 </Text>
-                            </TouchableOpacity>
+                            </PressableScale>
                         </View>
                     ) : (
-                        <TouchableOpacity
+                        <PressableScale
                             style={[styles.completeButton, (savingResult || !subject) && styles.completeButtonDisabled]}
-                            activeOpacity={0.8}
                             onPress={handleComplete}
                             disabled={savingResult || !subject}
                         >
                             <Text style={styles.completeButtonText}>
                                 {savingResult ? '保存中...' : '生成排盘全览'}
                             </Text>
-                        </TouchableOpacity>
+                        </PressableScale>
                     )}
                 </View>
 
@@ -472,12 +471,12 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         fontSize: FontSize.lg, color: Colors.text.inverse, fontWeight: '500', letterSpacing: 4,
     },
     completeButton: {
-        backgroundColor: Colors.accent.jade, borderRadius: BorderRadius.lg,
+        backgroundColor: Colors.accent.gold, borderRadius: BorderRadius.lg,
         paddingVertical: Spacing.md, paddingHorizontal: Spacing.xxxl,
     },
     completeButtonDisabled: { opacity: 0.6 },
     completeButtonText: {
-        fontSize: FontSize.lg, color: '#fff', fontWeight: '500', letterSpacing: 2,
+        fontSize: FontSize.lg, color: Colors.text.inverse, fontWeight: '500', letterSpacing: 2,
     },
     resultsSection: { marginBottom: 40 },
     sectionLabel: {

@@ -31,7 +31,7 @@ export function buildResultPalette(Colors: any) {
         ink: Colors.text.primary as string,
         heading: Colors.text.heading as string,
         body: isLight ? '#4a3f31' : '#CFCFCF',
-        muted: isLight ? '#7d6d55' : '#949494',
+        muted: Colors.text.tertiary as string,
         icon: isLight ? '#5f5445' : '#BDBDBD',
         vermilion,
         sealText: '#fffaf0',
@@ -61,7 +61,7 @@ export function buildResultPalette(Colors: any) {
         // 无描边分层：页面底 → surface（低一阶）→ raised（再高一阶）
         surface: isLight ? card : '#1B1B1B',
         raised: isLight ? '#f1e8d6' : card,
-        meta: isLight ? '#7d6d55' : '#949494',
+        meta: Colors.text.tertiary as string,
         positive: isLight ? '#2f7a52' : '#54b78e',
         negative: isLight ? '#b9483e' : '#e16a5e',
         positiveSoft: isLight ? '#e3f0e6' : 'rgba(84,183,142,0.16)',

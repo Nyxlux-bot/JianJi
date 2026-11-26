@@ -4,6 +4,7 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { PanResponder, Platform, Pressable, StyleSheet, Text, TextInput, View, type LayoutChangeEvent } from 'react-native';
 import { useFieldFocus } from '../../src/components/FocusTextInput';
+import { webFocusFieldProps } from '../../src/theme/web-enhance';
 import Animated, { Extrapolation, interpolate, useAnimatedScrollHandler, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated';
 import { router, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -110,6 +111,7 @@ export default function LearnPage() {
                             <View style={[styles.searchField, { borderColor: searchFocus.borderColor }]}>
                                 <SearchGlyph color={palette.muted} size={16} />
                                 <TextInput
+                                    {...webFocusFieldProps}
                                     value={query}
                                     onChangeText={setQuery}
                                     autoFocus

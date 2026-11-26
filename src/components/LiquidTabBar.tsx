@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useRef } from 'react';
-import { StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
 import type { Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import { GlassView, liquidGlassSupported } from '../../modules/liquid-glass';
 import { useTheme } from '../theme/ThemeContext';
+import { webLiquidGlass } from '../theme/web-enhance';
 import { HistoryIcon, HomeIcon, ReadIcon, SettingsIcon } from './Icons';
 import { requestSettingsLeave } from '../services/settings-leave-guard';
 
@@ -34,8 +35,8 @@ const THEME = {
     yin: {
         idle: '#8a857a',
         on: '#CFB53B',
-        // 有折射时玻璃几乎不着色；没有（Expo Go、旧 Android、iOS）就退成半透明底
-        tint: liquidGlassSupported ? 'rgba(255, 255, 255, 0.05)' : 'rgba(30, 29, 27, 0.88)',
+        // 有折射时玻璃几乎不着色；网页端用渐进毛玻璃配半透明底，其余端退成半透明底
+        tint: liquidGlassSupported ? 'rgba(255, 255, 255, 0.05)' : Platform.OS === 'web' ? 'rgba(30, 29, 27, 0.76)' : 'rgba(30, 29, 27, 0.88)',
         rim: 'inset 1.5px 1.5px 1px -1px rgba(255, 255, 255, 0.5), inset -1px -1px 1px -0.5px rgba(255, 255, 255, 0.18), inset 0 0 0 0.5px rgba(255, 255, 255, 0.16), inset 0 -6px 14px rgba(0, 0, 0, 0.25)',
         shadow: '0 10px 26px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.35)',
         // 选中块和水泡会被拉伸缩放，亮边只用描边：内阴影在胶囊形上是上下两段弧拼的，一拉伸正中间就露出一道亮缝
@@ -50,7 +51,7 @@ const THEME = {
         idle: '#7d6f5a',
         // 与浅色主题的 accent.gold 一致
         on: '#8a6312',
-        tint: liquidGlassSupported ? 'rgba(255, 255, 255, 0.22)' : 'rgba(246, 240, 228, 0.9)',
+        tint: liquidGlassSupported ? 'rgba(255, 255, 255, 0.22)' : Platform.OS === 'web' ? 'rgba(246, 240, 228, 0.78)' : 'rgba(246, 240, 228, 0.9)',
         rim: 'inset 1.5px 1.5px 1px -1px rgba(255, 255, 255, 1), inset -1px -1px 1px -0.5px rgba(255, 255, 255, 0.7), inset 0 0 0 0.5px rgba(255, 255, 255, 0.6), inset 0 -6px 14px rgba(120, 90, 50, 0.1)',
         shadow: '0 10px 26px rgba(80, 60, 30, 0.18), 0 1px 3px rgba(80, 60, 30, 0.14)',
         pill: 'rgba(255, 255, 255, 0.62)',
@@ -170,7 +171,7 @@ export default function LiquidTabBar({ state, descriptors, emitter, navigateToTa
                 <View style={[styles.bar, { width: barWidth, boxShadow: colors.shadow }]} accessibilityRole="tablist">
                     {/* 不加模糊：0.6dp 几乎看不出，却每帧多一遍全栏模糊 */}
                     <GlassView targetId={TAB_GLASS_TARGET} style={styles.fill} cornerRadius={BAR_R} refraction={16} bevel={22} blurRadius={0} />
-                    <View pointerEvents="none" style={[styles.fill, styles.round, { backgroundColor: colors.tint, boxShadow: colors.rim }]} />
+                    <View pointerEvents="none" style={[styles.fill, styles.round, { backgroundColor: colors.tint, boxShadow: colors.rim }, webLiquidGlass]} />
                     <Animated.View pointerEvents="none" style={[styles.pill, styles.edge, { backgroundColor: colors.pill, borderColor: colors.pillEdge }, pill]} />
                     <Animated.View pointerEvents="none" style={[styles.pill, lens]}>
                         <GlassView targetId={TAB_GLASS_TARGET} style={styles.fill} cornerRadius={PILL_R} refraction={14} bevel={18} magnify={0.12} blurRadius={0} />

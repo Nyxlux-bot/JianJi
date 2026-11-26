@@ -7,6 +7,7 @@
 import React, { forwardRef, useCallback, useState } from 'react';
 import { TextInput, type TextInputFocusEvent, type TextInputProps } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
+import { webFocusFieldProps } from '../theme/web-enhance';
 
 type FocusEvent = TextInputFocusEvent;
 
@@ -48,6 +49,7 @@ const FocusTextInput = forwardRef<React.ElementRef<typeof TextInput>, FocusTextI
     const field = useFieldFocus({ invalid, onFocus, onBlur });
     return (
         <TextInput
+            {...webFocusFieldProps}
             ref={ref}
             {...rest}
             placeholderTextColor={placeholderTextColor ?? Colors.text.tertiary}

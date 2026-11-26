@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import PressableScale from '../../../components/PressableScale';
 import { BorderRadius, FontSize, Spacing } from '../../../theme/colors';
 import { useTheme } from '../../../theme/ThemeContext';
 import {
@@ -54,7 +55,7 @@ function OptionGroup<T extends string>({
             {options.map((option) => {
                 const active = option.value === value;
                 return (
-                    <TouchableOpacity
+                    <PressableScale
                         key={option.value}
                         style={[styles.optionBtn, active && styles.optionBtnActive]}
                         onPress={() => onChange(option.value)}
@@ -62,7 +63,7 @@ function OptionGroup<T extends string>({
                         <Text style={[styles.optionText, active && styles.optionTextActive]}>
                             {option.label}
                         </Text>
-                    </TouchableOpacity>
+                    </PressableScale>
                 );
             })}
         </View>
@@ -173,8 +174,8 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         backgroundColor: Colors.bg.elevated,
     },
     optionBtnActive: {
-        borderColor: Colors.accent.gold,
-        backgroundColor: Colors.bg.primary,
+        borderColor: Colors.accent.goldBorder,
+        backgroundColor: Colors.accent.goldSoft,
     },
     optionText: {
         fontSize: FontSize.sm,

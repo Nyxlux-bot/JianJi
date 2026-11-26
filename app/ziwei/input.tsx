@@ -3,9 +3,9 @@ import {
     ScrollView,
     StyleSheet,
     Text,
-    TouchableOpacity,
     View,
 } from 'react-native';
+import PressableScale from '../../src/components/PressableScale';
 import FocusTextInput from '../../src/components/FocusTextInput';
 import { router, useLocalSearchParams } from 'expo-router';
 import { BackIcon, ChevronRightIcon } from '../../src/components/Icons';
@@ -283,9 +283,9 @@ export default function ZiweiInputPage() {
         <View style={styles.container}>
             <StatusBarDecor />
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} disabled={isSubmitting}>
+                <PressableScale onPress={() => router.back()} style={styles.backBtn} disabled={isSubmitting}>
                     <BackIcon size={24} />
-                </TouchableOpacity>
+                </PressableScale>
                 <Text style={styles.headerTitle}>{editingRecordId ? '修改紫微' : '紫微斗数'}</Text>
                 <View style={styles.backBtn} />
             </View>
@@ -323,14 +323,13 @@ export default function ZiweiInputPage() {
 
                 <View style={styles.section}>
                     <Text style={styles.sectionLabel}>出生时间</Text>
-                    <TouchableOpacity
+                    <PressableScale
                         style={styles.selector}
-                        activeOpacity={0.75}
                         onPress={() => setBirthPickerVisible(true)}
                     >
                         <Text style={styles.selectorText}>{formatDateTime(birthDate)}</Text>
                         <ChevronRightIcon size={20} color={Colors.text.tertiary} />
-                    </TouchableOpacity>
+                    </PressableScale>
                     <Text style={styles.advancedHint}>
                         {birthSelection.calendarType === 'lunar'
                             ? `当前保留农历语义 · ${formatLunarInputLabel(birthSelection.lunar)}`
@@ -341,60 +340,59 @@ export default function ZiweiInputPage() {
                 <View style={styles.section}>
                     <Text style={styles.sectionLabel}>性别</Text>
                     <View style={styles.optionRow}>
-                        <TouchableOpacity
+                        <PressableScale
                             style={[styles.optionBtn, gender === 'male' && styles.optionBtnActive]}
                             onPress={() => setGender('male')}
                         >
                             <Text style={[styles.optionText, gender === 'male' && styles.optionTextActive]}>
                                 男
                             </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
+                        </PressableScale>
+                        <PressableScale
                             style={[styles.optionBtn, gender === 'female' && styles.optionBtnActive]}
                             onPress={() => setGender('female')}
                         >
                             <Text style={[styles.optionText, gender === 'female' && styles.optionTextActive]}>
                                 女
                             </Text>
-                        </TouchableOpacity>
+                        </PressableScale>
                     </View>
                 </View>
 
                 <View style={styles.section}>
                     <Text style={styles.sectionLabel}>历史夏令时（可选）</Text>
                     <View style={styles.optionRow}>
-                        <TouchableOpacity
+                        <PressableScale
                             style={[styles.optionBtn, !daylightSavingEnabled && styles.optionBtnActive]}
                             onPress={() => setDaylightSavingEnabled(false)}
                         >
                             <Text style={[styles.optionText, !daylightSavingEnabled && styles.optionTextActive]}>
                                 关闭
                             </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
+                        </PressableScale>
+                        <PressableScale
                             style={[styles.optionBtn, daylightSavingEnabled && styles.optionBtnActive]}
                             onPress={() => setDaylightSavingEnabled(true)}
                         >
                             <Text style={[styles.optionText, daylightSavingEnabled && styles.optionTextActive]}>
                                 开启
                             </Text>
-                        </TouchableOpacity>
+                        </PressableScale>
                     </View>
                     <Text style={styles.advancedHint}>
                         开启后会先回退 60 分钟，再按经度与时差方程进行真太阳时修正。
                     </Text>
                 </View>
 
-                <TouchableOpacity
+                <PressableScale
                     style={[styles.calcBtn, isSubmitting && styles.calcBtnDisabled]}
                     onPress={handleStart}
-                    activeOpacity={0.82}
                     disabled={isSubmitting}
                 >
                     <Text style={styles.calcBtnText}>
                         {isSubmitting ? '排盘中...' : (editingRecordId ? '保存修改并进入紫微盘' : '进入紫微盘')}
                     </Text>
-                </TouchableOpacity>
+                </PressableScale>
                 </ScrollView>
             )}
 
@@ -506,8 +504,8 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         justifyContent: 'center',
     },
     optionBtnActive: {
-        borderColor: Colors.accent.gold,
-        backgroundColor: Colors.bg.elevated,
+        borderColor: Colors.accent.goldBorder,
+        backgroundColor: Colors.accent.goldSoft,
     },
     optionText: {
         fontSize: FontSize.md,

@@ -495,7 +495,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         paddingVertical: Spacing.md,
         borderRadius: 999,
         borderWidth: 1,
-        borderColor: Colors.border.subtle,
+        borderColor: Colors.border.input,
     },
     wheelArea: {
         flex: 1,

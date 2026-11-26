@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import SheetModal from './SheetModal';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView } from 'react-native';
+import PressableScale from './PressableScale';
 import { useTheme } from '../theme/ThemeContext';
 import { Spacing, FontSize, BorderRadius } from '../theme/colors';
 import HexagramDetailView, { HexagramData } from './HexagramDetailView';
@@ -71,9 +72,9 @@ export default function GuaXiangBottomSheet({ visible, onClose, baseHexagramArra
                     <View style={styles.header}>
                         <View style={styles.iconBtnPlaceholder} />
                         <Text style={styles.title}>卦象演化与详释</Text>
-                        <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
+                        <PressableScale style={styles.closeBtn} onPress={onClose}>
                             <CloseIcon size={24} color={Colors.text.primary} />
-                        </TouchableOpacity>
+                        </PressableScale>
                     </View>
 
                     {/* Segmented Control */}
@@ -81,7 +82,7 @@ export default function GuaXiangBottomSheet({ visible, onClose, baseHexagramArra
                         {tabs.map((tab) => {
                             const isActive = activeTab === tab.key;
                             return (
-                                <TouchableOpacity
+                                <PressableScale
                                     key={tab.key}
                                     style={[styles.tabBtn, isActive && styles.tabBtnActive]}
                                     onPress={() => setActiveTab(tab.key)}
@@ -94,7 +95,7 @@ export default function GuaXiangBottomSheet({ visible, onClose, baseHexagramArra
                                             {hexagramsData[tab.key]?.name || '...'}
                                         </Text>
                                     </View>
-                                </TouchableOpacity>
+                                </PressableScale>
                             );
                         })}
                     </View>

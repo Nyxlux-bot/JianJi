@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import type { ResultPalette } from '../../theme/result-palette';
 import { EASE_OUT } from '../../theme/motion';
+import { webHorizontalFadeProps } from '../../theme/web-enhance';
 import { getGanZhiElement } from './wuxing';
 import type { DenseTrackCellView } from './types';
 
@@ -107,6 +108,7 @@ const DockTrack: React.FC<{ level: FortuneDockLevel; palette: ResultPalette; sty
 
     return (
         <ScrollView
+            {...webHorizontalFadeProps}
             ref={scrollRef}
             horizontal
             showsHorizontalScrollIndicator={false}

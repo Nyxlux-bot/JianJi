@@ -1,5 +1,7 @@
 import React, { createContext, memo, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
+import { webHorizontalFadeProps } from '../../theme/web-enhance';
+import PressableScale from '../PressableScale';
 import InkDots from './InkDots';
 import Markdown from 'react-native-markdown-display';
 import { parseChapter, type ChapterSegment, type EventSegment, type YearSegment } from '../../ai/layout/parse-chapter';
@@ -337,10 +339,10 @@ function EventCard({ event, first, last, styles, markdownStyles, Colors, yearMet
             {(foldable || onMark) && !event.open ? (
                 <View style={styles.eventActions}>
                     {foldable ? (
-                        <TouchableOpacity style={styles.eventToggle} onPress={() => setOpen(!open)}
+                        <PressableScale style={styles.eventToggle} onPress={() => setOpen(!open)}
                             accessibilityRole="button" accessibilityState={{ expanded: open }} accessibilityLabel={`${event.year} 年推演依据`}>
                             <Text style={styles.eventToggleText}>{open ? '收起 ⌃' : '依据 ⌄'}</Text>
-                        </TouchableOpacity>
+                        </PressableScale>
                     ) : <View />}
                     {onMark ? (
                         <View style={styles.marks} accessibilityRole="radiogroup" accessibilityLabel={`${event.year} 年是否准确`}>
@@ -348,11 +350,11 @@ function EventCard({ event, first, last, styles, markdownStyles, Colors, yearMet
                                 const on = mark === value;
                                 const color = value === 'yes' ? Colors.accent.jade : value === 'no' ? Colors.accent.red : Colors.text.primary;
                                 return (
-                                    <TouchableOpacity key={value} style={[styles.markBtn, on && { borderColor: color }]}
+                                    <PressableScale key={value} style={[styles.markBtn, on && { borderColor: color }]}
                                         accessibilityRole="radio" accessibilityState={{ checked: on }}
                                         onPress={() => onMark(on ? null : value)}>
                                         <Text style={[styles.markBtnText, on && { color, fontWeight: '600' }]}>{AI_VERIFICATION_MARK_LABELS[value]}</Text>
-                                    </TouchableOpacity>
+                                    </PressableScale>
                                 );
                             })}
                         </View>
@@ -427,17 +429,17 @@ function FiveYearView<M extends ChapterMessage>({ content, streaming, props }: {
             })}
             {years.length > 0 ? (
                 <>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.beads}
+                    <ScrollView horizontal {...webHorizontalFadeProps} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.beads}
                         accessibilityRole="tablist" accessibilityLabel="选择年份">
                         {years.map((item) => {
                             const on = item.year === selectedYear;
                             const meta = props.yearMeta?.(item.year);
                             return (
-                                <TouchableOpacity key={item.year} style={[styles.bead, on && styles.beadOn]} onPress={() => setPicked(item.year)}
+                                <PressableScale key={item.year} style={[styles.bead, on && styles.beadOn]} onPress={() => setPicked(item.year)}
                                     accessibilityRole="tab" accessibilityState={{ selected: on }}>
                                     <Text style={[styles.beadYear, on && styles.beadYearOn]}>{item.year}</Text>
                                     <Text style={styles.beadTag} numberOfLines={1}>{[meta?.ganZhi ?? item.ganZhi, shortTag(item.tag)].filter(Boolean).join(' · ')}</Text>
-                                </TouchableOpacity>
+                                </PressableScale>
                             );
                         })}
                     </ScrollView>
@@ -525,9 +527,9 @@ function Superseded<M extends ChapterMessage>({ item, props }: { item: ChapterIt
     const [open, setOpen] = useState(false);
     return (
         <View style={props.styles.supersededBox}>
-            <TouchableOpacity style={props.styles.foldBtn} onPress={() => setOpen(!open)} accessibilityRole="button" accessibilityState={{ expanded: open }}>
+            <PressableScale style={props.styles.foldBtn} onPress={() => setOpen(!open)} accessibilityRole="button" accessibilityState={{ expanded: open }}>
                 <Text style={props.styles.foldText}>{open ? '收起上一版核验 ⌃' : '上一版核验（已重新生成） ⌄'}</Text>
-            </TouchableOpacity>
+            </PressableScale>
             {open ? <Md markdownStyles={props.markdownStyles}>{props.getDisplayContent(item.message)}</Md> : null}
         </View>
     );
