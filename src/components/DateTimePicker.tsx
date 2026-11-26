@@ -1,8 +1,7 @@
 import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import SheetModal from './SheetModal';
 import {
-    FlatList,
-    ListRenderItemInfo,
+    ScrollView,
     StyleSheet,
     Text,
     TextInput,
@@ -10,24 +9,38 @@ import {
     TouchableWithoutFeedback,
     View,
 } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Circle, Path } from 'react-native-svg';
 import ScrollPicker from './ScrollPicker';
 import { Spacing, FontSize, BorderRadius } from '../theme/colors';
 import {
-    findDatesByBazi,
+    BaziReverseMatch,
+    findBaziMatches,
     formatLunarDateLabel,
+    getBaziPillars,
     getLunarLeapMonth,
     getLunarMonthDays,
     lunarToSolar,
-    solarToLunar,
+    solarToLunarDate,
+    ZiHourMode,
 } from '../core/lunar';
 import { CustomAlert } from './CustomAlertProvider';
 import { useTheme } from '../theme/ThemeContext';
+
+export interface DateTimePickerTimeCorrectionNotice {
+    /** 页面排盘时用的校时口径名称，例如「真太阳时」 */
+    modeLabel: string;
+    /** 是否提供「回填时改为本地钟表时」 */
+    canSwitchToClockTime: boolean;
+}
 
 interface DateTimePickerProps {
     visible: boolean;
     initialDate: Date;
     yearRange?: { min: number; max: number };
+    /** 四柱页的子时口径，默认与八字默认值一致（晚子时次日） */
+    ziHourMode?: ZiHourMode;
+    /** 回填后页面还会按经度校时时传入，四柱页会提醒反查结果已是排盘时间 */
+    timeCorrectionNotice?: DateTimePickerTimeCorrectionNotice;
     onClose: () => void;
     onConfirm: (date: Date) => void;
     onConfirmDetail?: (selection: DateTimePickerSelection) => void;
@@ -44,6 +57,8 @@ export interface DateTimePickerSelection {
         isLeapMonth: boolean;
         label: string;
     };
+    /** 四柱反查回填时，用户选择改用本地钟表时排盘 */
+    switchToClockTime?: boolean;
 }
 
 const TIAN_GAN = ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸'];
@@ -56,11 +71,11 @@ const DAY_CN = [
     '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十',
 ];
 
-const YEARS = Array.from({ length: 150 }, (_, i) => (1900 + i).toString());
+// 与农历数据和四柱反查的范围一致（1900–2100）
+const YEARS = Array.from({ length: 201 }, (_, i) => (1900 + i).toString());
 const SOLAR_MONTHS = Array.from({ length: 12 }, (_, i) => (i + 1).toString().padStart(2, '0'));
 const HOURS = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0'));
 const MINUTES = Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, '0'));
-const BAZI_RESULT_ROW_HEIGHT = 44;
 
 function getDaysInMonth(year: number, month: number): number {
     if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return 31;
@@ -98,14 +113,31 @@ const getParityBranches = (gan: string) => {
     return DI_ZHI.filter((_, i) => i % 2 === (isYang ? 0 : 1));
 };
 
-const getMonthPillarsForYear = (yGan: string) => {
+interface PillarOption {
+    pillar: string;
+    /** 子时在早子时当日口径下的说明，例如「晚子 23 点」 */
+    tag?: string;
+    isLateZi?: boolean;
+}
+
+const getMonthPillarsForYear = (yGan: string): PillarOption[] => {
     const startGanIdx = [2, 4, 6, 8, 0][TIAN_GAN.indexOf(yGan) % 5];
-    return Array.from({ length: 12 }, (_, i) => TIAN_GAN[(startGanIdx + i) % 10] + DI_ZHI[(i + 2) % 12]);
+    return Array.from({ length: 12 }, (_, i) => ({ pillar: TIAN_GAN[(startGanIdx + i) % 10] + DI_ZHI[(i + 2) % 12] }));
 };
 
-const getHourPillarsForDay = (dGan: string) => {
-    const startGanIdx = [0, 2, 4, 6, 8][TIAN_GAN.indexOf(dGan) % 5];
-    return Array.from({ length: 12 }, (_, i) => TIAN_GAN[(startGanIdx + i) % 10] + DI_ZHI[i % 12]);
+// 五鼠遁：甲己日起甲子，乙庚日起丙子，丙辛日起戊子，丁壬日起庚子，戊癸日起壬子
+const getZiGanIndex = (dayGanIdx: number) => (dayGanIdx % 5) * 2;
+
+const getHourPillarsForDay = (dGan: string, ziHourMode: ZiHourMode): PillarOption[] => {
+    const dayGanIdx = TIAN_GAN.indexOf(dGan);
+    const startGanIdx = getZiGanIndex(dayGanIdx);
+    const options: PillarOption[] = Array.from({ length: 12 }, (_, i) => ({ pillar: TIAN_GAN[(startGanIdx + i) % 10] + DI_ZHI[i] }));
+    if (ziHourMode === 'early_zi_same_day') {
+        // 早子时当日：23 点的晚子时日柱仍是本日，时干按次日五鼠遁
+        options[0] = { ...options[0], tag: '早子 0 点' };
+        options.push({ pillar: TIAN_GAN[getZiGanIndex(dayGanIdx + 1)] + '子', tag: '晚子 23 点', isLateZi: true });
+    }
+    return options;
 };
 
 type BaziStep = 'Y_GAN' | 'Y_ZHI' | 'M' | 'D_GAN' | 'D_ZHI' | 'H' | null;
@@ -122,57 +154,79 @@ interface BaziDraftState {
     hourZhi: string;
 }
 
-interface BaziResultRowItem {
-    index: number;
+interface BaziResultDisplay {
     key: string;
-    label: string;
+    datetime: string;
+    shichen: string;
+    /** 交节切开这个时辰时的说明，例如「立春 16:27 后」 */
+    termLabel: string;
+    detail: string;
 }
 
 interface BaziResultRowProps {
     index: number;
-    label: string;
+    item: BaziResultDisplay;
+    selected: boolean;
     onPress: (index: number) => void;
-    itemStyle: object;
-    textStyle: object;
+    styles: ReturnType<typeof makeStyles>;
 }
 
 const BaziResultRow = memo(function BaziResultRow({
     index,
-    label,
+    item,
+    selected,
     onPress,
-    itemStyle,
-    textStyle,
+    styles,
 }: BaziResultRowProps) {
     const handlePress = useCallback(() => {
         onPress(index);
     }, [index, onPress]);
 
     return (
-        <TouchableOpacity style={itemStyle} onPress={handlePress}>
-            <Text style={textStyle}>{label}</Text>
+        <TouchableOpacity
+            style={[styles.baziResultItem, selected && styles.baziResultItemSelected]}
+            onPress={handlePress}
+            accessibilityRole="radio"
+            accessibilityState={{ checked: selected }}
+        >
+            <View style={[styles.baziRadio, selected && styles.baziRadioSelected]}>
+                {selected ? <View style={styles.baziRadioDot} /> : null}
+            </View>
+            <View style={styles.baziResultBody}>
+                <View style={styles.baziResultHeadline}>
+                    <Text style={styles.baziResultText}>{item.datetime}</Text>
+                    <Text style={styles.baziResultTag}>{item.shichen}</Text>
+                    {item.termLabel ? <Text style={styles.baziResultTermTag}>{item.termLabel}</Text> : null}
+                </View>
+                <Text style={styles.baziResultDetail}>{item.detail}</Text>
+            </View>
         </TouchableOpacity>
     );
 });
 
-function createBaziDraftFromDate(date: Date): BaziDraftState {
-    const lunar = solarToLunar(date);
+function createBaziDraftFromDate(date: Date, ziHourMode: ZiHourMode): BaziDraftState {
+    const [yearGZ, monthGZ, dayGZ, hourGZ] = getBaziPillars(date, ziHourMode);
 
     return {
         step: null,
-        yearGan: lunar.yearGanZhi[0],
-        yearZhi: lunar.yearGanZhi[1],
-        monthGan: lunar.monthGanZhi[0],
-        monthZhi: lunar.monthGanZhi[1],
-        dayGan: lunar.dayGanZhi[0],
-        dayZhi: lunar.dayGanZhi[1],
-        hourGan: lunar.hourGanZhi[0],
-        hourZhi: lunar.hourGanZhi[1],
+        yearGan: yearGZ[0],
+        yearZhi: yearGZ[1],
+        monthGan: monthGZ[0],
+        monthZhi: monthGZ[1],
+        dayGan: dayGZ[0],
+        dayZhi: dayGZ[1],
+        hourGan: hourGZ[0],
+        hourZhi: hourGZ[1],
     };
 }
 
-function buildSelection(date: Date, sourceTab: DateTimePickerSelection['sourceTab']): DateTimePickerSelection {
+function buildSelection(
+    date: Date,
+    sourceTab: DateTimePickerSelection['sourceTab'],
+    switchToClockTime = false,
+): DateTimePickerSelection {
     if (sourceTab === 'lunar') {
-        const lunar = solarToLunar(date);
+        const lunar = solarToLunarDate(date);
         return {
             date,
             sourceTab,
@@ -196,58 +250,95 @@ function buildSelection(date: Date, sourceTab: DateTimePickerSelection['sourceTa
         date,
         sourceTab,
         calendarType: 'solar',
+        ...(switchToClockTime ? { switchToClockTime: true } : {}),
     };
 }
 
-function formatBaziResultLabel(date: Date): string {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:00`;
+const pad2 = (value: number) => String(value).padStart(2, '0');
+const formatHourMinute = (date: Date) => `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+
+function describeBaziMatch(match: BaziReverseMatch): BaziResultDisplay {
+    const { date } = match;
+    // 有效区间按整分显示：起点向上取整，终点取最后一个有效的整分
+    const from = new Date(match.validFrom.getTime());
+    if (from.getSeconds() || from.getMilliseconds()) {
+        from.setSeconds(0, 0);
+        from.setMinutes(from.getMinutes() + 1);
+    }
+    const to = new Date(match.validUntil.getTime() - 1000);
+    to.setSeconds(0, 0);
+    const fromIsPreviousDay = from.getDate() !== date.getDate() || from.getMonth() !== date.getMonth();
+    const term = match.solarTerm;
+
+    return {
+        key: String(date.getTime()),
+        datetime: `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${formatHourMinute(date)}`,
+        shichen: `${DI_ZHI[Math.floor((date.getHours() + 1) / 2) % 12]}时${match.isLateZi ? ' · 晚子' : ''}`,
+        termLabel: term ? `${term.name} ${formatHourMinute(term.time)} ${term.side === 'after' ? '后' : '前'}` : '',
+        detail: `农历 ${formatLunarDateLabel(solarToLunarDate(date))} · 有效 ${fromIsPreviousDay ? '前一日 ' : ''}${formatHourMinute(from)}–${formatHourMinute(to)}`,
+    };
 }
 
 export default function DateTimePicker({
     visible,
     initialDate,
     yearRange,
+    ziHourMode = 'late_zi_next_day',
+    timeCorrectionNotice,
     onClose,
     onConfirm,
     onConfirmDetail,
 }: DateTimePickerProps) {
-    const { Colors } = useTheme();
-    const styles = useMemo(() => makeStyles(Colors), [Colors]);
-    const searchStart = yearRange?.min ?? 1801;
+    const { Colors, theme } = useTheme();
+    const styles = useMemo(() => makeStyles(Colors, theme === 'yang'), [Colors, theme]);
+    // 农历数据只覆盖 1900–2100，反查默认也限定在这段
+    const searchStart = yearRange?.min ?? 1900;
     const searchEnd = yearRange?.max ?? 2099;
     const yearOptions = useMemo(() => yearRange ? Array.from({ length: yearRange.max - yearRange.min + 1 }, (_, i) => String(yearRange.min + i)) : YEARS, [yearRange]);
     const [activeTab, setActiveTab] = useState<'solar' | 'lunar' | 'bazi'>('solar');
     const [draftDate, setDraftDate] = useState(() => new Date(initialDate));
     const [fastInput, setFastInput] = useState('');
-    const [baziDraft, setBaziDraft] = useState<BaziDraftState>(() => createBaziDraftFromDate(initialDate));
-    const [baziResults, setBaziResults] = useState<Date[]>([]);
+    const [baziDraft, setBaziDraft] = useState<BaziDraftState>(() => createBaziDraftFromDate(initialDate, ziHourMode));
+    const [baziResults, setBaziResults] = useState<BaziReverseMatch[]>([]);
+    const [selectedBaziIndex, setSelectedBaziIndex] = useState<number | null>(null);
+    const [switchToClockTime, setSwitchToClockTime] = useState(true);
+
+    const clearBaziResults = useCallback(() => {
+        setBaziResults([]);
+        setSelectedBaziIndex(null);
+    }, []);
 
     useEffect(() => {
         if (visible) {
             const nextDate = new Date(initialDate);
             setDraftDate(nextDate);
             setFastInput('');
-            setBaziDraft(createBaziDraftFromDate(nextDate));
-            setBaziResults([]);
+            setBaziDraft(createBaziDraftFromDate(nextDate, ziHourMode));
+            clearBaziResults();
+            setSwitchToClockTime(true);
         }
-    }, [visible, initialDate]);
+    }, [visible, initialDate, ziHourMode, clearBaziResults]);
 
     const applyDraftDate = useCallback((date: Date) => {
         const nextDate = new Date(date.getTime());
         nextDate.setSeconds(0, 0);
         setDraftDate(nextDate);
-        setBaziResults([]);
-        setBaziDraft(createBaziDraftFromDate(nextDate));
-    }, []);
+        clearBaziResults();
+        setBaziDraft(createBaziDraftFromDate(nextDate, ziHourMode));
+    }, [clearBaziResults, ziHourMode]);
 
-    const handleConfirmSelection = useCallback((date: Date, sourceTab: DateTimePickerSelection['sourceTab']) => {
+    const handleConfirmSelection = useCallback((
+        date: Date,
+        sourceTab: DateTimePickerSelection['sourceTab'],
+        switchToClock = false,
+    ) => {
         const confirmedDate = new Date(date.getTime());
         if (yearRange && (confirmedDate.getFullYear() < yearRange.min || confirmedDate.getFullYear() > yearRange.max)) {
             CustomAlert.alert('时间超出范围', `请选择 ${yearRange.min}–${yearRange.max} 年内的公历时间。`);
             return;
         }
         onConfirm(confirmedDate);
-        onConfirmDetail?.(buildSelection(confirmedDate, sourceTab));
+        onConfirmDetail?.(buildSelection(confirmedDate, sourceTab, switchToClock));
     }, [onConfirm, onConfirmDetail, yearRange]);
 
     const solarYear = draftDate.getFullYear().toString();
@@ -263,7 +354,7 @@ export default function DateTimePicker({
         return Array.from({ length: maxDays }, (_, i) => (i + 1).toString().padStart(2, '0'));
     }, [draftDate]);
 
-    const lunarDate = useMemo(() => solarToLunar(draftDate), [draftDate]);
+    const lunarDate = useMemo(() => solarToLunarDate(draftDate), [draftDate]);
     const lunarYear = lunarDate.year.toString();
     const lunarMonth = MONTH_CN[lunarDate.month - 1];
     const lunarDay = DAY_CN[lunarDate.day - 1];
@@ -311,7 +402,7 @@ export default function DateTimePicker({
     }, [applyDraftDate, draftDate, lunarDate.day, lunarDate.isLeap, lunarDate.month, lunarDate.year]);
 
     const clearBazi = useCallback(() => {
-        setBaziResults([]);
+        clearBaziResults();
         setBaziDraft({
             step: 'Y_GAN',
             yearGan: '',
@@ -323,7 +414,7 @@ export default function DateTimePicker({
             hourGan: '',
             hourZhi: '',
         });
-    }, []);
+    }, [clearBaziResults]);
 
     const handleFastInput = useCallback((val: string) => {
         setFastInput(val);
@@ -356,15 +447,17 @@ export default function DateTimePicker({
             return;
         }
 
-        const nextResults = findDatesByBazi(
+        const now = Date.now();
+        // 离今天近的排在前面
+        const nextResults = findBaziMatches(
             baziDraft.yearGan + baziDraft.yearZhi,
             baziDraft.monthGan + baziDraft.monthZhi,
             baziDraft.dayGan + baziDraft.dayZhi,
             baziDraft.hourGan + baziDraft.hourZhi,
-            searchStart,
-            searchEnd,
-        );
+            { startYear: searchStart, endYear: searchEnd, ziHourMode },
+        ).sort((a, b) => Math.abs(a.date.getTime() - now) - Math.abs(b.date.getTime() - now));
         setBaziResults(nextResults);
+        setSelectedBaziIndex(nextResults.length === 1 ? 0 : null);
         setBaziDraft((prev) => ({
             ...prev,
             step: null,
@@ -372,7 +465,12 @@ export default function DateTimePicker({
         if (nextResults.length === 0) {
             CustomAlert.alert('未找到', `在 ${searchStart}–${searchEnd} 年间没有找到对应的四柱时刻。`);
         }
-    }, [baziDraft, searchStart, searchEnd]);
+    }, [baziDraft, searchStart, searchEnd, ziHourMode]);
+
+    const selectedBaziMatch = selectedBaziIndex === null ? undefined : baziResults[selectedBaziIndex];
+    // 有结果时必须先点选一条，不再默认取第一条
+    const confirmDisabled = activeTab === 'bazi' && baziResults.length > 0 && !selectedBaziMatch;
+    const canSwitchToClockTime = Boolean(timeCorrectionNotice?.canSwitchToClockTime);
 
     const handleConfirm = useCallback(() => {
         if (activeTab === 'solar') {
@@ -386,17 +484,29 @@ export default function DateTimePicker({
         }
 
         if (baziResults.length > 0) {
-            const firstResult = baziResults[0];
-            applyDraftDate(firstResult);
-            handleConfirmSelection(firstResult, 'bazi');
+            if (!selectedBaziMatch) {
+                return;
+            }
+            applyDraftDate(selectedBaziMatch.date);
+            handleConfirmSelection(selectedBaziMatch.date, 'bazi', canSwitchToClockTime && switchToClockTime);
             return;
         }
 
         runBaziSearch();
-    }, [activeTab, applyDraftDate, baziResults, draftDate, handleConfirmSelection, runBaziSearch]);
+    }, [
+        activeTab,
+        applyDraftDate,
+        baziResults.length,
+        canSwitchToClockTime,
+        draftDate,
+        handleConfirmSelection,
+        runBaziSearch,
+        selectedBaziMatch,
+        switchToClockTime,
+    ]);
 
     const setGanAndAutoJump = useCallback((step: 'Y_GAN' | 'D_GAN', gan: string) => {
-        setBaziResults([]);
+        clearBaziResults();
         if (step === 'Y_GAN') {
             setBaziDraft((prev) => ({
                 ...prev,
@@ -417,10 +527,10 @@ export default function DateTimePicker({
             hourGan: '',
             hourZhi: '',
         }));
-    }, []);
+    }, [clearBaziResults]);
 
     const handleSetZhi = useCallback((step: 'Y_ZHI' | 'D_ZHI', zhi: string) => {
-        setBaziResults([]);
+        clearBaziResults();
         if (step === 'Y_ZHI') {
             setBaziDraft((prev) => ({
                 ...prev,
@@ -435,10 +545,10 @@ export default function DateTimePicker({
             dayZhi: zhi,
             step: 'H',
         }));
-    }, []);
+    }, [clearBaziResults]);
 
     const handleSetPillar = useCallback((step: 'M' | 'H', pillar: string) => {
-        setBaziResults([]);
+        clearBaziResults();
         if (step === 'M') {
             setBaziDraft((prev) => ({
                 ...prev,
@@ -455,42 +565,14 @@ export default function DateTimePicker({
             hourZhi: pillar[1],
             step: null,
         }));
+    }, [clearBaziResults]);
+
+    // 点选只是选中，按「确定」才回填
+    const handleSelectBaziResult = useCallback((index: number) => {
+        setSelectedBaziIndex(index);
     }, []);
 
-    const handleSelectBaziResult = useCallback((index: number) => {
-        const nextDate = baziResults[index];
-        if (!nextDate) {
-            return;
-        }
-
-        applyDraftDate(nextDate);
-        handleConfirmSelection(nextDate, 'bazi');
-    }, [applyDraftDate, baziResults, handleConfirmSelection]);
-
-    const baziResultItems = useMemo<BaziResultRowItem[]>(() => (
-        baziResults.map((date, index) => ({
-            index,
-            key: `${date.getTime()}-${index}`,
-            label: formatBaziResultLabel(date),
-        }))
-    ), [baziResults]);
-
-    const renderBaziResultItem = useCallback(({ item }: ListRenderItemInfo<BaziResultRowItem>) => (
-        <BaziResultRow
-            index={item.index}
-            label={item.label}
-            onPress={handleSelectBaziResult}
-            itemStyle={styles.baziResultItem}
-            textStyle={styles.baziResultText}
-        />
-    ), [handleSelectBaziResult, styles.baziResultItem, styles.baziResultText]);
-
-    const keyExtractor = useCallback((item: BaziResultRowItem) => item.key, []);
-    const getBaziItemLayout = useCallback((_: ArrayLike<BaziResultRowItem> | null | undefined, index: number) => ({
-        length: BAZI_RESULT_ROW_HEIGHT,
-        offset: BAZI_RESULT_ROW_HEIGHT * index,
-        index,
-    }), []);
+    const baziResultItems = useMemo(() => baziResults.map(describeBaziMatch), [baziResults]);
 
     const renderHeaders = () => (
         <View style={styles.pickerHeader}>
@@ -582,8 +664,58 @@ export default function DateTimePicker({
             </TouchableOpacity>
         );
 
+        const isHourStep = baziDraft.step === 'H';
+        const showEarlyZiOptions = isHourStep && ziHourMode === 'early_zi_same_day';
+        let pillarOptions: PillarOption[] = [];
+        if (baziDraft.step === 'M') {
+            pillarOptions = getMonthPillarsForYear(baziDraft.yearGan);
+        } else if (isHourStep) {
+            pillarOptions = getHourPillarsForDay(baziDraft.dayGan, ziHourMode);
+        }
+        const modeLabel = timeCorrectionNotice?.modeLabel ?? '';
+
         return (
-            <View style={styles.bzContainer}>
+            <ScrollView
+                style={styles.bzScroll}
+                contentContainerStyle={styles.bzContainer}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+            >
+                {/* 回填后还会校时的页面：提醒反查结果已是排盘时间 */}
+                {timeCorrectionNotice ? (
+                    <View style={styles.baziNotice}>
+                        <View style={styles.baziNoticeRow}>
+                            <Svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={Colors.accent.gold} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={styles.baziNoticeIcon}>
+                                <Circle cx="12" cy="12" r="9" />
+                                <Path d="M12 8v5" />
+                                <Path d="M12 16.5v.5" />
+                            </Svg>
+                            <Text style={styles.baziNoticeText}>
+                                {canSwitchToClockTime
+                                    ? `反查得到的就是排盘时间。当前按「${modeLabel}」排盘，回填后还会按出生地经度再校一次，时柱可能跟着变。`
+                                    : `反查得到的就是排盘时间。这里固定按「${modeLabel}」排盘，出盘时还会按出生地经度再校一次，时辰可能跟着变。`}
+                            </Text>
+                        </View>
+                        {canSwitchToClockTime ? (
+                            <TouchableOpacity
+                                style={styles.baziNoticeCheckRow}
+                                onPress={() => setSwitchToClockTime((prev) => !prev)}
+                                accessibilityRole="checkbox"
+                                accessibilityState={{ checked: switchToClockTime }}
+                            >
+                                <View style={[styles.baziCheckbox, switchToClockTime && styles.baziCheckboxChecked]}>
+                                    {switchToClockTime ? (
+                                        <Svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke={Colors.text.inverse} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                            <Path d="M5 12l5 5L19 7" />
+                                        </Svg>
+                                    ) : null}
+                                </View>
+                                <Text style={styles.baziNoticeCheckText}>回填时改为「本地钟表时」</Text>
+                            </TouchableOpacity>
+                        ) : null}
+                    </View>
+                ) : null}
+
                 {/* 4柱指示器 */}
                 <View style={styles.bzIndicators}>
                     <View style={styles.bzCol}>
@@ -626,55 +758,82 @@ export default function DateTimePicker({
                 </View>
 
                 {/* 候选底盘渲染 */}
-                <View style={styles.bzGridContainer}>
-                    {baziDraft.step === 'Y_GAN' || baziDraft.step === 'D_GAN' ? (
-                        <View style={styles.bzGridRow}>
-                            {TIAN_GAN.map((gan) => (
-                                <TouchableOpacity key={gan} style={[styles.bzDataBtn, { width: '18%' }]} onPress={() => setGanAndAutoJump(baziDraft.step as 'Y_GAN' | 'D_GAN', gan)}>
-                                    <Text style={{ color: getColor(gan, Colors), fontSize: FontSize.xl, fontWeight: 'bold' }}>{gan}</Text>
-                                </TouchableOpacity>
-                            ))}
-                        </View>
-                    ) : null}
-
-                    {baziDraft.step === 'Y_ZHI' || baziDraft.step === 'D_ZHI' ? (
-                        <View style={styles.bzGridRow}>
-                            {getParityBranches(baziDraft.step === 'Y_ZHI' ? baziDraft.yearGan : baziDraft.dayGan).map((zhi) => (
-                                <TouchableOpacity key={zhi} style={[styles.bzDataBtn, { width: '30%' }]} onPress={() => handleSetZhi(baziDraft.step as 'Y_ZHI' | 'D_ZHI', zhi)}>
-                                    <Text style={{ color: getColor(zhi, Colors), fontSize: FontSize.xl, fontWeight: 'bold' }}>{zhi}</Text>
-                                </TouchableOpacity>
-                            ))}
-                        </View>
-                    ) : null}
-
-                    {baziDraft.step === 'M' || baziDraft.step === 'H' ? (
-                        <View style={styles.bzGridRow}>
-                            {(baziDraft.step === 'M' ? getMonthPillarsForYear(baziDraft.yearGan) : getHourPillarsForDay(baziDraft.dayGan)).map((pillar) => (
-                                <TouchableOpacity key={pillar} style={[styles.bzDataBtn, { width: '23%', flexDirection: 'row', gap: 4 }]} onPress={() => handleSetPillar(baziDraft.step as 'M' | 'H', pillar)}>
-                                    <Text style={{ color: getColor(pillar[0], Colors), fontSize: FontSize.lg, fontWeight: 'bold' }}>{pillar[0]}</Text>
-                                    <Text style={{ color: getColor(pillar[1], Colors), fontSize: FontSize.lg, fontWeight: 'bold' }}>{pillar[1]}</Text>
-                                </TouchableOpacity>
-                            ))}
-                        </View>
-                    ) : null}
-                </View>
-
-                {/* 结果显示 */}
-                {baziResults.length > 0 && (
-                    <View style={styles.baziResults}>
-                        <Text style={styles.baziResultTitle}>满足该干支流转的时刻 (点击即可选中):</Text>
-                        <FlatList
-                            data={baziResultItems}
-                            renderItem={renderBaziResultItem}
-                            keyExtractor={keyExtractor}
-                            getItemLayout={getBaziItemLayout}
-                            initialNumToRender={8}
-                            showsVerticalScrollIndicator={false}
-                            style={styles.baziResultsList}
-                        />
+                {baziDraft.step ? (
+                    <View style={styles.bzGridContainer}>
+                        {baziDraft.step === 'Y_GAN' || baziDraft.step === 'D_GAN' ? (
+                            <View style={styles.bzGridRow}>
+                                {TIAN_GAN.map((gan) => (
+                                    <TouchableOpacity key={gan} style={[styles.bzDataBtn, { width: '18%' }]} onPress={() => setGanAndAutoJump(baziDraft.step as 'Y_GAN' | 'D_GAN', gan)}>
+                                        <Text style={{ color: getColor(gan, Colors), fontSize: FontSize.xl, fontWeight: 'bold' }}>{gan}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        ) : null}
+    
+                        {baziDraft.step === 'Y_ZHI' || baziDraft.step === 'D_ZHI' ? (
+                            <View style={styles.bzGridRow}>
+                                {getParityBranches(baziDraft.step === 'Y_ZHI' ? baziDraft.yearGan : baziDraft.dayGan).map((zhi) => (
+                                    <TouchableOpacity key={zhi} style={[styles.bzDataBtn, { width: '30%' }]} onPress={() => handleSetZhi(baziDraft.step as 'Y_ZHI' | 'D_ZHI', zhi)}>
+                                        <Text style={{ color: getColor(zhi, Colors), fontSize: FontSize.xl, fontWeight: 'bold' }}>{zhi}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        ) : null}
+    
+                        {pillarOptions.length > 0 ? (
+                            <View style={styles.bzGridSection}>
+                                {showEarlyZiOptions ? (
+                                    <Text style={styles.bzGridHint}>早子时当日：0 点的子时按本日起时干，23 点的晚子时按次日起时干，日柱仍是本日。</Text>
+                                ) : null}
+                                <View style={styles.bzGridRow}>
+                                    {pillarOptions.map((option, index) => (
+                                        <TouchableOpacity
+                                            key={`${option.pillar}-${index}`}
+                                            style={[
+                                                styles.bzDataBtn,
+                                                styles.bzPillarBtn,
+                                                showEarlyZiOptions && styles.bzPillarBtnTall,
+                                                option.isLateZi && styles.bzLateZiBtn,
+                                            ]}
+                                            onPress={() => handleSetPillar(baziDraft.step as 'M' | 'H', option.pillar)}
+                                        >
+                                            <View style={styles.bzPillarChars}>
+                                                <Text style={{ color: getColor(option.pillar[0], Colors), fontSize: FontSize.lg, fontWeight: 'bold' }}>{option.pillar[0]}</Text>
+                                                <Text style={{ color: getColor(option.pillar[1], Colors), fontSize: FontSize.lg, fontWeight: 'bold' }}>{option.pillar[1]}</Text>
+                                            </View>
+                                            {option.tag ? (
+                                                <Text style={[styles.bzPillarTag, option.isLateZi && styles.bzPillarTagLate]}>{option.tag}</Text>
+                                            ) : null}
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                            </View>
+                        ) : null}
                     </View>
-                )}
-            </View>
+                ) : null}
+
+                {/* 结果：点选一条再按「确定」回填 */}
+                {baziResults.length > 0 ? (
+                    <View style={styles.baziResults}>
+                        <View style={styles.baziResultHeader}>
+                            <Text style={styles.baziResultTitle}>找到 {baziResults.length} 个时刻</Text>
+                            <Text style={styles.baziResultHint}>
+                                {baziResults.length === 1 ? '只有一条，已选中' : '离今天近的在前 · 点选后按「确定」'}
+                            </Text>
+                        </View>
+                        {baziResultItems.map((item, index) => (
+                            <BaziResultRow
+                                key={item.key}
+                                index={index}
+                                item={item}
+                                selected={index === selectedBaziIndex}
+                                onPress={handleSelectBaziResult}
+                                styles={styles}
+                            />
+                        ))}
+                    </View>
+                ) : null}
+            </ScrollView>
         );
     };
 
@@ -695,8 +854,13 @@ export default function DateTimePicker({
                                 <Text style={[styles.tabText, activeTab === 'bazi' && styles.tabTextActive]}>四柱</Text>
                             </TouchableOpacity>
                         </View>
-                        <TouchableOpacity style={styles.btnConfirm} onPress={handleConfirm}>
-                            <Text style={styles.btnConfirmText}>确定</Text>
+                        <TouchableOpacity
+                            style={[styles.btnConfirm, confirmDisabled && styles.btnConfirmDisabled]}
+                            onPress={handleConfirm}
+                            disabled={confirmDisabled}
+                            accessibilityState={{ disabled: confirmDisabled }}
+                        >
+                            <Text style={[styles.btnConfirmText, confirmDisabled && styles.btnConfirmTextDisabled]}>确定</Text>
                         </TouchableOpacity>
                     </View>
 
@@ -718,12 +882,17 @@ export default function DateTimePicker({
     );
 }
 
-const makeStyles = (Colors: any) => StyleSheet.create({
+// 浅色主题下金色小字在浅底上对比度不足 4.5:1，改用深金色
+const goldTextColor = (Colors: any, isLightTheme: boolean) => (isLightTheme ? Colors.accent.goldDark : Colors.accent.gold);
+
+const makeStyles = (Colors: any, isLightTheme = false) => StyleSheet.create({
     overlay: { flex: 1, justifyContent: 'flex-end' },
     closeArea: { flex: 1 },
     content: {
         backgroundColor: Colors.bg.primary, borderTopLeftRadius: BorderRadius.xl,
-        borderTopRightRadius: BorderRadius.xl, paddingBottom: Spacing.xxl
+        borderTopRightRadius: BorderRadius.xl, paddingBottom: Spacing.xxl,
+        // 四柱页内容多时在面板内滚动，确定按钮始终留在屏内
+        maxHeight: '94%',
     },
     header: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -736,6 +905,8 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     tabTextActive: { color: Colors.text.primary, fontWeight: '500' },
     btnConfirm: { backgroundColor: Colors.accent.gold, paddingHorizontal: Spacing.xl, paddingVertical: 8, borderRadius: BorderRadius.round },
     btnConfirmText: { fontSize: FontSize.md, color: Colors.text.inverse, fontWeight: '500', letterSpacing: 1 },
+    btnConfirmDisabled: { backgroundColor: Colors.bg.elevated },
+    btnConfirmTextDisabled: { color: Colors.text.tertiary },
     fastInputContainer: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md, gap: Spacing.sm },
     fastInput: { flex: 1, backgroundColor: Colors.bg.elevated, borderRadius: BorderRadius.round, paddingHorizontal: Spacing.lg, paddingVertical: 10, fontSize: FontSize.sm, color: Colors.text.primary },
     fastInputBtn: { paddingHorizontal: Spacing.md, paddingVertical: 10, backgroundColor: Colors.bg.card, borderWidth: 1, borderColor: Colors.border.subtle, borderRadius: BorderRadius.round },
@@ -782,7 +953,22 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     },
 
     // ======== Bazi Styles ========
+    bzScroll: { flexShrink: 1 },
     bzContainer: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg },
+    baziNotice: {
+        marginTop: Spacing.md, padding: Spacing.md, gap: Spacing.sm,
+        borderRadius: BorderRadius.md, backgroundColor: Colors.bg.card, borderWidth: 1, borderColor: Colors.border.subtle,
+    },
+    baziNoticeRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm },
+    baziNoticeIcon: { marginTop: 2 },
+    baziNoticeText: { flex: 1, fontSize: FontSize.sm, lineHeight: 20, color: Colors.text.primary },
+    baziNoticeCheckRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, minHeight: 36, paddingLeft: 24 },
+    baziCheckbox: {
+        width: 18, height: 18, borderRadius: 4, borderWidth: 1.5, borderColor: Colors.border.normal,
+        alignItems: 'center', justifyContent: 'center',
+    },
+    baziCheckboxChecked: { backgroundColor: Colors.accent.gold, borderColor: Colors.accent.gold },
+    baziNoticeCheckText: { fontSize: FontSize.sm, color: Colors.text.secondary },
     bzIndicators: { flexDirection: 'row', justifyContent: 'space-around', marginVertical: Spacing.lg },
     bzCol: { alignItems: 'center', gap: Spacing.md },
     bzColTitle: { fontSize: FontSize.md, color: Colors.text.secondary, fontWeight: 'bold' },
@@ -797,10 +983,40 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     baziSearchBtnText: { color: Colors.text.inverse, fontSize: FontSize.sm, fontWeight: 'bold' },
     bzGridContainer: { minHeight: 180, marginTop: Spacing.md },
     bzGridRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8 },
-    bzDataBtn: { height: 50, backgroundColor: Colors.bg.elevated, borderRadius: BorderRadius.md, justifyContent: 'center', alignItems: 'center', borderWidth: 0.5, borderColor: Colors.border.subtle },
-    baziResults: { height: 160, backgroundColor: Colors.bg.elevated, borderRadius: BorderRadius.md, padding: Spacing.md, marginTop: Spacing.md },
-    baziResultsList: { flex: 1 },
-    baziResultTitle: { color: Colors.text.secondary, fontSize: FontSize.sm, marginBottom: Spacing.sm },
-    baziResultItem: { minHeight: BAZI_RESULT_ROW_HEIGHT, justifyContent: 'center', borderBottomWidth: 0.5, borderBottomColor: Colors.border.subtle },
-    baziResultText: { color: Colors.accent.gold, fontSize: FontSize.md, textAlign: 'center', fontWeight: 'bold' }
+    bzDataBtn: { minHeight: 50, backgroundColor: Colors.bg.elevated, borderRadius: BorderRadius.md, justifyContent: 'center', alignItems: 'center', borderWidth: 0.5, borderColor: Colors.border.subtle },
+    bzGridSection: { gap: Spacing.sm },
+    bzGridHint: { fontSize: 12, lineHeight: 18, color: Colors.text.secondary },
+    bzPillarBtn: { width: '23%', gap: 2 },
+    bzPillarBtnTall: { minHeight: 56 },
+    bzPillarChars: { flexDirection: 'row', gap: 4 },
+    bzPillarTag: { fontSize: FontSize.xs, color: Colors.text.secondary },
+    bzPillarTagLate: { color: goldTextColor(Colors, isLightTheme) },
+    bzLateZiBtn: { borderWidth: 1, borderStyle: 'dashed', borderColor: Colors.accent.gold },
+    baziResults: { marginTop: Spacing.md, padding: Spacing.md, gap: Spacing.sm, borderRadius: BorderRadius.md, backgroundColor: Colors.bg.elevated },
+    baziResultHeader: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'space-between', gap: Spacing.sm },
+    baziResultTitle: { color: Colors.text.primary, fontSize: 14, fontWeight: '600' },
+    baziResultHint: { color: Colors.text.secondary, fontSize: 12 },
+    baziResultItem: {
+        flexDirection: 'row', alignItems: 'center', gap: Spacing.md, paddingVertical: 10, paddingHorizontal: Spacing.md,
+        borderRadius: BorderRadius.md, borderWidth: 1, borderColor: 'transparent',
+    },
+    baziResultItemSelected: { borderColor: Colors.accent.gold, backgroundColor: Colors.bg.card },
+    baziRadio: {
+        width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: Colors.border.normal,
+        alignItems: 'center', justifyContent: 'center',
+    },
+    baziRadioSelected: { borderColor: Colors.accent.gold },
+    baziRadioDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.accent.gold },
+    baziResultBody: { flex: 1, minWidth: 0, gap: 4 },
+    baziResultHeadline: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
+    baziResultText: { color: goldTextColor(Colors, isLightTheme), fontSize: 16, fontWeight: 'bold', fontVariant: ['tabular-nums'] },
+    baziResultTag: {
+        fontSize: 12, color: Colors.text.secondary, backgroundColor: Colors.bg.card,
+        paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4, overflow: 'hidden',
+    },
+    baziResultTermTag: {
+        fontSize: 12, color: goldTextColor(Colors, isLightTheme), backgroundColor: `${Colors.accent.gold}24`,
+        paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4, overflow: 'hidden',
+    },
+    baziResultDetail: { fontSize: 12, color: Colors.text.secondary, fontVariant: ['tabular-nums'] },
 });

@@ -16,7 +16,10 @@ import { buildRegionDisplayName, RegionSelection } from '../../src/core/city-dat
 import { CustomAlert } from '../../src/components/CustomAlertProvider';
 import LocationBar from '../../src/components/LocationBar';
 import CityPicker from '../../src/components/CityPicker';
-import DateTimePicker, { DateTimePickerSelection } from '../../src/components/DateTimePicker';
+import DateTimePicker, {
+    DateTimePickerSelection,
+    DateTimePickerTimeCorrectionNotice,
+} from '../../src/components/DateTimePicker';
 import { formatLocalDateTime } from '../../src/core/bazi-local-time';
 import { formatLunarDateLabel } from '../../src/core/lunar';
 import { getRecord, saveRecord } from '../../src/db/database';
@@ -40,6 +43,16 @@ import {
     ZiweiInputPayload,
     ZiweiLunarDateInput,
 } from '../../src/features/ziwei/types';
+
+// 紫微固定按真太阳时出盘，四柱反查得到的排盘时间进盘时还会再校一次（开了历史夏令时还会先回退 60 分钟）
+const ZIWEI_TIME_CORRECTION_NOTICE: DateTimePickerTimeCorrectionNotice = {
+    modeLabel: '真太阳时',
+    canSwitchToClockTime: false,
+};
+const ZIWEI_DST_TIME_CORRECTION_NOTICE: DateTimePickerTimeCorrectionNotice = {
+    modeLabel: '真太阳时（含夏令时回退）',
+    canSwitchToClockTime: false,
+};
 
 function formatDateTime(date: Date): string {
     return formatLocalDateTime(date).replace('T', ' ');
@@ -395,6 +408,7 @@ export default function ZiweiInputPage() {
             <DateTimePicker
                 visible={birthPickerVisible}
                 initialDate={birthDate}
+                timeCorrectionNotice={daylightSavingEnabled ? ZIWEI_DST_TIME_CORRECTION_NOTICE : ZIWEI_TIME_CORRECTION_NOTICE}
                 onClose={() => setBirthPickerVisible(false)}
                 onConfirm={handleBirthConfirm}
                 onConfirmDetail={handleBirthConfirmDetail}

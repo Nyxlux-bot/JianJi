@@ -7,7 +7,7 @@ import type { IFunctionalPalace } from 'iztro/lib/astro/FunctionalPalace';
 import type { IFunctionalSurpalaces } from 'iztro/lib/astro/FunctionalSurpalaces';
 import type { IFunctionalStar } from 'iztro/lib/star/FunctionalStar';
 import { formatLocalDateTime } from '../../core/bazi-local-time';
-import { getSolarTermDate, solarToLunar } from '../../core/lunar';
+import { getSolarTermDate, solarToLunarDate } from '../../core/lunar';
 import { measureZiweiPerf } from './perf';
 import {
     ZiweiActiveScope,
@@ -1541,7 +1541,7 @@ function buildYearlyAnchorDate(year: number, horoscopeDivide: ZiweiYearDivide): 
             if (candidate.getMonth() !== month) {
                 break;
             }
-            const lunar = solarToLunar(candidate);
+            const lunar = solarToLunarDate(candidate);
             if (lunar.month === 1 && lunar.day === 1 && !lunar.isLeap) {
                 return candidate;
             }
