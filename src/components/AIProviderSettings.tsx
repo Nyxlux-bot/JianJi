@@ -82,7 +82,7 @@ function Field({ label, value, onChangeText, placeholder, secureTextEntry = fals
     const [focused, setFocused] = useState(false);
     return <View style={styles.field}>
         <Text style={[styles.label, { color: Colors.text.secondary }]}>{label}</Text>
-        <View style={[styles.inputRow, { borderColor: focused ? Colors.accent.gold : Colors.border.subtle, backgroundColor: Colors.bg.input }]}>
+        <View style={[styles.inputRow, { borderColor: focused ? Colors.accent.gold : Colors.border.input, backgroundColor: Colors.bg.input }]}>
             <TextInput accessibilityLabel={label} value={value} placeholder={placeholder} placeholderTextColor={Colors.text.tertiary}
                 style={[styles.input, { color: Colors.text.primary }]} autoCapitalize="none" autoCorrect={false} autoFocus={autoFocus}
                 secureTextEntry={secureTextEntry} onChangeText={onChangeText} returnKeyType="done"

@@ -12,9 +12,9 @@ import {
     ScrollView,
     StyleSheet,
     Text,
-    TextInput,
     View,
 } from 'react-native';
+import FocusTextInput from '../../src/components/FocusTextInput';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
@@ -711,7 +711,7 @@ export default function SettingsPage() {
                 {activeSheet === 'calendar' && (
                     <View style={styles.sheetBlock}>
                         <FieldLabel label="腾讯位置服务 Key" />
-                        <TextInput
+                        <FocusTextInput
                             style={styles.input}
                             value={settings.geocoderApiKey}
                             onChangeText={(value) => updateSettings((prev) => ({ ...prev, geocoderApiKey: value }))}
@@ -800,7 +800,8 @@ function SettingsSheet({
 }
 
 function FieldLabel({ label }: { label: string }) {
-    return <Text style={fieldLabelStyles.label}>{label}</Text>;
+    const { Colors } = useTheme();
+    return <Text style={[fieldLabelStyles.label, { color: Colors.accent.gold }]}>{label}</Text>;
 }
 
 function ActionButton({
@@ -876,7 +877,6 @@ const fieldLabelStyles = StyleSheet.create({
     label: {
         fontSize: FontSize.sm,
         fontWeight: '700',
-        color: '#8f7732',
         marginTop: Spacing.xs,
     },
 });

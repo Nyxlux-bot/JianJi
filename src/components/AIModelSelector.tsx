@@ -87,7 +87,7 @@ export default function AIModelPicker({ visible, maxHeight }: { visible: boolean
     const accent = Colors.accent.gold;
     return <View>
         {total > SEARCH_THRESHOLD || query ? (
-            <View style={[styles.search, { backgroundColor: Colors.bg.input, borderColor: focused ? accent : Colors.border.subtle }]}>
+            <View style={[styles.search, { backgroundColor: Colors.bg.input, borderColor: focused ? accent : Colors.border.input }]}>
                 <TextInput accessibilityLabel="搜索模型" value={query} onChangeText={setQuery} placeholder={`搜索 ${total} 个模型`}
                     placeholderTextColor={Colors.text.tertiary} autoCapitalize="none" autoCorrect={false} returnKeyType="search"
                     onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}

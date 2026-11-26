@@ -3,10 +3,10 @@ import {
     ScrollView,
     StyleSheet,
     Text,
-    TextInput,
     TouchableOpacity,
     View,
 } from 'react-native';
+import FocusTextInput from '../../src/components/FocusTextInput';
 import { router, useLocalSearchParams } from 'expo-router';
 import { BackIcon, ChevronRightIcon } from '../../src/components/Icons';
 import StatusBarDecor from '../../src/components/StatusBarDecor';
@@ -311,7 +311,7 @@ export default function ZiweiInputPage() {
 
                 <View style={styles.section}>
                     <Text style={styles.sectionLabel}>姓名（可选）</Text>
-                    <TextInput
+                    <FocusTextInput
                         style={styles.textInput}
                         value={name}
                         onChangeText={setName}
@@ -479,7 +479,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         minHeight: 48,
         borderRadius: BorderRadius.md,
         borderWidth: 1,
-        borderColor: Colors.border.subtle,
+        borderColor: Colors.border.input,
         backgroundColor: Colors.bg.card,
         paddingHorizontal: Spacing.md,
         alignItems: 'center',
@@ -489,6 +489,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     selectorText: {
         fontSize: FontSize.md,
         color: Colors.text.primary,
+        fontVariant: ['tabular-nums'],
     },
     optionRow: {
         flexDirection: 'row',

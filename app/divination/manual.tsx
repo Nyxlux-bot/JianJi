@@ -6,8 +6,8 @@
 import React, { useState } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity,
-    ScrollView, TextInput,
-} from 'react-native';
+    ScrollView, } from 'react-native';
+import FocusTextInput from '../../src/components/FocusTextInput';
 import StatusBarDecor from '../../src/components/StatusBarDecor';
 import { router } from 'expo-router';
 import { CustomAlert } from '../../src/components/CustomAlertProvider';
@@ -105,7 +105,7 @@ export default function ManualDivination() {
 
                 {/* 占问事项 */}
                 <View style={styles.questionSection}>
-                    <TextInput
+                    <FocusTextInput
                         style={styles.questionInput}
                         value={question}
                         onChangeText={setQuestion}
@@ -219,7 +219,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     questionInput: {
         backgroundColor: Colors.bg.card, color: Colors.text.primary,
         fontSize: FontSize.md, padding: Spacing.lg,
-        borderRadius: BorderRadius.md, borderWidth: 0.5, borderColor: Colors.border.subtle,
+        borderRadius: BorderRadius.md, borderWidth: 1, borderColor: Colors.border.input,
     },
     yaoSection: { gap: Spacing.sm, marginBottom: Spacing.xxl },
     yaoRow: {

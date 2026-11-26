@@ -48,7 +48,8 @@ const THEME = {
     },
     yang: {
         idle: '#7d6f5a',
-        on: '#9b7017',
+        // 与浅色主题的 accent.gold 一致
+        on: '#8a6312',
         tint: liquidGlassSupported ? 'rgba(255, 255, 255, 0.22)' : 'rgba(246, 240, 228, 0.9)',
         rim: 'inset 1.5px 1.5px 1px -1px rgba(255, 255, 255, 1), inset -1px -1px 1px -0.5px rgba(255, 255, 255, 0.7), inset 0 0 0 0.5px rgba(255, 255, 255, 0.6), inset 0 -6px 14px rgba(120, 90, 50, 0.1)',
         shadow: '0 10px 26px rgba(80, 60, 30, 0.18), 0 1px 3px rgba(80, 60, 30, 0.14)',

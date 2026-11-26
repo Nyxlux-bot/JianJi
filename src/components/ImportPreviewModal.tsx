@@ -7,6 +7,7 @@ import {
     TouchableOpacity,
     FlatList,
 } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
 import { BorderRadius, FontSize, Spacing } from '../theme/colors';
 import { useTheme } from '../theme/ThemeContext';
 import { DivinationRecordEnvelope, ImportConflictPolicy } from '../db/database';
@@ -80,9 +81,20 @@ export default function ImportPreviewModal({
         const summary = buildSummaryFields(item);
         const engineLabel = DIVINATION_ENGINE_LABEL[item.engineType];
         return (
-            <TouchableOpacity style={styles.recordRow} onPress={() => toggleRecord(item.result.id)}>
-                <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
-                    <Text style={[styles.checkboxText, checked && styles.checkboxTextChecked]}>{checked ? '[x]' : '[ ]'}</Text>
+            <TouchableOpacity
+                style={styles.recordRow}
+                onPress={() => toggleRecord(item.result.id)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked }}
+            >
+                <View style={styles.checkbox}>
+                    <View style={[styles.checkboxBox, checked && styles.checkboxBoxChecked]}>
+                        {checked ? (
+                            <Svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke={Colors.text.inverse} strokeWidth={3.2} strokeLinecap="round" strokeLinejoin="round">
+                                <Path d="M5 12.5l4.5 4.5L19 7.5" />
+                            </Svg>
+                        ) : null}
+                    </View>
                 </View>
                 <View style={styles.recordInfo}>
                     <Text style={styles.recordTitle} numberOfLines={1}>{summary.title}</Text>
@@ -184,6 +196,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         fontSize: FontSize.sm,
         color: Colors.text.secondary,
         marginBottom: 4,
+        fontVariant: ['tabular-nums'],
     },
     summaryHint: {
         fontSize: FontSize.xs,
@@ -251,15 +264,18 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         alignItems: 'center',
         borderRadius: BorderRadius.sm,
     },
-    checkboxChecked: {
-        backgroundColor: Colors.bg.elevated,
+    checkboxBox: {
+        width: 20,
+        height: 20,
+        borderRadius: 6,
+        borderWidth: 1.5,
+        borderColor: Colors.border.input,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
-    checkboxText: {
-        color: Colors.text.tertiary,
-        fontSize: FontSize.sm,
-    },
-    checkboxTextChecked: {
-        color: Colors.accent.gold,
+    checkboxBoxChecked: {
+        backgroundColor: Colors.accent.gold,
+        borderColor: Colors.accent.gold,
     },
     recordInfo: {
         flex: 1,
@@ -272,6 +288,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         fontSize: FontSize.xs,
         color: Colors.text.tertiary,
         marginTop: 2,
+        fontVariant: ['tabular-nums'],
     },
     recordQuestion: {
         fontSize: FontSize.xs,
@@ -282,6 +299,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         fontSize: FontSize.xs,
         color: Colors.text.tertiary,
         marginTop: Spacing.xs,
+        fontVariant: ['tabular-nums'],
     },
     footer: {
         flexDirection: 'row',

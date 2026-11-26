@@ -15,7 +15,7 @@ const baseColors = {
   text: {
     primary: '#E0E0E0',      // 主文字（浅灰色）
     secondary: '#A0A0A0',    // 次要文字（中灰）
-    tertiary: '#707070',     // 更弱文字（深灰）
+    tertiary: '#949494',     // 更弱文字（深灰；在主背景、卡片、浮层上对比度均 ≥ 4.5:1）
     inverse: '#121212',      // 反色文字
     heading: '#FFFFFF',      // 标题（纯白）
   },
@@ -54,6 +54,7 @@ const baseColors = {
     subtle: '#2E2E2E',       // 微弱边框
     normal: '#424242',       // 普通边框
     accent: '#CFB53B',       // 强调边框
+    input: '#707070',        // 输入框边框（与背景对比 ≥ 3:1，看得出可输入）
   },
 };
 

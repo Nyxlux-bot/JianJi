@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import FocusTextInput from '../../src/components/FocusTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, Polyline, Text as SvgText } from 'react-native-svg';
 import { SolarDay } from 'tyme4ts';
@@ -193,7 +194,7 @@ function QimenCastForm({ source }: { source?: QimenResult }) {
                                 <Text style={styles.link}>随机取数</Text>
                             </Pressable>
                         </View>
-                        <TextInput
+                        <FocusTextInput
                             value={numberInput}
                             onChangeText={value => setNumberInput(value.replace(/[^\d]/g, '').slice(0, 4))}
                             keyboardType="number-pad"
@@ -223,14 +224,14 @@ function QimenCastForm({ source }: { source?: QimenResult }) {
                     <Pressable onPress={place.openPicker} style={styles.placeRow} accessibilityRole="button"><LocationIcon size={16} color={palette.gold} /><Text style={[styles.muted, styles.grow]}>{location || '选择地点（选填）'}</Text><ChevronRightIcon size={16} color={palette.muted} /></Pressable>
                 </View>
                 <Text style={styles.label}>占问事项（选填）</Text>
-                <TextInput value={question} onChangeText={setQuestion} maxLength={300} multiline placeholder="一局问一事，把具体问题写在这里" placeholderTextColor={palette.muted} style={[styles.field, styles.multiline]} accessibilityLabel="占问事项" />
+                <FocusTextInput value={question} onChangeText={setQuestion} maxLength={300} multiline placeholder="一局问一事，把具体问题写在这里" placeholderTextColor={palette.muted} style={[styles.field, styles.multiline]} accessibilityLabel="占问事项" />
                 <Text style={styles.label}>关注期限（选填）</Text>
-                <TextInput value={timeRange} onChangeText={setTimeRange} maxLength={80} placeholder="关注的时间范围，如未来一个月" placeholderTextColor={palette.muted} style={[styles.field, styles.range]} accessibilityLabel="关注时间范围" />
+                <FocusTextInput value={timeRange} onChangeText={setTimeRange} maxLength={80} placeholder="关注的时间范围，如未来一个月" placeholderTextColor={palette.muted} style={[styles.field, styles.range]} accessibilityLabel="关注时间范围" />
                 <Pressable onPress={() => setBackgroundOpen(!backgroundOpen)} style={styles.disclosure} accessibilityRole="button" accessibilityState={{ expanded: backgroundOpen }}>
                     <Text style={styles.label}>补充占问背景</Text><Text style={styles.muted}>选填 {backgroundOpen ? '⌃' : '⌄'}</Text>
                 </Pressable>
                 {backgroundOpen ? <>
-                    <TextInput value={recentEvents} onChangeText={setRecentEvents} maxLength={600} multiline placeholder="近期事件、相关人物与已经发生的情况" placeholderTextColor={palette.muted} style={[styles.field, styles.multiline]} accessibilityLabel="近期事件" />
+                    <FocusTextInput value={recentEvents} onChangeText={setRecentEvents} maxLength={600} multiline placeholder="近期事件、相关人物与已经发生的情况" placeholderTextColor={palette.muted} style={[styles.field, styles.multiline]} accessibilityLabel="近期事件" />
                     <LiuyaoSubjectSelector value={subject} onChange={setSubject} style={styles.subject} labelStyle={styles.label} />
                 </> : null}
             </ScrollView>

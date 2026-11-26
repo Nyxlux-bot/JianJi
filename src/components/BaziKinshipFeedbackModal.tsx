@@ -41,7 +41,7 @@ export default function BaziKinshipFeedbackModal({ visible, value, busy, onChang
                                 placeholderTextColor={Colors.text.tertiary} onFocus={() => setFocused(field)} onBlur={() => setFocused(null)}
                                 onChangeText={(text) => onChange({ ...value, [field]: text })}
                                 style={[styles.input, { color: Colors.text.primary, backgroundColor: Colors.bg.input,
-                                    borderColor: focused === field ? Colors.accent.gold : Colors.border.normal }]} />
+                                    borderColor: focused === field ? Colors.accent.gold : Colors.border.input }]} />
                         </View>)}
                         <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => setExpanded(!expanded)} style={styles.button}>
                             <Text style={{ color: Colors.accent.gold }}>{expanded ? '收起补充信息' : '补充信息'}</Text>

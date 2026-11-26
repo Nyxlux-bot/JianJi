@@ -5,8 +5,8 @@ import {
     StyleSheet,
     TouchableOpacity,
     ScrollView,
-    TextInput,
-} from 'react-native';
+    } from 'react-native';
+import FocusTextInput from '../../src/components/FocusTextInput';
 import { router, useLocalSearchParams } from 'expo-router';
 import StatusBarDecor from '../../src/components/StatusBarDecor';
 import { BackIcon, ChevronRightIcon } from '../../src/components/Icons';
@@ -247,7 +247,7 @@ export default function BaziInputPage() {
 
                     <View style={styles.section}>
                         <Text style={styles.sectionLabel}>姓名（可选）</Text>
-                        <TextInput
+                        <FocusTextInput
                             style={styles.textInput}
                             value={form.name}
                             onChangeText={(text) => setForm((prev) => ({ ...prev, name: text }))}
@@ -514,7 +514,7 @@ const makeStyles = (Colors: any, isLightTheme = false) => StyleSheet.create({
         minHeight: 48,
         borderRadius: BorderRadius.md,
         borderWidth: 1,
-        borderColor: Colors.border.subtle,
+        borderColor: Colors.border.input,
         backgroundColor: Colors.bg.card,
         paddingHorizontal: Spacing.md,
         alignItems: 'center',
@@ -524,6 +524,7 @@ const makeStyles = (Colors: any, isLightTheme = false) => StyleSheet.create({
     selectorText: {
         fontSize: FontSize.md,
         color: Colors.text.primary,
+        fontVariant: ['tabular-nums'],
     },
     selectorValueRow: {
         flexDirection: 'row',

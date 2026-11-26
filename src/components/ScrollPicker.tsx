@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
-import { View, StyleSheet, Animated, NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
+import { View, StyleSheet, Animated, NativeSyntheticEvent, NativeScrollEvent, Platform, Pressable } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { FontSize, BorderRadius } from '../theme/colors';
 import { useTheme } from "../theme/ThemeContext";
 
@@ -12,6 +13,8 @@ interface ScrollPickerProps {
     activeTextColor?: string;
     inactiveTextColor?: string;
     Colors?: any;
+    /** 上下渐隐要融进的底色，默认是弹层底色 bg.primary */
+    fadeColor?: string;
 }
 
 export default function ScrollPicker({
@@ -21,11 +24,15 @@ export default function ScrollPicker({
     itemHeight = 44,
     visibleItems = 5,
     activeTextColor,
-    Colors: PropColors
+    Colors: PropColors,
+    fadeColor,
 }: ScrollPickerProps) {
     const { Colors: ContextColors } = useTheme();
     const Colors = PropColors || ContextColors;
     const styles = useMemo(() => makeStyles(Colors), [Colors]);
+    const fadeBase: string = fadeColor ?? Colors.bg.primary;
+    // 8 位十六进制的全透明同色，渐隐时不会透出灰边
+    const fadeClear = /^#[0-9a-f]{6}$/i.test(fadeBase) ? `${fadeBase}00` : 'transparent';
 
     const resolvedActiveTextColor = activeTextColor || Colors.text.primary;
 
@@ -157,9 +164,32 @@ export default function ScrollPicker({
                         extrapolate: 'clamp'
                     });
 
+                    if (item === '') {
+                        return <View key={`spacer-${index}`} style={{ height: itemHeight }} />;
+                    }
+
+                    // 点选上下的项直接跳过去：只提交值，滚动交给「外部改值」那个 Effect
                     return (
-                        <View key={`${item}-${index}`} style={[styles.item, { height: itemHeight }]}>
-                            {item !== '' && (
+                        <Pressable
+                            key={`${item}-${index}`}
+                            accessibilityRole="button"
+                            accessibilityLabel={item}
+                            accessibilityState={{ selected: dataIndex === selectedIndex }}
+                            onPress={() => {
+                                if (dataIndex !== selectedIndex && data[dataIndex] !== value) {
+                                    onValueChange(data[dataIndex]);
+                                }
+                            }}
+                            style={(state) => [
+                                styles.item,
+                                { height: itemHeight },
+                                // 网页端鼠标悬停时给一点底色，提示可以点
+                                Platform.OS === 'web' && (state as { hovered?: boolean }).hovered && dataIndex !== selectedIndex
+                                    ? styles.itemHovered
+                                    : null,
+                            ]}
+                        >
+                            {(
                                 <Animated.Text
                                     style={[
                                         styles.itemText,
@@ -176,10 +206,21 @@ export default function ScrollPicker({
                                     {item}
                                 </Animated.Text>
                             )}
-                        </View>
+                        </Pressable>
                     );
                 })}
             </Animated.ScrollView>
+            {/* 上下渐隐，提示还能滚动 */}
+            <LinearGradient
+                pointerEvents="none"
+                colors={[fadeBase, fadeClear]}
+                style={[styles.fade, { top: 0, height: itemHeight * 1.5 }]}
+            />
+            <LinearGradient
+                pointerEvents="none"
+                colors={[fadeClear, fadeBase]}
+                style={[styles.fade, { bottom: 0, height: itemHeight * 1.5 }]}
+            />
         </View>
     );
 }
@@ -189,8 +230,19 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
+    itemHovered: {
+        backgroundColor: Colors.bg.secondary,
+        borderRadius: BorderRadius.md,
+    },
     itemText: {
         fontSize: FontSize.lg,
+        // 数字等宽，滚动时不左右跳
+        fontVariant: ['tabular-nums'],
+    },
+    fade: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
     },
     highlight: {
         position: 'absolute',

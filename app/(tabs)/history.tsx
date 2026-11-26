@@ -7,6 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
 import React, { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useFieldFocus } from '../../src/components/FocusTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 // 滑动区内用手势库的 Pressable：左滑开始后点按会被取消，不会误开记录
@@ -306,6 +307,7 @@ export default function HistoryPage() {
     const { Colors } = useTheme();
     const insets = useSafeAreaInsets();
     const palette = useMemo(() => buildResultPalette(Colors), [Colors]);
+    const searchFocus = useFieldFocus();
     const styles = useMemo(() => makeStyles(palette), [palette]);
     const [records, setRecords] = useState<RecordSummary[]>([]);
     const [filters, setFilters] = useState<HistoryFilterState>(DEFAULT_HISTORY_FILTER);
@@ -459,7 +461,7 @@ export default function HistoryPage() {
             </View>
 
             <View style={styles.filterArea}>
-                <View style={styles.search}>
+                <View style={[styles.search, { borderColor: searchFocus.borderColor }]}>
                     <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
                         <Circle cx={11} cy={11} r={6.5} stroke={palette.muted} strokeWidth={1.8} />
                         <Path d="M16 16l4 4" stroke={palette.muted} strokeWidth={1.8} strokeLinecap="round" />
@@ -471,6 +473,8 @@ export default function HistoryPage() {
                         placeholder={currentEngine.placeholder}
                         placeholderTextColor={palette.muted}
                         clearButtonMode="while-editing"
+                        onFocus={searchFocus.onFocus}
+                        onBlur={searchFocus.onBlur}
                         accessibilityLabel="搜索记录"
                     />
                 </View>

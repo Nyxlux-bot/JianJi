@@ -3,6 +3,7 @@
  */
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { PanResponder, Platform, Pressable, StyleSheet, Text, TextInput, View, type LayoutChangeEvent } from 'react-native';
+import { useFieldFocus } from '../../src/components/FocusTextInput';
 import Animated, { Extrapolation, interpolate, useAnimatedScrollHandler, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated';
 import { router, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -42,6 +43,7 @@ export default function LearnPage() {
     const styles = useMemo(() => makeStyles(palette), [palette]);
     const [query, setQuery] = useState('');
     const [searching, setSearching] = useState(false);
+    const searchFocus = useFieldFocus();
     const [reading, setReading] = useState<ReadingState | null>(null);
     const [picked, setPicked] = useState<number | null>(null);
 
@@ -105,7 +107,7 @@ export default function LearnPage() {
                 <View style={styles.header}>
                     {searching ? (
                         <>
-                            <View style={styles.searchField}>
+                            <View style={[styles.searchField, { borderColor: searchFocus.borderColor }]}>
                                 <SearchGlyph color={palette.muted} size={16} />
                                 <TextInput
                                     value={query}
@@ -114,6 +116,8 @@ export default function LearnPage() {
                                     placeholder="搜卦名、书名、篇名"
                                     placeholderTextColor={palette.muted}
                                     style={styles.searchInput}
+                                    onFocus={searchFocus.onFocus}
+                                    onBlur={searchFocus.onBlur}
                                     returnKeyType="search"
                                     accessibilityLabel="搜索卦名、书名或篇名"
                                 />

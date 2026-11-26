@@ -38,6 +38,11 @@ export function AINumberField({ label, value, onChange, minimum = 0, maximum, in
     useEffect(() => { if (!editing.current) setText(Number.isFinite(value) ? String(value) : ''); }, [value]);
     const number = text.trim() ? Number(text) : NaN;
     const valid = Number.isFinite(number) && number >= minimum && (maximum === undefined || number <= maximum) && (!integer || Number.isSafeInteger(number));
+    // 输入过程中不报错（敲到一半的数字往往还不合规），离开输入框后才显示
+    const showError = !valid && !focused;
+    const rangeText = maximum === undefined
+        ? `请输入不小于 ${minimum} 的${integer ? '整数' : '数字'}`
+        : `请输入 ${minimum}～${maximum} 之间的${integer ? '整数' : '数字'}`;
     const finish = () => {
         if (!editing.current) return;
         editing.current = false;
@@ -51,13 +56,12 @@ export function AINumberField({ label, value, onChange, minimum = 0, maximum, in
                 <TextInput accessibilityLabel={label} value={text} keyboardType={integer ? 'number-pad' : 'decimal-pad'}
                     editable={!disabled} autoCorrect={false} selectTextOnFocus
                     style={[styles.numberInput, { color: disabled ? Colors.text.tertiary : Colors.text.primary, backgroundColor: Colors.bg.input,
-                        borderColor: !valid ? Colors.accent.red : focused ? Colors.accent.gold : Colors.border.subtle }]}
+                        borderColor: showError ? Colors.accent.red : focused ? Colors.accent.gold : Colors.border.input }]}
                     onFocus={() => { editing.current = true; setFocused(true); }} onBlur={finish} onSubmitEditing={finish}
                     onChangeText={(next) => { setText(next); if (!commitOnBlur) onChange(next.trim() ? Number(next) : NaN); }} />
             </View>
-            {!valid && <Text accessibilityRole="alert" style={{ color: Colors.accent.red, fontSize: 12 }}>
-                {maximum === undefined ? `请输入不小于 ${minimum} 的${integer ? '整数' : '数字'}` : `请输入 ${minimum}～${maximum} 之间的${integer ? '整数' : '数字'}`}
-            </Text>}
+            {showError ? <Text accessibilityRole="alert" style={{ color: Colors.accent.red, fontSize: 12 }}>{rangeText}</Text> : null}
+            {focused ? <Text style={{ color: Colors.text.tertiary, fontSize: 12 }}>{rangeText}</Text> : null}
         </View>
     );
 }

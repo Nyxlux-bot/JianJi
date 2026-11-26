@@ -4,7 +4,8 @@
  */
 
 import React, { useState, useRef, useCallback, useEffect, memo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Animated, Easing } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated, Easing } from 'react-native';
+import FocusTextInput from '../../src/components/FocusTextInput';
 import Svg, { Path, Text as SvgText } from 'react-native-svg';
 
 import StatusBarDecor from '../../src/components/StatusBarDecor';
@@ -295,7 +296,7 @@ export default function CoinDivination() {
 
             <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
                 <View style={styles.questionSection}>
-                    <TextInput
+                    <FocusTextInput
                         style={styles.questionInput}
                         value={question}
                         onChangeText={setQuestion}
@@ -413,7 +414,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     questionInput: {
         backgroundColor: Colors.bg.card, color: Colors.text.primary,
         fontSize: FontSize.md, padding: Spacing.lg,
-        borderRadius: BorderRadius.md, borderWidth: 0.5, borderColor: Colors.border.subtle,
+        borderRadius: BorderRadius.md, borderWidth: 1, borderColor: Colors.border.input,
     },
     coinSection: {
         alignItems: 'center', paddingVertical: Spacing.xxl,

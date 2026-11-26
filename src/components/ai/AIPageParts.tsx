@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { BaziResult } from '../../core/bazi-types';
@@ -17,6 +17,7 @@ import type { AIReasoningSetting } from '../../services/ai-provider-types';
 import { setActiveModelReasoning } from '../../services/settings';
 import { useTheme } from '../../theme/ThemeContext';
 import { CustomAlert } from '../CustomAlertProvider';
+import FocusTextInput from '../FocusTextInput';
 import { SendIcon } from '../Icons';
 import AIModelPicker, { EngravedDivider } from '../AIModelSelector';
 import ThinkingSlider from './ThinkingSlider';
@@ -370,7 +371,7 @@ export function AIComposer({ value, onChange, onSend, disabledReason, busy, quic
                 </ScrollView>
             ) : null}
             <View style={styles.inputRow}>
-                <TextInput
+                <FocusTextInput
                     style={[styles.input, locked && { color: Colors.text.tertiary }]}
                     placeholder={disabledReason ?? '继续追问…'}
                     placeholderTextColor={Colors.text.tertiary}

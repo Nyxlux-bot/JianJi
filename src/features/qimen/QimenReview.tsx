@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
+import FocusTextInput from '../../components/FocusTextInput';
 import { CustomAlert } from '../../components/CustomAlertProvider';
 import { makeAIPageStyles } from '../../components/ai/ai-page-styles';
 import { updateExistingRecordResult } from '../../db/database';
@@ -46,13 +47,13 @@ export function QimenReview({ result, onSaved }: { result: QimenResult; onSaved:
             style={[styles.chip, v === volume && styles.segBtnOn]} onPress={() => setVolume(v)}><Text style={v === volume ? styles.chipText : styles.chartLineMuted}>{v}</Text></Pressable>)}</View>
         <Text style={styles.chapNo}>当时的判断</Text>
         {sections?.[volume] ? <Text selectable style={styles.chartLine}>{forecast}</Text>
-            : <TextInput style={styles.reviewInput} value={manual} onChangeText={setManual} accessibilityLabel="当时的判断" placeholder="可填写当时的判断" placeholderTextColor={Colors.text.tertiary} multiline maxLength={2000} />}
+            : <FocusTextInput style={styles.reviewInput} value={manual} onChangeText={setManual} accessibilityLabel="当时的判断" placeholder="可填写当时的判断" placeholderTextColor={Colors.text.tertiary} multiline maxLength={2000} />}
         <Text style={styles.hint}>关注期限</Text>
-        <TextInput style={styles.reviewInput} value={horizon} onChangeText={setHorizon} accessibilityLabel="复盘关注期限" maxLength={80} />
+        <FocusTextInput style={styles.reviewInput} value={horizon} onChangeText={setHorizon} accessibilityLabel="复盘关注期限" maxLength={80} />
         <Text style={styles.hint}>观察日期</Text>
-        <TextInput style={styles.reviewInput} value={date} onChangeText={setDate} accessibilityLabel="观察日期" maxLength={10} />
+        <FocusTextInput style={styles.reviewInput} value={date} onChangeText={setDate} accessibilityLabel="观察日期" maxLength={10} />
         <Text style={styles.chapNo}>实际发生了什么</Text>
-        <TextInput style={styles.reviewInput} value={observation} onChangeText={setObservation} accessibilityLabel="实际观察" multiline maxLength={2000} />
+        <FocusTextInput style={styles.reviewInput} value={observation} onChangeText={setObservation} accessibilityLabel="实际观察" multiline maxLength={2000} />
         <Pressable accessibilityRole="button" disabled={saving || !observation.trim()} style={styles.segBtn} onPress={() => void save()}>
             <Text style={observation.trim() ? styles.chipText : styles.hint}>{saving ? '保存中…' : '保存复盘'}</Text>
         </Pressable>

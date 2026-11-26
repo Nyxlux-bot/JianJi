@@ -4,11 +4,11 @@ import {
     ScrollView,
     StyleSheet,
     Text,
-    TextInput,
     TouchableOpacity,
     TouchableWithoutFeedback,
     View,
 } from 'react-native';
+import FocusTextInput from './FocusTextInput';
 import Svg, { Circle, Path } from 'react-native-svg';
 import ScrollPicker from './ScrollPicker';
 import { Spacing, FontSize, BorderRadius } from '../theme/colors';
@@ -100,11 +100,12 @@ function isValidSolarDate(y: number, m: number, d: number, h: number, min: numbe
 // ==== 五行颜色与级联辅助方法 ====
 const getColor = (char: string, Colors: any) => {
     if (!char) return Colors.text.primary;
-    if (['甲', '乙', '寅', '卯'].includes(char)) return '#4CAF50';
-    if (['丙', '丁', '巳', '午'].includes(char)) return '#F44336';
-    if (['戊', '己', '辰', '戌', '丑', '未'].includes(char)) return '#8D6E63';
-    if (['庚', '辛', '申', '酉'].includes(char)) return '#FF9800';
-    if (['壬', '癸', '亥', '子'].includes(char)) return '#2196F3';
+    // 五行色走主题，深浅两套主题各自校过对比度
+    if (['甲', '乙', '寅', '卯'].includes(char)) return Colors.bazi.elementWood;
+    if (['丙', '丁', '巳', '午'].includes(char)) return Colors.bazi.elementFire;
+    if (['戊', '己', '辰', '戌', '丑', '未'].includes(char)) return Colors.bazi.elementEarth;
+    if (['庚', '辛', '申', '酉'].includes(char)) return Colors.bazi.elementMetal;
+    if (['壬', '癸', '亥', '子'].includes(char)) return Colors.bazi.elementWater;
     return Colors.text.primary;
 };
 
@@ -866,7 +867,7 @@ export default function DateTimePicker({
 
                     {activeTab !== 'bazi' && (
                         <View style={styles.fastInputContainer}>
-                            <TextInput style={styles.fastInput} placeholder="出生年月(格式 199303270255)" placeholderTextColor={Colors.text.tertiary} keyboardType="numeric" value={fastInput} onChangeText={handleFastInput} />
+                            <FocusTextInput style={styles.fastInput} placeholder="出生年月(格式 199303270255)" placeholderTextColor={Colors.text.tertiary} keyboardType="numeric" value={fastInput} onChangeText={handleFastInput} />
                             <TouchableOpacity style={styles.fastInputBtn} onPress={() => applyDraftDate(new Date())}>
                                 <Text style={styles.fastInputBtnText}>当前时刻</Text>
                             </TouchableOpacity>
@@ -908,7 +909,7 @@ const makeStyles = (Colors: any, isLightTheme = false) => StyleSheet.create({
     btnConfirmDisabled: { backgroundColor: Colors.bg.elevated },
     btnConfirmTextDisabled: { color: Colors.text.tertiary },
     fastInputContainer: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md, gap: Spacing.sm },
-    fastInput: { flex: 1, backgroundColor: Colors.bg.elevated, borderRadius: BorderRadius.round, paddingHorizontal: Spacing.lg, paddingVertical: 10, fontSize: FontSize.sm, color: Colors.text.primary },
+    fastInput: { flex: 1, backgroundColor: Colors.bg.elevated, borderWidth: 1, borderColor: Colors.border.input, borderRadius: BorderRadius.round, paddingHorizontal: Spacing.lg, paddingVertical: 10, fontSize: FontSize.sm, color: Colors.text.primary, fontVariant: ['tabular-nums'] },
     fastInputBtn: { paddingHorizontal: Spacing.md, paddingVertical: 10, backgroundColor: Colors.bg.card, borderWidth: 1, borderColor: Colors.border.subtle, borderRadius: BorderRadius.round },
     fastInputBtnText: { fontSize: FontSize.sm, color: Colors.text.secondary },
     pickerHeader: { flexDirection: 'row', paddingHorizontal: Spacing.lg, marginTop: Spacing.md },
