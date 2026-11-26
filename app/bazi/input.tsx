@@ -19,7 +19,7 @@ import { BaziGender, BaziResult, BaziTimeMode, BaziZiHourMode } from '../../src/
 import { getRecord, replaceRecord, saveRecord } from '../../src/db/database';
 import LocationBar from '../../src/components/LocationBar';
 import CityPicker from '../../src/components/CityPicker';
-import DateTimePicker from '../../src/components/DateTimePicker';
+import DateTimePicker, { DateTimePickerSelection } from '../../src/components/DateTimePicker';
 import { buildBaziEditFormState } from '../../src/features/bazi/edit-helpers';
 import { getPendingBaziRecord, primePendingBaziRecord } from '../../src/features/bazi/pending-result-cache';
 import { BaziFormState } from '../../src/features/bazi/types';
@@ -32,6 +32,12 @@ function formatDateTime(date: Date): string {
     const mm = String(date.getMinutes()).padStart(2, '0');
     return `${y}-${m}-${d} ${hh}:${mm}`;
 }
+
+const TIME_MODE_LABELS: Record<BaziTimeMode, string> = {
+    clock_time: '本地钟表时',
+    mean_solar_time: '平太阳时',
+    true_solar_time: '真太阳时',
+};
 
 function buildBaziSummary(result: BaziResult) {
     return {
@@ -52,10 +58,12 @@ function yieldToNextFrame(): Promise<void> {
 }
 
 export default function BaziInputPage() {
-    const { Colors } = useTheme();
-    const styles = React.useMemo(() => makeStyles(Colors), [Colors]);
+    const { Colors, theme } = useTheme();
+    const styles = React.useMemo(() => makeStyles(Colors, theme === 'yang'), [Colors, theme]);
     const { editId } = useLocalSearchParams<{ editId?: string }>();
     const [birthPickerVisible, setBirthPickerVisible] = useState(false);
+    // 出生时间来自四柱反查时，它已经是排盘时间（只在本页提示，不存档）
+    const [birthFromBazi, setBirthFromBazi] = useState(false);
     const [referencePickerVisible, setReferencePickerVisible] = useState(false);
     const [cityPickerVisible, setCityPickerVisible] = useState(false);
     const [form, setForm] = useState<BaziFormState>({
@@ -256,7 +264,10 @@ export default function BaziInputPage() {
                             activeOpacity={0.75}
                             onPress={() => setBirthPickerVisible(true)}
                         >
-                            <Text style={styles.selectorText}>{formatDateTime(form.birthDate)}</Text>
+                            <View style={styles.selectorValueRow}>
+                                <Text style={styles.selectorText}>{formatDateTime(form.birthDate)}</Text>
+                                {birthFromBazi ? <Text style={styles.sourceTag}>四柱反查</Text> : null}
+                            </View>
                             <ChevronRightIcon size={20} color={Colors.text.tertiary} />
                         </TouchableOpacity>
                     </View>
@@ -307,6 +318,11 @@ export default function BaziInputPage() {
                         <Text style={styles.advancedHint}>
                             默认使用本地钟表时。切到平太阳时或真太阳时后，会按当前设备时区的标准经线换算；原始出生时间显示保持不变。
                         </Text>
+                        {birthFromBazi && usesSolarCorrection ? (
+                            <Text style={styles.sourceWarning}>
+                                出生时间来自四柱反查，已是排盘时间；按{TIME_MODE_LABELS[form.timeMode]}排盘会再校一次时，时柱可能变。
+                            </Text>
+                        ) : null}
                     </View>
 
                     <View style={styles.section}>
@@ -420,16 +436,28 @@ export default function BaziInputPage() {
             <DateTimePicker
                 visible={birthPickerVisible}
                 initialDate={form.birthDate}
+                ziHourMode={form.ziHourMode}
+                timeCorrectionNotice={usesSolarCorrection
+                    ? { modeLabel: TIME_MODE_LABELS[form.timeMode], canSwitchToClockTime: true }
+                    : undefined}
                 onClose={() => setBirthPickerVisible(false)}
                 onConfirm={(date) => {
                     setForm((prev) => ({ ...prev, birthDate: date }));
                     setBirthPickerVisible(false);
+                }}
+                onConfirmDetail={(selection: DateTimePickerSelection) => {
+                    setBirthFromBazi(selection.sourceTab === 'bazi');
+                    if (selection.switchToClockTime) {
+                        setForm((prev) => ({ ...prev, timeMode: 'clock_time' }));
+                    }
                 }}
             />
 
             <DateTimePicker
                 visible={referencePickerVisible}
                 initialDate={form.referenceDate}
+                // 只对齐子时口径；不传校时提醒，它的「改为本地钟表时」会改掉整张盘的排盘口径
+                ziHourMode={form.ziHourMode}
                 onClose={() => setReferencePickerVisible(false)}
                 onConfirm={(date) => {
                     setForm((prev) => ({ ...prev, referenceDate: date, useCustomReferenceDate: true }));
@@ -440,7 +468,7 @@ export default function BaziInputPage() {
     );
 }
 
-const makeStyles = (Colors: any) => StyleSheet.create({
+const makeStyles = (Colors: any, isLightTheme = false) => StyleSheet.create({
     container: { flex: 1, backgroundColor: 'transparent' },
     header: {
         flexDirection: 'row',
@@ -496,6 +524,27 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     selectorText: {
         fontSize: FontSize.md,
         color: Colors.text.primary,
+    },
+    selectorValueRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: Spacing.sm,
+    },
+    sourceTag: {
+        fontSize: FontSize.xs,
+        // 浅色主题下金色、浅红小字对比度不足 4.5:1，改用深一档的颜色
+        color: isLightTheme ? Colors.accent.goldDark : Colors.accent.gold,
+        backgroundColor: `${Colors.accent.gold}24`,
+        paddingHorizontal: Spacing.sm,
+        paddingVertical: 2,
+        borderRadius: BorderRadius.round,
+        overflow: 'hidden',
+    },
+    sourceWarning: {
+        fontSize: FontSize.xs,
+        color: isLightTheme ? Colors.accent.red : Colors.accent.redLight,
+        lineHeight: 18,
+        marginBottom: Spacing.sm,
     },
     genderRow: {
         flexDirection: 'row',
