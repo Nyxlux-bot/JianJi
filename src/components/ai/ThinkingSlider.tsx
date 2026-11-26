@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, type AccessibilityActionEvent, type LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
+import Animated, { runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { getAutoRestIndex, resolveShownLevel, THINKING_LEVEL_META, type ThinkingLock } from '../../services/ai-model-capabilities';
 import type { AIReasoningSetting } from '../../services/ai-provider-types';
 import { FontSize } from '../../theme/colors';
@@ -40,6 +40,7 @@ export default function ThinkingSlider({ stops, value, budget, lock, onChange, C
     Colors: any;
 }) {
     const styles = useMemo(() => makeStyles(Colors), [Colors]);
+    const reduceMotion = useReducedMotion();
     const count = stops.length;
     const locked = Boolean(lock) || count < 2;
     const shown = resolveShownLevel(value, stops, budget);
@@ -61,8 +62,11 @@ export default function ThinkingSlider({ stops, value, budget, lock, onChange, C
 
     // Follow the saved level whenever it changes outside a drag.
     useEffect(() => {
-        if (width.value > 0 && pressed.value === 0) x.value = withTiming(restX(width.value), { duration: 180 });
-    }, [restX, width, x, pressed]);
+        if (width.value > 0 && pressed.value === 0) {
+            const target = restX(width.value);
+            x.value = reduceMotion ? target : withTiming(target, { duration: 180 });
+        }
+    }, [restX, width, x, pressed, reduceMotion]);
 
     const commit = useCallback((stop: number) => {
         setHover(null);
@@ -80,14 +84,15 @@ export default function ThinkingSlider({ stops, value, budget, lock, onChange, C
         const settle = (px: number) => {
             'worklet';
             const stop = nearest(px);
-            x.value = withSpring(stopX(stop, width.value), SNAP);
+            const target = stopX(stop, width.value);
+            x.value = reduceMotion ? target : withSpring(target, SNAP);
             runOnJS(commit)(stop);
         };
         const pan = Gesture.Pan()
             .enabled(!locked)
             .activeOffsetX([-3, 3])
             .failOffsetY([-16, 16])
-            .onBegin(() => { pressed.value = withTiming(1, { duration: 120 }); })
+            .onBegin(() => { pressed.value = reduceMotion ? 1 : withTiming(1, { duration: 120 }); })
             .onUpdate((event) => {
                 x.value = Math.min(width.value - INSET, Math.max(INSET, event.x));
                 const stop = nearest(event.x);
@@ -98,22 +103,22 @@ export default function ThinkingSlider({ stops, value, budget, lock, onChange, C
             })
             .onEnd((event) => settle(event.x))
             .onFinalize(() => {
-                pressed.value = withTiming(0, { duration: 160 });
+                pressed.value = reduceMotion ? 0 : withTiming(0, { duration: 160 });
                 lastHover.value = -1;
             });
         const tap = Gesture.Tap().enabled(!locked).onEnd((event, success) => {
             if (success) settle(event.x);
         });
         return Gesture.Exclusive(pan, tap);
-    }, [count, locked, commit, stopX, width, x, pressed, lastHover]);
+    }, [count, locked, commit, stopX, width, x, pressed, lastHover, reduceMotion]);
 
     // 进度只用 scaleX：逐帧改 width 要重新布局、走整棵树提交，拖动时掉帧。右端藏在圆钮下面，看不出缩放
     const fillStyle = useAnimatedStyle(() => ({
         transform: [{ scaleX: Math.max(0, x.value - INSET) / Math.max(1, width.value - 2 * INSET) }],
     }));
     const knobStyle = useAnimatedStyle(() => ({
-        transform: [{ translateX: x.value - KNOB / 2 }, { scale: 1 + pressed.value * 0.12 }],
-    }));
+        transform: [{ translateX: x.value - KNOB / 2 }, { scale: reduceMotion ? 1 : 1 + pressed.value * 0.12 }],
+    }), [reduceMotion]);
 
     const onLayout = (event: LayoutChangeEvent) => {
         const next = event.nativeEvent.layout.width;
@@ -180,7 +185,8 @@ export default function ThinkingSlider({ stops, value, budget, lock, onChange, C
                                 accessibilityState={{ selected: active }} hitSlop={6}
                                 onPress={() => {
                                     if (stop === shown) return;
-                                    x.value = withSpring(stopX(stopIndex, width.value), SNAP);
+                                    const target = stopX(stopIndex, width.value);
+                                    x.value = reduceMotion ? target : withSpring(target, SNAP);
                                     onChange(stop);
                                 }}
                                 style={[styles.label, { left: stopX(stopIndex, areaWidth) - LABEL_WIDTH / 2 }]}>

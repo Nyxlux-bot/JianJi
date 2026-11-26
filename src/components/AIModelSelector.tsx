@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { getActiveModel, getActiveProvider, getProviderDisplayName, getSettings, saveSettings, subscribeSettings, updateProviderProfile, type AISettings } from '../services/settings';
 import { FontSize } from '../theme/colors';
 import { useTheme } from '../theme/ThemeContext';
+import { webFocusFieldProps } from '../theme/web-enhance';
 
 /** A search box only earns its place once the list is longer than a glance. */
 const SEARCH_THRESHOLD = 6;
@@ -87,8 +88,8 @@ export default function AIModelPicker({ visible, maxHeight }: { visible: boolean
     const accent = Colors.accent.gold;
     return <View>
         {total > SEARCH_THRESHOLD || query ? (
-            <View style={[styles.search, { backgroundColor: Colors.bg.input, borderColor: focused ? accent : Colors.border.subtle }]}>
-                <TextInput accessibilityLabel="搜索模型" value={query} onChangeText={setQuery} placeholder={`搜索 ${total} 个模型`}
+            <View style={[styles.search, { backgroundColor: Colors.bg.input, borderColor: focused ? accent : Colors.border.input }]}>
+                <TextInput {...webFocusFieldProps} accessibilityLabel="搜索模型" value={query} onChangeText={setQuery} placeholder={`搜索 ${total} 个模型`}
                     placeholderTextColor={Colors.text.tertiary} autoCapitalize="none" autoCorrect={false} returnKeyType="search"
                     onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
                     style={[styles.searchInput, { color: Colors.text.primary }]} />

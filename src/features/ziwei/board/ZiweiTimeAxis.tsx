@@ -4,6 +4,7 @@ import Svg, { Path } from 'react-native-svg';
 import { ZIWEI_VIEWS, ZIWEI_MUTAGEN_ORDER, type ZiweiTrack, type ZiweiTrackItem, type ZiweiView } from '../scope-layer';
 import { ZIWEI_STAGE } from './layout';
 import { ganzhiColor, type ZiweiPalette } from './palette';
+import { webHorizontalFadeProps } from '../../../theme/web-enhance';
 
 const CELL_WIDTH = 54;
 const CELL_GAP = 6;
@@ -350,6 +351,7 @@ function ZiweiTimeAxisBase({
                         />
                     ) : null}
                     <ScrollView
+                        {...webHorizontalFadeProps}
                         ref={scrollRef}
                         style={{ flex: 1 }}
                         horizontal

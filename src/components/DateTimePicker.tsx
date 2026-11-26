@@ -4,11 +4,11 @@ import {
     ScrollView,
     StyleSheet,
     Text,
-    TextInput,
-    TouchableOpacity,
     TouchableWithoutFeedback,
     View,
 } from 'react-native';
+import PressableScale from './PressableScale';
+import FocusTextInput from './FocusTextInput';
 import Svg, { Circle, Path } from 'react-native-svg';
 import ScrollPicker from './ScrollPicker';
 import { Spacing, FontSize, BorderRadius } from '../theme/colors';
@@ -100,11 +100,12 @@ function isValidSolarDate(y: number, m: number, d: number, h: number, min: numbe
 // ==== 五行颜色与级联辅助方法 ====
 const getColor = (char: string, Colors: any) => {
     if (!char) return Colors.text.primary;
-    if (['甲', '乙', '寅', '卯'].includes(char)) return '#4CAF50';
-    if (['丙', '丁', '巳', '午'].includes(char)) return '#F44336';
-    if (['戊', '己', '辰', '戌', '丑', '未'].includes(char)) return '#8D6E63';
-    if (['庚', '辛', '申', '酉'].includes(char)) return '#FF9800';
-    if (['壬', '癸', '亥', '子'].includes(char)) return '#2196F3';
+    // 五行色走主题，深浅两套主题各自校过对比度
+    if (['甲', '乙', '寅', '卯'].includes(char)) return Colors.bazi.elementWood;
+    if (['丙', '丁', '巳', '午'].includes(char)) return Colors.bazi.elementFire;
+    if (['戊', '己', '辰', '戌', '丑', '未'].includes(char)) return Colors.bazi.elementEarth;
+    if (['庚', '辛', '申', '酉'].includes(char)) return Colors.bazi.elementMetal;
+    if (['壬', '癸', '亥', '子'].includes(char)) return Colors.bazi.elementWater;
     return Colors.text.primary;
 };
 
@@ -183,7 +184,7 @@ const BaziResultRow = memo(function BaziResultRow({
     }, [index, onPress]);
 
     return (
-        <TouchableOpacity
+        <PressableScale scaleTo={0.985}
             style={[styles.baziResultItem, selected && styles.baziResultItemSelected]}
             onPress={handlePress}
             accessibilityRole="radio"
@@ -200,7 +201,7 @@ const BaziResultRow = memo(function BaziResultRow({
                 </View>
                 <Text style={styles.baziResultDetail}>{item.detail}</Text>
             </View>
-        </TouchableOpacity>
+        </PressableScale>
     );
 });
 
@@ -614,7 +615,7 @@ export default function DateTimePicker({
                         </Text>
                         {canToggleLeapMonth ? (
                             <View style={styles.lunarLeapToggleRow}>
-                                <TouchableOpacity
+                                <PressableScale
                                     style={[
                                         styles.lunarLeapToggleBtn,
                                         !lunarDate.isLeap && styles.lunarLeapToggleBtnActive,
@@ -629,8 +630,8 @@ export default function DateTimePicker({
                                     >
                                         平月
                                     </Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
+                                </PressableScale>
+                                <PressableScale
                                     style={[
                                         styles.lunarLeapToggleBtn,
                                         lunarDate.isLeap && styles.lunarLeapToggleBtnActive,
@@ -645,7 +646,7 @@ export default function DateTimePicker({
                                     >
                                         闰月
                                     </Text>
-                                </TouchableOpacity>
+                                </PressableScale>
                             </View>
                         ) : null}
                     </View>
@@ -659,9 +660,9 @@ export default function DateTimePicker({
         if (activeTab !== 'bazi') return null;
 
         const renderCircle = (char: string, active: boolean, onPress: () => void, isPillarCombo = false) => (
-            <TouchableOpacity onPress={onPress} style={[styles.bzCircle, active && styles.bzCircleActive, isPillarCombo && active && styles.bzCircleActiveCombo]}>
+            <PressableScale onPress={onPress} style={[styles.bzCircle, active && styles.bzCircleActive, isPillarCombo && active && styles.bzCircleActiveCombo]}>
                 <Text style={{ color: getColor(char, Colors), fontSize: FontSize.lg, fontWeight: 'bold' }}>{char}</Text>
-            </TouchableOpacity>
+            </PressableScale>
         );
 
         const isHourStep = baziDraft.step === 'H';
@@ -697,7 +698,7 @@ export default function DateTimePicker({
                             </Text>
                         </View>
                         {canSwitchToClockTime ? (
-                            <TouchableOpacity
+                            <PressableScale scaleTo={0.985}
                                 style={styles.baziNoticeCheckRow}
                                 onPress={() => setSwitchToClockTime((prev) => !prev)}
                                 accessibilityRole="checkbox"
@@ -711,7 +712,7 @@ export default function DateTimePicker({
                                     ) : null}
                                 </View>
                                 <Text style={styles.baziNoticeCheckText}>回填时改为「本地钟表时」</Text>
-                            </TouchableOpacity>
+                            </PressableScale>
                         ) : null}
                     </View>
                 ) : null}
@@ -743,7 +744,7 @@ export default function DateTimePicker({
                 {/* 搜索提示栏 */}
                 <View style={styles.baziControl}>
                     <Text style={styles.baziSub}>查找范围：{searchStart}–{searchEnd}年</Text>
-                    <TouchableOpacity style={styles.baziClearBtn} onPress={clearBazi}>
+                    <PressableScale style={styles.baziClearBtn} onPress={clearBazi}>
                         <Svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={Colors.text.secondary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <Path d="M3 6h18" />
                             <Path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
@@ -751,10 +752,10 @@ export default function DateTimePicker({
                             <Path d="M14 11v6" />
                         </Svg>
                         <Text style={styles.baziClearText}>清除</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.baziSearchBtn} onPress={runBaziSearch}>
+                    </PressableScale>
+                    <PressableScale style={styles.baziSearchBtn} onPress={runBaziSearch}>
                         <Text style={styles.baziSearchBtnText}>开始推算起时</Text>
-                    </TouchableOpacity>
+                    </PressableScale>
                 </View>
 
                 {/* 候选底盘渲染 */}
@@ -763,9 +764,9 @@ export default function DateTimePicker({
                         {baziDraft.step === 'Y_GAN' || baziDraft.step === 'D_GAN' ? (
                             <View style={styles.bzGridRow}>
                                 {TIAN_GAN.map((gan) => (
-                                    <TouchableOpacity key={gan} style={[styles.bzDataBtn, { width: '18%' }]} onPress={() => setGanAndAutoJump(baziDraft.step as 'Y_GAN' | 'D_GAN', gan)}>
+                                    <PressableScale key={gan} style={[styles.bzDataBtn, { width: '18%' }]} onPress={() => setGanAndAutoJump(baziDraft.step as 'Y_GAN' | 'D_GAN', gan)}>
                                         <Text style={{ color: getColor(gan, Colors), fontSize: FontSize.xl, fontWeight: 'bold' }}>{gan}</Text>
-                                    </TouchableOpacity>
+                                    </PressableScale>
                                 ))}
                             </View>
                         ) : null}
@@ -773,9 +774,9 @@ export default function DateTimePicker({
                         {baziDraft.step === 'Y_ZHI' || baziDraft.step === 'D_ZHI' ? (
                             <View style={styles.bzGridRow}>
                                 {getParityBranches(baziDraft.step === 'Y_ZHI' ? baziDraft.yearGan : baziDraft.dayGan).map((zhi) => (
-                                    <TouchableOpacity key={zhi} style={[styles.bzDataBtn, { width: '30%' }]} onPress={() => handleSetZhi(baziDraft.step as 'Y_ZHI' | 'D_ZHI', zhi)}>
+                                    <PressableScale key={zhi} style={[styles.bzDataBtn, { width: '30%' }]} onPress={() => handleSetZhi(baziDraft.step as 'Y_ZHI' | 'D_ZHI', zhi)}>
                                         <Text style={{ color: getColor(zhi, Colors), fontSize: FontSize.xl, fontWeight: 'bold' }}>{zhi}</Text>
-                                    </TouchableOpacity>
+                                    </PressableScale>
                                 ))}
                             </View>
                         ) : null}
@@ -787,7 +788,7 @@ export default function DateTimePicker({
                                 ) : null}
                                 <View style={styles.bzGridRow}>
                                     {pillarOptions.map((option, index) => (
-                                        <TouchableOpacity
+                                        <PressableScale
                                             key={`${option.pillar}-${index}`}
                                             style={[
                                                 styles.bzDataBtn,
@@ -804,7 +805,7 @@ export default function DateTimePicker({
                                             {option.tag ? (
                                                 <Text style={[styles.bzPillarTag, option.isLateZi && styles.bzPillarTagLate]}>{option.tag}</Text>
                                             ) : null}
-                                        </TouchableOpacity>
+                                        </PressableScale>
                                     ))}
                                 </View>
                             </View>
@@ -844,32 +845,32 @@ export default function DateTimePicker({
                 <View style={styles.content}>
                     <View style={styles.header}>
                         <View style={styles.tabsPanel}>
-                            <TouchableOpacity style={[styles.tabBtn, activeTab === 'solar' && styles.tabBtnActive]} onPress={() => setActiveTab('solar')}>
+                            <PressableScale style={[styles.tabBtn, activeTab === 'solar' && styles.tabBtnActive]} onPress={() => setActiveTab('solar')}>
                                 <Text style={[styles.tabText, activeTab === 'solar' && styles.tabTextActive]}>公历</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={[styles.tabBtn, activeTab === 'lunar' && styles.tabBtnActive]} onPress={() => setActiveTab('lunar')}>
+                            </PressableScale>
+                            <PressableScale style={[styles.tabBtn, activeTab === 'lunar' && styles.tabBtnActive]} onPress={() => setActiveTab('lunar')}>
                                 <Text style={[styles.tabText, activeTab === 'lunar' && styles.tabTextActive]}>农历</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={[styles.tabBtn, activeTab === 'bazi' && styles.tabBtnActive]} onPress={() => setActiveTab('bazi')}>
+                            </PressableScale>
+                            <PressableScale style={[styles.tabBtn, activeTab === 'bazi' && styles.tabBtnActive]} onPress={() => setActiveTab('bazi')}>
                                 <Text style={[styles.tabText, activeTab === 'bazi' && styles.tabTextActive]}>四柱</Text>
-                            </TouchableOpacity>
+                            </PressableScale>
                         </View>
-                        <TouchableOpacity
+                        <PressableScale
                             style={[styles.btnConfirm, confirmDisabled && styles.btnConfirmDisabled]}
                             onPress={handleConfirm}
                             disabled={confirmDisabled}
                             accessibilityState={{ disabled: confirmDisabled }}
                         >
                             <Text style={[styles.btnConfirmText, confirmDisabled && styles.btnConfirmTextDisabled]}>确定</Text>
-                        </TouchableOpacity>
+                        </PressableScale>
                     </View>
 
                     {activeTab !== 'bazi' && (
                         <View style={styles.fastInputContainer}>
-                            <TextInput style={styles.fastInput} placeholder="出生年月(格式 199303270255)" placeholderTextColor={Colors.text.tertiary} keyboardType="numeric" value={fastInput} onChangeText={handleFastInput} />
-                            <TouchableOpacity style={styles.fastInputBtn} onPress={() => applyDraftDate(new Date())}>
+                            <FocusTextInput style={styles.fastInput} placeholder="出生年月(格式 199303270255)" placeholderTextColor={Colors.text.tertiary} keyboardType="numeric" value={fastInput} onChangeText={handleFastInput} />
+                            <PressableScale style={styles.fastInputBtn} onPress={() => applyDraftDate(new Date())}>
                                 <Text style={styles.fastInputBtnText}>当前时刻</Text>
-                            </TouchableOpacity>
+                            </PressableScale>
                         </View>
                     )}
 
@@ -908,7 +909,7 @@ const makeStyles = (Colors: any, isLightTheme = false) => StyleSheet.create({
     btnConfirmDisabled: { backgroundColor: Colors.bg.elevated },
     btnConfirmTextDisabled: { color: Colors.text.tertiary },
     fastInputContainer: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md, gap: Spacing.sm },
-    fastInput: { flex: 1, backgroundColor: Colors.bg.elevated, borderRadius: BorderRadius.round, paddingHorizontal: Spacing.lg, paddingVertical: 10, fontSize: FontSize.sm, color: Colors.text.primary },
+    fastInput: { flex: 1, backgroundColor: Colors.bg.elevated, borderWidth: 1, borderColor: Colors.border.input, borderRadius: BorderRadius.round, paddingHorizontal: Spacing.lg, paddingVertical: 10, fontSize: FontSize.sm, color: Colors.text.primary, fontVariant: ['tabular-nums'] },
     fastInputBtn: { paddingHorizontal: Spacing.md, paddingVertical: 10, backgroundColor: Colors.bg.card, borderWidth: 1, borderColor: Colors.border.subtle, borderRadius: BorderRadius.round },
     fastInputBtnText: { fontSize: FontSize.sm, color: Colors.text.secondary },
     pickerHeader: { flexDirection: 'row', paddingHorizontal: Spacing.lg, marginTop: Spacing.md },
@@ -940,8 +941,8 @@ const makeStyles = (Colors: any, isLightTheme = false) => StyleSheet.create({
         justifyContent: 'center',
     },
     lunarLeapToggleBtnActive: {
-        borderColor: Colors.accent.gold,
-        backgroundColor: Colors.bg.card,
+        borderColor: Colors.accent.goldBorder,
+        backgroundColor: Colors.accent.goldSoft,
     },
     lunarLeapToggleText: {
         fontSize: FontSize.sm,
@@ -1000,7 +1001,7 @@ const makeStyles = (Colors: any, isLightTheme = false) => StyleSheet.create({
         flexDirection: 'row', alignItems: 'center', gap: Spacing.md, paddingVertical: 10, paddingHorizontal: Spacing.md,
         borderRadius: BorderRadius.md, borderWidth: 1, borderColor: 'transparent',
     },
-    baziResultItemSelected: { borderColor: Colors.accent.gold, backgroundColor: Colors.bg.card },
+    baziResultItemSelected: { borderColor: Colors.accent.goldBorder, backgroundColor: Colors.accent.goldSoft },
     baziRadio: {
         width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: Colors.border.normal,
         alignItems: 'center', justifyContent: 'center',

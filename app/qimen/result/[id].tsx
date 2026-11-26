@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View, type ScrollViewInstance } from 'react-native';
-import { router, useIsFocused, useLocalSearchParams } from 'expo-router';
-import { useReducedMotion } from 'react-native-reanimated';
+import { webHorizontalFadeProps } from '../../../src/theme/web-enhance';
+import { router, useLocalSearchParams } from 'expo-router';
+import PressableScale from '../../../src/components/PressableScale';
 import StatusBarDecor from '../../../src/components/StatusBarDecor';
 import ConfirmModal from '../../../src/components/ConfirmModal';
 import { CustomAlert } from '../../../src/components/CustomAlertProvider';
@@ -24,7 +25,6 @@ import { getPeriodBoard } from '../../../src/features/qimen/period-board';
 import { QIMEN_GATE_IMAGES } from '../../../src/features/qimen/images';
 import { compareQimenPalaces, getQimenPalaceBadges, getQimenStemPalaces } from '../../../src/features/qimen/rules';
 import QimenPalaceDetail from '../../../src/features/qimen/QimenPalaceDetail';
-import QimenBoardGlow from '../../../src/features/qimen/QimenBoardGlow';
 import { QIMEN_PERIODS, type QimenPeriod, type QimenResult } from '../../../src/features/qimen/types';
 
 import { QimenComparison } from '../../../src/features/qimen/QimenComparison';
@@ -64,12 +64,8 @@ export default function QimenResultPage() {
     const [showSnapshot, setShowSnapshot] = useState(false);
     const [boardVisit, setBoardVisit] = useState(false);
     const [aiQuestion, setAiQuestion] = useState<string>();
-    const [flowEnabled, setFlowEnabled] = useState(true);
-    const [boardSize, setBoardSize] = useState({ width: 0, height: 0 });
     const [screenReaderEnabled, setScreenReaderEnabled] = useState(false);
     const lastPalacePress = useRef<{ number: number; at: number } | null>(null);
-    const reduceMotion = useReducedMotion();
-    const focused = useIsFocused();
     const scrollRef = useRef<ScrollViewInstance>(null);
     const boardOffset = useRef(0);
     const aiOpenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -335,79 +331,78 @@ export default function QimenResultPage() {
                                         <Text style={[styles.link, !showDarkStem && styles.muted]}>暗干·{showDarkStem ? '开' : '关'}</Text>
                                     </Pressable>
                                 ) : null}
-                                <Pressable onPress={() => setFlowEnabled(value => !value)} disabled={reduceMotion} style={styles.miniToggle}
-                                    accessibilityRole="switch" accessibilityLabel={reduceMotion ? '系统已减少动态效果' : '盘框流光'} accessibilityState={{ checked: flowEnabled && !reduceMotion, disabled: reduceMotion }}>
-                                    <Text style={[styles.link, (!flowEnabled || reduceMotion) && styles.muted]}>{reduceMotion ? '静态' : `流光·${flowEnabled ? '开' : '关'}`}</Text>
-                                </Pressable>
                             </View>
                         </View>
 
-                        <View style={styles.boardFrame} onLayout={({ nativeEvent: { layout } }) => setBoardSize({ width: layout.width, height: layout.height })}>
-                            <QimenBoardGlow {...boardSize} color={palette.gold} running={flowEnabled && !reduceMotion && focused && !aiVisible && !detailVisible} />
-                            <View style={styles.grid}>{QIMEN_LAYOUT.map((number, index) => {
-                                const cell = board.palaces[number - 1];
-                                const cellInfo = QIMEN_PALACES[number - 1];
-                                const isHighlighted = highlightedPalaces.includes(number);
-                                const cellStyle = [styles.cell, index % 3 === 2 && styles.lastColumn, index > 5 && styles.lastRow];
-                                const starElement = QIMEN_PALACES.find(item => item.star === cell.star)?.element;
-                                const gateElement = cell.gate ? QIMEN_GATES[cell.gate].element : null;
-                                const badges = showBadges ? getQimenPalaceBadges(cell, board) : [];
-                                const dark = showDarkStem ? board.darkStems?.[number - 1] : undefined;
-                                return <Pressable key={number} onPress={event => {
-                                    const now = Date.now();
-                                    const previous = lastPalacePress.current;
-                                    const activated = screenReaderEnabled || ('detail' in event.nativeEvent && event.nativeEvent.detail === 0);
-                                    setSelected(number);
-                                    if (activated || (previous?.number === number && now - previous.at < DOUBLE_TAP_MS)) {
-                                        lastPalacePress.current = null;
-                                        setDetailVisible(true);
-                                    } else lastPalacePress.current = { number, at: now };
-                                }} onAccessibilityTap={() => { setSelected(number); setDetailVisible(true); }}
-                                    style={[...cellStyle, selected === number && styles.selected, isHighlighted && styles.highlighted]}
-                                    accessibilityRole="button" aria-pressed={selected === number} accessibilityState={{ selected: selected === number }} accessibilityHint="查看宫位详情"
-                                    accessibilityLabel={[cellInfo.name + '宫', cell.gate ?? (form === '飞盘' ? '五位' : ''), cell.star, cell.heavenStem && '天盘' + cell.heavenStem, '地盘' + cell.earthStem, cell.spirit].filter(Boolean).join('，')}>
-                                    <View style={styles.between}>
-                                        <View style={styles.palaceName}><WuXingIcon element={cellInfo.element} size={11} /><Text style={styles.small}>{cellInfo.name}</Text></View>
-                                        <View style={styles.badgeRow}>
-                                            {cell.voidBranches.length ? <Text style={styles.badgeWarn}>空</Text> : null}
-                                            {cell.isHorse ? <Text style={styles.badgeWarn}>马</Text> : null}
-                                            {badges.map(b => <Text key={b.key} style={b.tone === 'warn' ? styles.badgeGold : styles.badgeMuted}>{b.text}</Text>)}
-                                        </View>
+                        <View style={styles.grid}>{QIMEN_LAYOUT.map((number, index) => {
+                            const cell = board.palaces[number - 1];
+                            const cellInfo = QIMEN_PALACES[number - 1];
+                            const isHighlighted = highlightedPalaces.includes(number);
+                            const cellStyle = [styles.cell, index % 3 === 2 && styles.lastColumn, index > 5 && styles.lastRow];
+                            const highlightCorner = index === 0 ? styles.cornerTL
+                                : index === 2 ? styles.cornerTR
+                                : index === 6 ? styles.cornerBL
+                                : index === 8 ? styles.cornerBR
+                                : undefined;
+                            const starElement = QIMEN_PALACES.find(item => item.star === cell.star)?.element;
+                            const gateElement = cell.gate ? QIMEN_GATES[cell.gate].element : null;
+                            const badges = showBadges ? getQimenPalaceBadges(cell, board) : [];
+                            const dark = showDarkStem ? board.darkStems?.[number - 1] : undefined;
+                            return <Pressable key={number} onPress={event => {
+                                const now = Date.now();
+                                const previous = lastPalacePress.current;
+                                const activated = screenReaderEnabled || ('detail' in event.nativeEvent && event.nativeEvent.detail === 0);
+                                setSelected(number);
+                                if (activated || (previous?.number === number && now - previous.at < DOUBLE_TAP_MS)) {
+                                    lastPalacePress.current = null;
+                                    setDetailVisible(true);
+                                } else lastPalacePress.current = { number, at: now };
+                            }} onAccessibilityTap={() => { setSelected(number); setDetailVisible(true); }}
+                                style={[...cellStyle, selected === number && styles.selected]}
+                                accessibilityRole="button" aria-pressed={selected === number} accessibilityState={{ selected: selected === number }} accessibilityHint="查看宫位详情"
+                                accessibilityLabel={[cellInfo.name + '宫', cell.gate ?? (form === '飞盘' ? '五位' : ''), cell.star, cell.heavenStem && '天盘' + cell.heavenStem, '地盘' + cell.earthStem, cell.spirit].filter(Boolean).join('，')}>
+                                <View style={styles.between}>
+                                    <View style={styles.palaceName}><WuXingIcon element={cellInfo.element} size={11} /><Text style={styles.small}>{cellInfo.name}</Text></View>
+                                    <View style={styles.badgeRow}>
+                                        {cell.voidBranches.length ? <Text style={styles.badgeWarn}>空</Text> : null}
+                                        {cell.isHorse ? <Text style={styles.badgeWarn}>马</Text> : null}
+                                        {badges.map(b => <Text key={b.key} style={b.tone === 'warn' ? styles.badgeGold : styles.badgeMuted}>{b.text}</Text>)}
                                     </View>
-                                    {number === 5 && form === '星飞门转' ? (
-                                        <View style={styles.centerCell}>
-                                            <Text style={[styles.centerPillar, starElement && { color: palette.element[starElement] }]}>{cell.star}</Text>
-                                            <Text style={styles.small}>八门在外宫</Text>
-                                            <Text style={styles.small}>天 <Text style={{ color: cell.heavenStem ? stemColor(cell.heavenStem) : palette.ink }}>{cell.heavenStem}</Text>　地 <Text style={{ color: stemColor(cell.earthStem) }}>{cell.earthStem}</Text></Text>
-                                        </View>
-                                    ) : number === 5 && turn ? (
-                                        <View style={styles.centerCell}>
-                                            <Text style={styles.small}>{period}</Text>
-                                            <Text style={styles.centerPillar}>{pillars[QIMEN_PERIODS.indexOf(period)]}</Text>
-                                            <Text style={styles.small}>地 <Text style={{ color: stemColor(cell.earthStem) }}>{cell.earthStem}</Text>{dark ? <>　暗 <Text style={{ color: stemColor(dark) }}>{dark}</Text></> : ' · 寄坤'}</Text>
-                                            <Text style={styles.small}>天禽随芮</Text>
-                                        </View>
-                                    ) : <>
-                                        <View style={styles.between}><Text style={[styles.star, { color: starElement ? palette.element[starElement] : palette.ink }]}>{cell.star}</Text><Text style={styles.spirit}>{cell.spirit}</Text></View>
-                                        <View style={styles.gateRow}>{cell.gate && gateElement ? <Image source={QIMEN_GATE_IMAGES[cell.gate]} style={[styles.gateIcon, { tintColor: palette.element[gateElement] }]} resizeMode="contain" /> : null}<Text style={[styles.gate, { color: gateElement ? palette.element[gateElement] : palette.ink }]}>{cell.gate ?? (form === '飞盘' ? '五位' : '八门在外宫')}</Text></View>
-                                        <View style={styles.between}>
-                                            <Text style={styles.small}>天 <Text style={[styles.stem, { color: cell.heavenStem ? stemColor(cell.heavenStem) : palette.ink }]}>{cell.heavenStem}</Text></Text>
-                                            <Text style={styles.small}>地 <Text style={[styles.stem, { color: stemColor(cell.earthStem) }]}>{cell.earthStem}</Text></Text>
-                                            {dark ? <Text style={styles.small}>暗 <Text style={{ color: stemColor(dark), fontWeight: '600' }}>{dark}</Text></Text> : null}
-                                        </View>
-                                        <Text style={styles.hosted} numberOfLines={1}>{cell.hostedHeavenStem || cell.hostedEarthStem ? `${cell.hostedHeavenStem ? `禽·天寄${cell.hostedHeavenStem} ` : ''}${cell.hostedEarthStem ? `地寄${cell.hostedEarthStem}` : ''}` : `${cellInfo.direction} · ${cellInfo.element}`}</Text>
-                                    </>}
-                                </Pressable>;
-                            })}</View>
-                        </View>
+                                </View>
+                                {number === 5 && form === '星飞门转' ? (
+                                    <View style={styles.centerCell}>
+                                        <Text style={[styles.centerPillar, starElement && { color: palette.element[starElement] }]}>{cell.star}</Text>
+                                        <Text style={styles.small}>八门在外宫</Text>
+                                        <Text style={styles.small}>天 <Text style={{ color: cell.heavenStem ? stemColor(cell.heavenStem) : palette.ink }}>{cell.heavenStem}</Text>　地 <Text style={{ color: stemColor(cell.earthStem) }}>{cell.earthStem}</Text></Text>
+                                    </View>
+                                ) : number === 5 && turn ? (
+                                    <View style={styles.centerCell}>
+                                        <Text style={styles.small}>{period}</Text>
+                                        <Text style={styles.centerPillar}>{pillars[QIMEN_PERIODS.indexOf(period)]}</Text>
+                                        <Text style={styles.small}>地 <Text style={{ color: stemColor(cell.earthStem) }}>{cell.earthStem}</Text>{dark ? <>　暗 <Text style={{ color: stemColor(dark) }}>{dark}</Text></> : ' · 寄坤'}</Text>
+                                        <Text style={styles.small}>天禽随芮</Text>
+                                    </View>
+                                ) : <>
+                                    <View style={styles.between}><Text style={[styles.star, { color: starElement ? palette.element[starElement] : palette.ink }]}>{cell.star}</Text><Text style={styles.spirit}>{cell.spirit}</Text></View>
+                                    <View style={styles.gateStack}>{cell.gate && gateElement ? <Image source={QIMEN_GATE_IMAGES[cell.gate]} style={[styles.gateIcon, { tintColor: palette.element[gateElement] }]} resizeMode="contain" /> : null}<Text style={[styles.gate, { color: gateElement ? palette.element[gateElement] : palette.ink }]} numberOfLines={1}>{cell.gate ?? (form === '飞盘' ? '五位' : '八门在外宫')}</Text></View>
+                                    <View style={styles.between}>
+                                        <Text style={styles.small}>天 <Text style={[styles.stem, { color: cell.heavenStem ? stemColor(cell.heavenStem) : palette.ink }]}>{cell.heavenStem}</Text></Text>
+                                        <Text style={styles.small}>地 <Text style={[styles.stem, { color: stemColor(cell.earthStem) }]}>{cell.earthStem}</Text></Text>
+                                        {dark ? <Text style={styles.small}>暗 <Text style={{ color: stemColor(dark), fontWeight: '600' }}>{dark}</Text></Text> : null}
+                                    </View>
+                                    <Text style={styles.hosted} numberOfLines={1}>{cell.hostedHeavenStem || cell.hostedEarthStem ? `${cell.hostedHeavenStem ? `禽·天寄${cell.hostedHeavenStem} ` : ''}${cell.hostedEarthStem ? `地寄${cell.hostedEarthStem}` : ''}` : `${cellInfo.direction} · ${cellInfo.element}`}</Text>
+                                </>}
+                                {isHighlighted ? <View pointerEvents="none" style={[styles.highlightRing, highlightCorner]} /> : null}
+                            </Pressable>;
+                        })}</View>
 
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.focusRow}>
+                        <ScrollView horizontal {...webHorizontalFadeProps} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.focusRow}>
                             {focusOptions.map(item => {
                                 const on = focusKey === item.key;
-                                return <Pressable key={item.key} onPress={() => setFocusKey(cur => cur === item.key ? null : item.key)}
+                                return <PressableScale key={item.key} onPress={() => setFocusKey(cur => cur === item.key ? null : item.key)}
                                     style={[styles.focusPill, on && styles.focusPillOn]} accessibilityRole="button" aria-pressed={on}>
                                     <Text style={[styles.focusPillText, on && styles.focusPillTextOn]}>{item.label}</Text>
-                                </Pressable>;
+                                </PressableScale>;
                             })}
                         </ScrollView>
 
@@ -448,7 +443,7 @@ export default function QimenResultPage() {
 
 function makeStyles(palette: ResultPalette) {
     return StyleSheet.create({
-        container: { flex: 1 }, center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+        container: { flex: 1, backgroundColor: 'transparent' }, center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
         periods: { flexDirection: 'row', backgroundColor: palette.page, borderBottomWidth: 1, borderBottomColor: palette.rule },
         periodTab: { flex: 1, minHeight: 46, alignItems: 'center', justifyContent: 'center' },
         periodLabel: { textAlign: 'center', color: palette.muted, fontSize: 15 },
@@ -481,20 +476,25 @@ function makeStyles(palette: ResultPalette) {
         boardToolbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 4 },
         toolbarRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
         miniToggle: { minHeight: 36, justifyContent: 'center' },
-        boardFrame: { position: 'relative', padding: 1.5, backgroundColor: palette.rule, borderRadius: 11, overflow: 'hidden' },
-        grid: { flexDirection: 'row', flexWrap: 'wrap', borderRadius: 9.5, overflow: 'hidden', backgroundColor: palette.card },
-        cell: { width: '33.333333%', minHeight: 116, padding: 8, borderRightWidth: 1, borderBottomWidth: 1, borderColor: palette.rule, backgroundColor: palette.card },
+        grid: { flexDirection: 'row', flexWrap: 'wrap', borderWidth: 1, borderColor: palette.rule, borderRadius: 10, overflow: 'hidden', backgroundColor: palette.card },
+        cell: { position: 'relative', width: '33.333333%', minHeight: 116, padding: 8, borderRightWidth: 1, borderBottomWidth: 1, borderColor: palette.rule, backgroundColor: palette.card },
         lastColumn: { borderRightWidth: 0 }, lastRow: { borderBottomWidth: 0 },
         selected: { backgroundColor: palette.dayFill },
-        highlighted: { borderColor: palette.gold, borderWidth: 1.5 },
+        // 内描边独立于宫格自身单边分隔线，四角精准贴合 grid 内圆角（10 - 1 = 9），不缺边、不切角、不挤内容
+        highlightRing: { ...StyleSheet.absoluteFill, borderWidth: 1.5, borderColor: palette.gold },
+        cornerTL: { borderTopLeftRadius: 9 },
+        cornerTR: { borderTopRightRadius: 9 },
+        cornerBL: { borderBottomLeftRadius: 9 },
+        cornerBR: { borderBottomRightRadius: 9 },
         palaceName: { flexDirection: 'row', alignItems: 'center', gap: 3 },
         badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 2, flexWrap: 'nowrap' },
         badgeWarn: { fontSize: 10, fontWeight: '600', color: palette.vermilion },
         badgeGold: { fontSize: 10, fontWeight: '600', color: palette.gold },
         badgeMuted: { fontSize: 10, color: palette.muted },
         star: { fontSize: 12, lineHeight: 23 }, spirit: { fontSize: 12, color: palette.body },
-        gateRow: { flexDirection: 'row', alignItems: 'center', minHeight: 36, gap: 5 },
-        gate: { fontSize: 19, fontWeight: '600' }, gateIcon: { width: 25, height: 28 },
+        // 图标在上、门名在下居中；minHeight 按「图标 + 间距 + 一行字」算，没有门的宫（飞盘五位）也和同排对齐
+        gateStack: { alignItems: 'center', justifyContent: 'center', gap: 2, minHeight: 48 },
+        gate: { fontSize: 17, lineHeight: 22, fontWeight: '600' }, gateIcon: { width: 22, height: 24 },
         stem: { fontSize: 15, fontWeight: '600' },
         hosted: { fontSize: 12, lineHeight: 18, color: palette.muted, marginTop: 4 },
         centerCell: { flex: 1, alignItems: 'center', justifyContent: 'center' }, centerPillar: { fontSize: 20, lineHeight: 30, color: palette.heading, fontWeight: '600' },

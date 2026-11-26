@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { webHorizontalFadeProps } from '../../theme/web-enhance';
+import SheetModal from '../SheetModal';
+import PressableScale from '../PressableScale';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { BaziResult } from '../../core/bazi-types';
@@ -17,6 +20,7 @@ import type { AIReasoningSetting } from '../../services/ai-provider-types';
 import { setActiveModelReasoning } from '../../services/settings';
 import { useTheme } from '../../theme/ThemeContext';
 import { CustomAlert } from '../CustomAlertProvider';
+import FocusTextInput from '../FocusTextInput';
 import { SendIcon } from '../Icons';
 import AIModelPicker, { EngravedDivider } from '../AIModelSelector';
 import ThinkingSlider from './ThinkingSlider';
@@ -37,14 +41,14 @@ export function AIStageStepper<K extends string>({ chapters, currentId, styles, 
                 const barStyle = (!chapter.status && current) || chapter.status === 'done' ? styles.stepBarDone : chapter.status === 'running' ? styles.stepBarRun
                     : chapter.status === 'failed' ? styles.stepBarFail : null;
                 return (
-                    <TouchableOpacity key={chapter.id} style={styles.step} disabled={!reachable} onPress={() => onPress(chapter.id)}
+                    <PressableScale key={chapter.id} style={styles.step} disabled={!reachable} onPress={() => onPress(chapter.id)}
                         accessibilityRole="tab" aria-selected={current} accessibilityState={{ selected: current, disabled: !reachable }}
                         accessibilityLabel={chapter.status ? `${chapter.no}${chapter.title}，${STEP_STATUS[chapter.status]}` : chapter.short}>
                         <View style={[styles.stepBar, barStyle]} />
                         <Text numberOfLines={1} style={[styles.stepLabel, reachable && styles.stepLabelActive, current && styles.stepLabelCurrent, !chapter.status && styles.centeredStepLabel]}>
                             {chapter.no ? chapter.no + ' ' : ''}{chapter.short}
                         </Text>
-                    </TouchableOpacity>
+                    </PressableScale>
                 );
             })}
         </View>
@@ -148,13 +152,13 @@ export function BaziChartSummary({ result, natalEnergy, fortuneEnergy, styles, C
     );
     return (
         <View style={styles.chart}>
-            <TouchableOpacity style={styles.chartFold} onPress={toggle} accessibilityRole="button"
+            <PressableScale style={styles.chartFold} onPress={toggle} accessibilityRole="button"
                 accessibilityState={{ expanded }} accessibilityLabel={`原局 ${result.fourPillars.join(' ')}，${expanded ? '点按收起' : '点按展开五行能量'}`}>
                 <Text style={styles.chartFoldLabel}>原局</Text>
                 <Text style={styles.chartFoldPillars} numberOfLines={1}>{result.fourPillars.map(pillarText)}</Text>
                 {!expanded && natalEnergy ? <MiniBar energy={natalEnergy} styles={styles} Colors={Colors} /> : null}
                 <Text style={styles.chartFoldChevron}>{expanded ? '⌃' : '⌄'}</Text>
-            </TouchableOpacity>
+            </PressableScale>
             {expanded ? (
                 <>
                     <View style={styles.pillars}>
@@ -183,10 +187,10 @@ export function BaziChartSummary({ result, natalEnergy, fortuneEnergy, styles, C
                                         {([['natal', '原局'], ['fortune', '岁运']] as const).map(([key, label]) => {
                                             const on = mode === key;
                                             return (
-                                                <TouchableOpacity key={key} style={[styles.wxSegBtn, on && styles.wxSegBtnOn]} onPress={() => setMode(key)}
+                                                <PressableScale key={key} style={[styles.wxSegBtn, on && styles.wxSegBtnOn]} onPress={() => setMode(key)}
                                                     accessibilityRole="radio" accessibilityState={{ checked: on }}>
                                                     <Text style={[styles.wxSegText, on && styles.wxSegTextOn]}>{label}</Text>
-                                                </TouchableOpacity>
+                                                </PressableScale>
                                             );
                                         })}
                                     </View>
@@ -300,9 +304,9 @@ export function ProgressBlock({ status, startedAt, styles, onStop, stopDisabled,
             <View style={styles.progMeta}>
                 <Text style={styles.progMetaText} numberOfLines={1}>{[modelLabel, `已用时 ${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`].filter(Boolean).join(' · ')}</Text>
                 {onStop ? (
-                    <TouchableOpacity style={styles.linkBtn} onPress={onStop} disabled={stopDisabled} accessibilityRole="button">
+                    <PressableScale style={styles.linkBtn} onPress={onStop} disabled={stopDisabled} accessibilityRole="button">
                         <Text style={[styles.linkText, styles.linkDanger, stopDisabled && styles.btnDisabled]}>停止</Text>
-                    </TouchableOpacity>
+                    </PressableScale>
                 ) : null}
             </View>
         </View>
@@ -321,14 +325,14 @@ export function FailureBanner({ title, message, detail, styles, actions }: {
                 <Text style={styles.bannerText}>{message}</Text>
                 <View style={styles.row}>
                     {actions.map((action) => (
-                        <TouchableOpacity key={action.label} style={[styles.btn, styles.btnSmall, action.primary && styles.btnPrimary]} onPress={action.onPress}>
+                        <PressableScale key={action.label} style={[styles.btn, styles.btnSmall, action.primary && styles.btnPrimary]} onPress={action.onPress}>
                             <Text style={[styles.btnText, styles.btnSmallText, action.primary && styles.btnPrimaryText]}>{action.label}</Text>
-                        </TouchableOpacity>
+                        </PressableScale>
                     ))}
                     {detail ? (
-                        <TouchableOpacity style={styles.linkBtn} onPress={() => setOpen(!open)} accessibilityState={{ expanded: open }}>
+                        <PressableScale style={styles.linkBtn} onPress={() => setOpen(!open)} accessibilityState={{ expanded: open }}>
                             <Text style={styles.linkText}>{open ? '收起详情' : '详情'}</Text>
-                        </TouchableOpacity>
+                        </PressableScale>
                     ) : null}
                 </View>
                 {open && detail ? <Text style={styles.detailText} selectable>{detail}</Text> : null}
@@ -341,10 +345,10 @@ export function ActionButton({ label, onPress, primary, disabled, styles, small 
     label: string; onPress: () => void; primary?: boolean; disabled?: boolean; styles: AIPageStyles; small?: boolean;
 }) {
     return (
-        <TouchableOpacity style={[styles.btn, small && styles.btnSmall, primary && styles.btnPrimary, disabled && styles.btnDisabled]}
+        <PressableScale style={[styles.btn, small && styles.btnSmall, primary && styles.btnPrimary, disabled && styles.btnDisabled]}
             onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityState={{ disabled }}>
             <Text style={[styles.btnText, small && styles.btnSmallText, primary && styles.btnPrimaryText]}>{label}</Text>
-        </TouchableOpacity>
+        </PressableScale>
     );
 }
 
@@ -361,16 +365,16 @@ export function AIComposer({ value, onChange, onSend, disabledReason, busy, quic
         <View style={styles.composer}>
             {children}
             {!locked && quickReplies.length > 0 ? (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} keyboardShouldPersistTaps="handled">
+                <ScrollView horizontal {...webHorizontalFadeProps} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} keyboardShouldPersistTaps="handled">
                     {quickReplies.map((item) => (
-                        <TouchableOpacity key={item} style={styles.chip} onPress={() => onQuickReply(item)} disabled={busy}>
+                        <PressableScale key={item} style={styles.chip} onPress={() => onQuickReply(item)} disabled={busy}>
                             <Text style={styles.chipText}>{item}</Text>
-                        </TouchableOpacity>
+                        </PressableScale>
                     ))}
                 </ScrollView>
             ) : null}
             <View style={styles.inputRow}>
-                <TextInput
+                <FocusTextInput
                     style={[styles.input, locked && { color: Colors.text.tertiary }]}
                     placeholder={disabledReason ?? '继续追问…'}
                     placeholderTextColor={Colors.text.tertiary}
@@ -382,11 +386,11 @@ export function AIComposer({ value, onChange, onSend, disabledReason, busy, quic
                     accessibilityLabel="追问"
                     accessibilityHint={disabledReason}
                 />
-                <TouchableOpacity style={[styles.send, !canSend && styles.sendDisabled]} onPress={onSend} disabled={!canSend}
+                <PressableScale style={[styles.send, !canSend && styles.sendDisabled]} onPress={onSend} disabled={!canSend}
                     accessibilityRole="button" accessibilityLabel="发送" accessibilityState={{ disabled: !canSend }}>
                     {busy && !locked ? <ActivityIndicator size="small" color={Colors.text.inverse} />
                         : <SendIcon size={18} color={canSend ? Colors.text.inverse : Colors.text.tertiary} />}
-                </TouchableOpacity>
+                </PressableScale>
             </View>
         </View>
     );
@@ -436,14 +440,14 @@ export function AIModelChip({ visible, running, styles, Colors }: {
     const modelName = running?.model ?? active.model?.model;
     return (
         <>
-            <TouchableOpacity style={styles.modelChip} onPress={() => setOpen(true)} accessibilityRole="button"
+            <PressableScale style={styles.modelChip} onPress={() => setOpen(true)} accessibilityRole="button"
                 accessibilityLabel={`模型：${modelName || '未选择'}${levelLabel ? `，思考 ${levelLabel}` : ''}，点按切换模型与思考强度`}>
                 <View style={[styles.modelChipDot, !active.model && styles.modelChipDotIdle]} />
                 <Text style={styles.modelChipText} numberOfLines={1}>{modelName || '选择模型'}</Text>
                 {modelName && levelLabel ? <Text style={styles.modelChipLevel}>{levelLabel}</Text> : null}
-            </TouchableOpacity>
+            </PressableScale>
             {/* One page: searchable model list on top, thinking slider pinned to the bottom. */}
-            <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+            <SheetModal visible={open} onRequestClose={() => setOpen(false)}>
                 <GestureHandlerRootView style={styles.flex}>
                     <KeyboardAvoidingView style={styles.sheetRoot} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
                         <Pressable style={styles.sheetScrim} onPress={() => setOpen(false)} accessibilityLabel="关闭" />
@@ -451,9 +455,9 @@ export function AIModelChip({ visible, running, styles, Colors }: {
                             <View style={styles.sheetHandle} />
                             <View style={styles.sheetHead}>
                                 <Text style={styles.sheetTitle}>模型与思考</Text>
-                                <TouchableOpacity style={styles.sheetDone} onPress={() => setOpen(false)} accessibilityRole="button">
+                                <PressableScale style={styles.sheetDone} onPress={() => setOpen(false)} accessibilityRole="button">
                                     <Text style={styles.sheetDoneText}>完成</Text>
-                                </TouchableOpacity>
+                                </PressableScale>
                             </View>
                             <View style={styles.sheetBody}>
                                 <AIModelPicker visible={open} maxHeight={Math.round(height * 0.42)} />
@@ -477,7 +481,7 @@ export function AIModelChip({ visible, running, styles, Colors }: {
                         </View>
                     </KeyboardAvoidingView>
                 </GestureHandlerRootView>
-            </Modal>
+            </SheetModal>
         </>
     );
 }

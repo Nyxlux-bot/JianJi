@@ -7,6 +7,7 @@ import { ChevronDownIcon, ChevronRightIcon, CloseIcon, SparkleIcon } from '../..
 import PressableScale from '../../components/PressableScale';
 import { useTheme } from '../../theme/ThemeContext';
 import { buildResultPalette, type ResultPalette } from '../../theme/result-palette';
+import { webScrimBlur, webScrimProps } from '../../theme/web-enhance';
 import { getGanZhiElement } from '../bazi/wuxing';
 import { QIMEN_GATES, QIMEN_LAYOUT, QIMEN_PALACES } from './data';
 import { getQimenPalaceNotes } from './rules';
@@ -81,7 +82,7 @@ export default function QimenPalaceDetail({ result, palace, period, board, visib
     return (
         <Modal visible={mounted} transparent animationType="none" onRequestClose={onClose}>
             <GestureHandlerRootView style={styles.fill}>
-                <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: palette.isLight ? 'rgba(26,21,16,0.64)' : Colors.bg.overlay }, scrimStyle]}>
+                <Animated.View {...webScrimProps} style={[StyleSheet.absoluteFill, { backgroundColor: palette.isLight ? 'rgba(26,21,16,0.64)' : Colors.bg.overlay }, webScrimBlur, scrimStyle]}>
                     <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityRole="button" accessibilityLabel="回到九宫盘" />
                 </Animated.View>
                 <View style={[styles.overlay, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 20 }]} pointerEvents="box-none">

@@ -5,9 +5,9 @@
 
 import React, { useState } from 'react';
 import {
-    View, Text, StyleSheet, TouchableOpacity,
-    ScrollView, TextInput,
-} from 'react-native';
+    View, Text, StyleSheet, ScrollView, } from 'react-native';
+import PressableScale from '../../src/components/PressableScale';
+import FocusTextInput from '../../src/components/FocusTextInput';
 import StatusBarDecor from '../../src/components/StatusBarDecor';
 import { router } from 'expo-router';
 import { CustomAlert } from '../../src/components/CustomAlertProvider';
@@ -86,13 +86,13 @@ export default function ManualDivination() {
         <View style={styles.container}>
             <StatusBarDecor />
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+                <PressableScale onPress={() => router.back()} style={styles.backBtn}>
                     <BackIcon size={24} />
-                </TouchableOpacity>
+                </PressableScale>
                 <Text style={styles.headerTitle}>手动起卦</Text>
-                <TouchableOpacity onPress={handleReset} style={styles.backBtn}>
+                <PressableScale onPress={handleReset} style={styles.backBtn}>
                     <Text style={styles.resetText}>重置</Text>
-                </TouchableOpacity>
+                </PressableScale>
             </View>
 
             <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -105,7 +105,7 @@ export default function ManualDivination() {
 
                 {/* 占问事项 */}
                 <View style={styles.questionSection}>
-                    <TextInput
+                    <FocusTextInput
                         style={styles.questionInput}
                         value={question}
                         onChangeText={setQuestion}
@@ -125,14 +125,13 @@ export default function ManualDivination() {
                                     const isSelected = yaoValues[index] === opt.value;
                                     const isMoving = opt.value === 6 || opt.value === 9;
                                     return (
-                                        <TouchableOpacity
+                                        <PressableScale
                                             key={opt.value}
                                             style={[
                                                 styles.optionBtn,
                                                 isSelected && styles.optionBtnSelected,
                                                 isSelected && isMoving && styles.optionBtnMoving,
                                             ]}
-                                            activeOpacity={0.7}
                                             onPress={() => setYao(index, opt.value)}
                                         >
                                             <Text style={[
@@ -142,7 +141,7 @@ export default function ManualDivination() {
                                             ]}>
                                                 {opt.label}
                                             </Text>
-                                        </TouchableOpacity>
+                                        </PressableScale>
                                     );
                                 })}
                             </View>
@@ -181,14 +180,13 @@ export default function ManualDivination() {
                     </View>
                 </View>
 
-                <TouchableOpacity
+                <PressableScale
                     style={[styles.divinateButton, (!allSet || !subject) && styles.divinateButtonDisabled]}
-                    activeOpacity={0.8}
                     onPress={handleDivinate}
                     disabled={!allSet || !subject}
                 >
                     <Text style={styles.divinateButtonText}>起卦</Text>
-                </TouchableOpacity>
+                </PressableScale>
             </ScrollView>
 
             <CityPicker
@@ -219,7 +217,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     questionInput: {
         backgroundColor: Colors.bg.card, color: Colors.text.primary,
         fontSize: FontSize.md, padding: Spacing.lg,
-        borderRadius: BorderRadius.md, borderWidth: 0.5, borderColor: Colors.border.subtle,
+        borderRadius: BorderRadius.md, borderWidth: 1, borderColor: Colors.border.input,
     },
     yaoSection: { gap: Spacing.sm, marginBottom: Spacing.xxl },
     yaoRow: {
@@ -234,11 +232,11 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         backgroundColor: Colors.bg.elevated, borderRadius: BorderRadius.sm,
         alignItems: 'center', borderWidth: 1, borderColor: 'transparent',
     },
-    optionBtnSelected: { borderColor: Colors.accent.gold, backgroundColor: 'rgba(200,148,58,0.1)' },
-    optionBtnMoving: { borderColor: Colors.accent.red, backgroundColor: Colors.yao.movingBg },
+    optionBtnSelected: { borderColor: Colors.accent.goldBorder, backgroundColor: Colors.accent.goldSoft },
+    optionBtnMoving: { borderColor: `${Colors.accent.red}6B`, backgroundColor: Colors.yao.movingBg },
     optionLabel: { fontSize: FontSize.xs, color: Colors.text.secondary },
-    optionLabelSelected: { color: Colors.accent.gold },
-    optionLabelMoving: { color: Colors.accent.red },
+    optionLabelSelected: { color: Colors.accent.gold, fontWeight: '600' },
+    optionLabelMoving: { color: Colors.yao.movingText },
     previewSection: { marginBottom: Spacing.xxl },
     sectionLabel: {
         fontSize: FontSize.sm, color: Colors.text.secondary,

@@ -6,20 +6,21 @@ import {
     Easing,
     KeyboardAvoidingView,
     Linking,
-    Modal,
     Platform,
     Pressable,
     ScrollView,
     StyleSheet,
     Text,
-    TextInput,
     View,
 } from 'react-native';
+import SheetModal from '../../src/components/SheetModal';
+import FocusTextInput from '../../src/components/FocusTextInput';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 import { useFocusEffect, useIsFocused, usePreventRemove } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useReducedMotion } from 'react-native-reanimated';
 import Svg, { Circle, Path, Text as SvgText } from 'react-native-svg';
 import { CustomAlert } from '../../src/components/CustomAlertProvider';
 import {
@@ -171,6 +172,7 @@ export default function SettingsPage() {
     const isFocused = useIsFocused();
     const styles = React.useMemo(() => makeStyles(Colors), [Colors]);
     const insets = useSafeAreaInsets();
+    const reduceMotion = useReducedMotion();
     const palette = React.useMemo(() => buildResultPalette(Colors), [Colors]);
     const layout = React.useMemo(() => makeLayoutStyles(palette, Colors), [palette, Colors]);
     const [recordCounts, setRecordCounts] = useState<{ total: number; byEngine: Partial<Record<DivinationEngine, number>> }>({ total: 0, byEngine: {} });
@@ -242,13 +244,17 @@ export default function SettingsPage() {
     }, [theme]);
 
     useEffect(() => {
+        if (reduceMotion) {
+            themeProgress.setValue(theme === 'yang' ? 1 : 0);
+            return;
+        }
         Animated.timing(themeProgress, {
             toValue: theme === 'yang' ? 1 : 0,
             duration: 520,
             easing: Easing.out(Easing.cubic),
             useNativeDriver: true,
         }).start();
-    }, [theme, themeProgress]);
+    }, [theme, themeProgress, reduceMotion]);
 
     // Settings save themselves: each change is written shortly after the last
     // edit. A draft that does not validate yet (e.g. a half-typed number) stays
@@ -711,7 +717,7 @@ export default function SettingsPage() {
                 {activeSheet === 'calendar' && (
                     <View style={styles.sheetBlock}>
                         <FieldLabel label="腾讯位置服务 Key" />
-                        <TextInput
+                        <FocusTextInput
                             style={styles.input}
                             value={settings.geocoderApiKey}
                             onChangeText={(value) => updateSettings((prev) => ({ ...prev, geocoderApiKey: value }))}
@@ -776,7 +782,7 @@ function SettingsSheet({
     const sheetStyles = makeSheetStyles(Colors);
     const insets = useSafeAreaInsets();
     return (
-        <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+        <SheetModal visible={visible} onRequestClose={onClose}>
             <KeyboardAvoidingView style={sheetStyles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined} enabled={independentContent}>
                 <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="关闭设置" accessibilityRole="button" />
                 <View style={[sheetStyles.sheet, independentContent && sheetStyles.aiSheet,
@@ -795,12 +801,13 @@ function SettingsSheet({
                     )}
                 </View>
             </KeyboardAvoidingView>
-        </Modal>
+        </SheetModal>
     );
 }
 
 function FieldLabel({ label }: { label: string }) {
-    return <Text style={fieldLabelStyles.label}>{label}</Text>;
+    const { Colors } = useTheme();
+    return <Text style={[fieldLabelStyles.label, { color: Colors.accent.gold }]}>{label}</Text>;
 }
 
 function ActionButton({
@@ -876,7 +883,6 @@ const fieldLabelStyles = StyleSheet.create({
     label: {
         fontSize: FontSize.sm,
         fontWeight: '700',
-        color: '#8f7732',
         marginTop: Spacing.xs,
     },
 });
@@ -885,7 +891,6 @@ const makeSheetStyles = (Colors: ReturnType<typeof useTheme>['Colors']) => Style
     overlay: {
         flex: 1,
         justifyContent: 'flex-end',
-        backgroundColor: Colors.bg.overlay,
     },
     sheet: {
         maxHeight: '78%',
@@ -996,7 +1001,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         paddingHorizontal: Spacing.md,
         borderRadius: BorderRadius.md,
         borderWidth: 1,
-        borderColor: Colors.border.subtle,
+        borderColor: Colors.border.input,
     },
     inputRow: {
         minHeight: 46,
@@ -1005,7 +1010,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         backgroundColor: Colors.bg.elevated,
         borderRadius: BorderRadius.md,
         borderWidth: 1,
-        borderColor: Colors.border.subtle,
+        borderColor: Colors.border.input,
         paddingLeft: Spacing.md,
         paddingRight: Spacing.xs,
     },
@@ -1178,7 +1183,7 @@ const makeLayoutStyles = (palette: ResultPalette, Colors: any) => StyleSheet.cre
     countCell: { flex: 1, alignItems: 'center' },
     countRule: { borderLeftWidth: 1, borderLeftColor: palette.cardBorder },
     countBadge: { fontFamily: Platform.select({ ios: 'Songti SC', android: 'serif', default: 'serif' }), fontSize: 13, lineHeight: 18, fontWeight: '700' },
-    countValue: { fontSize: 18, lineHeight: 24, fontWeight: '700', color: palette.heading },
+    countValue: { fontSize: 18, lineHeight: 24, fontWeight: '700', color: palette.heading, fontVariant: ['tabular-nums'] },
     countLabel: { fontSize: 11, lineHeight: 15, color: palette.muted },
     dataActions: { flexDirection: 'row', gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: palette.cardBorder },
     pill: { flex: 1, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: palette.cardBorder, backgroundColor: palette.segTrack },

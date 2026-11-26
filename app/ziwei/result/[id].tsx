@@ -3,9 +3,9 @@ import {
     ActivityIndicator,
     StyleSheet,
     Text,
-    TouchableOpacity,
     View,
 } from 'react-native';
+import PressableScale from '../../../src/components/PressableScale';
 import { router, useLocalSearchParams } from 'expo-router';
 import StatusBarDecor from '../../../src/components/StatusBarDecor';
 import { buildZiweiHistoryRestoreRoute } from '../../../src/features/ziwei/result-route';
@@ -48,9 +48,9 @@ export default function ZiweiHistoryResultLoader() {
             <View style={styles.centerBox}>
                 <Text style={styles.title}>记录不存在或已被删除</Text>
                 <Text style={styles.body}>当前紫微记录已无法读取，可以返回历史记录查看其他命盘。</Text>
-                <TouchableOpacity style={styles.actionBtn} onPress={() => router.replace('/history')}>
+                <PressableScale style={styles.actionBtn} onPress={() => router.replace('/history')}>
                     <Text style={styles.actionText}>去历史记录</Text>
-                </TouchableOpacity>
+                </PressableScale>
             </View>
         </View>
     );

@@ -1,7 +1,7 @@
 import React, { memo, useEffect, useMemo } from 'react';
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 import { BackIcon, MoreVerticalIcon, SparklesIcon } from '../../../components/Icons';
 import type { ZiweiMutagen, ZiweiPalaceAnalysisView } from '../types';
@@ -286,6 +286,7 @@ const SHEET_HIDDEN = { display: 'none' as const };
 
 export function ZiweiSheet({ visible, topInset, palette, header, children, onClose, onClosed, onSwipe, keepMounted = false }: ZiweiSheetProps) {
     const { height: screenHeight } = useWindowDimensions();
+    const reduceMotion = useReducedMotion();
     const progress = useSharedValue(0);
     const [mounted, setMounted] = React.useState(visible || keepMounted);
     const [hidden, setHidden] = React.useState(!visible);
@@ -301,18 +302,19 @@ export function ZiweiSheet({ visible, topInset, palette, header, children, onClo
     }, [keepMounted, onClosed]);
 
     useEffect(() => {
+        const duration = reduceMotion ? 0 : SHEET_DURATION;
         if (visible) {
             setMounted(true);
             setHidden(false);
-            progress.value = withTiming(1, { duration: SHEET_DURATION });
-        } else {
-            progress.value = withTiming(0, { duration: SHEET_DURATION }, (finished) => {
+            progress.value = withTiming(1, { duration });
+        } else if (!hidden) {
+            progress.value = withTiming(0, { duration }, (finished) => {
                 if (finished) {
                     runOnJS(handleHidden)();
                 }
             });
         }
-    }, [handleHidden, progress, visible]);
+    }, [handleHidden, hidden, progress, reduceMotion, visible]);
 
     const animatedStyle = useAnimatedStyle(() => ({
         transform: [{ translateY: (1 - progress.value) * travel }],

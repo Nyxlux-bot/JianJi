@@ -3,6 +3,9 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import PressableScale from '../../src/components/PressableScale';
+import FocusTextInput, { useFieldFocus } from '../../src/components/FocusTextInput';
+import { webFocusFieldProps } from '../../src/theme/web-enhance';
 import { router, useLocalSearchParams } from 'expo-router';
 import StatusBarDecor from '../../src/components/StatusBarDecor';
 import { CustomAlert } from '../../src/components/CustomAlertProvider';
@@ -114,9 +117,9 @@ export default function MeihuaInputPage() {
         <View style={styles.container}>
             <StatusBarDecor />
             <View style={styles.header}>
-                <Pressable onPress={() => router.back()} style={styles.headerBtn} accessibilityRole="button" accessibilityLabel="返回">
+                <PressableScale onPress={() => router.back()} style={styles.headerBtn} accessibilityRole="button" accessibilityLabel="返回">
                     <BackIcon size={22} color={palette.ink} />
-                </Pressable>
+                </PressableScale>
                 <Text style={styles.headerTitle}>梅花易数</Text>
                 <View style={styles.headerBtn} />
             </View>
@@ -129,7 +132,7 @@ export default function MeihuaInputPage() {
                     {MODES.map((item) => {
                         const on = item.key === mode;
                         return (
-                            <Pressable
+                            <PressableScale
                                 key={item.key}
                                 onPress={() => setMode(item.key)}
                                 style={[styles.modeCard, on && styles.modeCardOn]}
@@ -139,7 +142,7 @@ export default function MeihuaInputPage() {
                             >
                                 <Text style={[styles.modeTitle, on && styles.modeTitleOn]}>{item.label}</Text>
                                 <Text style={styles.modeDesc}>{item.desc}</Text>
-                            </Pressable>
+                            </PressableScale>
                         );
                     })}
                 </View>
@@ -147,28 +150,17 @@ export default function MeihuaInputPage() {
                 {mode === 'meihua_time' ? (
                     <>
                         <Text style={styles.label}>起卦时间</Text>
-                        <Pressable style={styles.field} onPress={() => setPickerVisible(true)} accessibilityRole="button" accessibilityLabel="选择起卦时间">
+                        <PressableScale style={styles.field} onPress={() => setPickerVisible(true)} accessibilityRole="button" accessibilityLabel="选择起卦时间">
                             <Text style={styles.fieldText}>{formatDateTime(castDate)}</Text>
                             <ChevronRightIcon size={16} color={palette.muted} />
-                        </Pressable>
+                        </PressableScale>
                     </>
                 ) : (
                     <>
                         <Text style={styles.label}>报数</Text>
                         <View style={styles.numberRow}>
                             {[{ label: '上数', value: first, onChange: setFirst }, { label: '下数', value: second, onChange: setSecond }].map((item) => (
-                                <View key={item.label} style={styles.numberField}>
-                                    <Text style={styles.numberLabel}>{item.label}</Text>
-                                    <TextInput
-                                        value={item.value}
-                                        onChangeText={(text) => item.onChange(text.replace(/\D/g, '').slice(0, 6))}
-                                        keyboardType="number-pad"
-                                        placeholder="0"
-                                        placeholderTextColor={palette.muted}
-                                        style={styles.numberInput}
-                                        accessibilityLabel={item.label}
-                                    />
-                                </View>
+                                <NumberField key={item.label} label={item.label} value={item.value} onChange={item.onChange} palette={palette} styles={styles} />
                             ))}
                         </View>
                     </>
@@ -177,7 +169,7 @@ export default function MeihuaInputPage() {
                 <LiuyaoSubjectSelector value={subject} onChange={setSubject} style={styles.subject} labelStyle={styles.label} />
 
                 <Text style={styles.label}>占问事项（选填）</Text>
-                <TextInput
+                <FocusTextInput
                     value={question}
                     onChangeText={setQuestion}
                     placeholder="心中所想之事…"
@@ -188,7 +180,7 @@ export default function MeihuaInputPage() {
                 />
 
                 <Text style={styles.label}>近期发生的事（选填）</Text>
-                <TextInput
+                <FocusTextInput
                     value={recentEvents}
                     onChangeText={setRecentEvents}
                     placeholder="如：上周面了两家公司，一家已进二面"
@@ -199,7 +191,7 @@ export default function MeihuaInputPage() {
                 />
 
                 <Text style={styles.label}>想看的时间范围（选填）</Text>
-                <TextInput
+                <FocusTextInput
                     value={timeRange}
                     onChangeText={setTimeRange}
                     placeholder="如：未来三个月、今年年底前"
@@ -287,6 +279,34 @@ export default function MeihuaInputPage() {
                     setCastDate(date);
                     setPickerVisible(false);
                 }}
+            />
+        </View>
+    );
+}
+
+/** 报数输入：边框在外层容器上，聚焦时容器变金边 */
+function NumberField({ label, value, onChange, palette, styles }: {
+    label: string;
+    value: string;
+    onChange: (value: string) => void;
+    palette: ResultPalette;
+    styles: ReturnType<typeof makeStyles>;
+}) {
+    const focus = useFieldFocus();
+    return (
+        <View style={[styles.numberField, { borderColor: focus.borderColor }]}>
+            <Text style={styles.numberLabel}>{label}</Text>
+            <TextInput
+                {...webFocusFieldProps}
+                value={value}
+                onChangeText={(text) => onChange(text.replace(/\D/g, '').slice(0, 6))}
+                keyboardType="number-pad"
+                placeholder="0"
+                placeholderTextColor={palette.muted}
+                style={styles.numberInput}
+                accessibilityLabel={label}
+                onFocus={focus.onFocus}
+                onBlur={focus.onBlur}
             />
         </View>
     );

@@ -1,6 +1,6 @@
 import React from 'react';
 import Svg, { Circle, G, Path, Text as SvgText } from 'react-native-svg';
-import Animated, { useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useReducedMotion, type SharedValue } from 'react-native-reanimated';
 import { ringLevel } from '../../components/YunZhuanBanners';
 
 const R = 260;
@@ -34,16 +34,17 @@ export default function StarDial({ rotation, centerY, color, peak }: {
     color: string;
     peak: number;
 }) {
-    // 只随卡组转：星盘平时不可见，常驻的慢速自转只会让它每帧白白提交一次
+    const reduceMotion = useReducedMotion();
+    // 只随卡组转：星盘平时不可见，常驻的慢速自转只会让它每帧白白提交一次；减弱动态效果时不旋转缩放
     const motion = useAnimatedStyle(() => ({
         opacity: ringLevel.value * peak,
         transform: [
             { perspective: 700 },
             { rotateX: '62deg' },
-            { rotateZ: `${rotation.value * 24}deg` },
-            { scale: 0.94 + ringLevel.value * 0.06 },
+            { rotateZ: reduceMotion ? '0deg' : `${rotation.value * 24}deg` },
+            { scale: reduceMotion ? 1 : 0.94 + ringLevel.value * 0.06 },
         ],
-    }));
+    }), [peak, reduceMotion]);
 
     return (
         <Animated.View

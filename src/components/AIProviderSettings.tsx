@@ -1,5 +1,7 @@
 import React, { useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { webFocusFieldProps, webHorizontalFadeProps } from '../theme/web-enhance';
+import { useFieldFocus } from './FocusTextInput';
 import * as Clipboard from 'expo-clipboard';
 import { useTheme } from '../theme/ThemeContext';
 import { CustomAlert } from './CustomAlertProvider';
@@ -82,8 +84,8 @@ function Field({ label, value, onChangeText, placeholder, secureTextEntry = fals
     const [focused, setFocused] = useState(false);
     return <View style={styles.field}>
         <Text style={[styles.label, { color: Colors.text.secondary }]}>{label}</Text>
-        <View style={[styles.inputRow, { borderColor: focused ? Colors.accent.gold : Colors.border.subtle, backgroundColor: Colors.bg.input }]}>
-            <TextInput accessibilityLabel={label} value={value} placeholder={placeholder} placeholderTextColor={Colors.text.tertiary}
+        <View style={[styles.inputRow, { borderColor: focused ? Colors.accent.gold : Colors.border.input, backgroundColor: Colors.bg.input }]}>
+            <TextInput {...webFocusFieldProps} accessibilityLabel={label} value={value} placeholder={placeholder} placeholderTextColor={Colors.text.tertiary}
                 style={[styles.input, { color: Colors.text.primary }]} autoCapitalize="none" autoCorrect={false} autoFocus={autoFocus}
                 secureTextEntry={secureTextEntry} onChangeText={onChangeText} returnKeyType="done"
                 onFocus={() => setFocused(true)} onBlur={() => { setFocused(false); onSubmit?.(); }} onSubmitEditing={onSubmit} />
@@ -117,6 +119,7 @@ export default function AIProviderSettings({ settings, onChange, saveState, onPe
     const [detailsOpen, setDetailsOpen] = useState(false);
     const [advancedOpen, setAdvancedOpen] = useState(false);
     const [keyVisible, setKeyVisible] = useState(false);
+    const modelSearchFocus = useFieldFocus();
     const [pickerOpen, setPickerOpen] = useState(false);
     const [query, setQuery] = useState('');
     const [renaming, setRenaming] = useState(false);
@@ -371,7 +374,7 @@ export default function AIProviderSettings({ settings, onChange, saveState, onPe
                             <Text style={{ color: Colors.accent.gold, fontSize: 13 }}>＋ 添加</Text>
                         </Pressable>
                     </View>
-                    <ScrollView horizontal={!wide} showsHorizontalScrollIndicator={false} showsVerticalScrollIndicator nestedScrollEnabled
+                    <ScrollView horizontal={!wide} {...(wide ? undefined : webHorizontalFadeProps)} showsHorizontalScrollIndicator={false} showsVerticalScrollIndicator nestedScrollEnabled
                         contentContainerStyle={wide ? styles.providerColumn : styles.providerTabs} keyboardShouldPersistTaps="handled">
                         {settings.providers.map((entry) => {
                             const selected = entry.id === provider?.id;
@@ -447,9 +450,10 @@ export default function AIProviderSettings({ settings, onChange, saveState, onPe
                             })}
                         </View>}
                         {pickerOpen && <View style={styles.picker}>
-                            <View style={[styles.inputRow, { borderColor: Colors.accent.gold, backgroundColor: Colors.bg.input }]}>
-                                <TextInput accessibilityLabel="搜索或输入模型名称" autoCapitalize="none" autoCorrect={false} autoFocus
+                            <View style={[styles.inputRow, { borderColor: modelSearchFocus.borderColor, backgroundColor: Colors.bg.input }]}>
+                                <TextInput {...webFocusFieldProps} accessibilityLabel="搜索或输入模型名称" autoCapitalize="none" autoCorrect={false} autoFocus
                                     value={query} placeholder="搜索模型，或直接输入模型名称" placeholderTextColor={Colors.text.tertiary}
+                                    onFocus={modelSearchFocus.onFocus} onBlur={modelSearchFocus.onBlur}
                                     style={[styles.input, { color: Colors.text.primary }]} onChangeText={setQuery} returnKeyType="done" onSubmitEditing={commitModelQuery} />
                                 <Pressable accessibilityRole="button" accessibilityLabel="收起" onPress={closePicker} style={styles.iconButton}>
                                     <ChevronDownIcon size={18} color={Colors.accent.gold} />

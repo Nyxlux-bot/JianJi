@@ -3,7 +3,7 @@
  */
 
 import '../src/polyfills/intl';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Stack, DarkTheme, DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, View } from 'react-native';
@@ -16,6 +16,7 @@ import CustomAlertProvider from '../src/components/CustomAlertProvider';
 import { withPageBackground } from '../src/components/PageBackground';
 import LaunchOverlay from '../src/components/LaunchOverlay';
 import { GanZhiRelationSettingsProvider } from '../src/features/bazi/ganzhi-relation-settings';
+import { applyWebGlobalStyles } from '../src/theme/web-enhance';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync().catch(() => { });
@@ -30,6 +31,11 @@ function RootApp() {
     const styles = useMemo(() => makeStyles(Colors), [Colors]);
     const [launching, setLaunching] = useState(true);
     const navigationTheme = theme === 'yang' ? DefaultTheme : DarkTheme;
+
+    // 网页端：配色方案、细滚动条、键盘焦点框随主题更新（原生端是空操作）
+    useEffect(() => {
+        applyWebGlobalStyles(Colors, theme);
+    }, [Colors, theme]);
 
     return (
         <GestureHandlerRootView style={styles.container}>

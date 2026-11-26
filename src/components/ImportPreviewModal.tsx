@@ -4,9 +4,10 @@ import {
     View,
     Text,
     StyleSheet,
-    TouchableOpacity,
     FlatList,
 } from 'react-native';
+import PressableScale from './PressableScale';
+import Svg, { Path } from 'react-native-svg';
 import { BorderRadius, FontSize, Spacing } from '../theme/colors';
 import { useTheme } from '../theme/ThemeContext';
 import { DivinationRecordEnvelope, ImportConflictPolicy } from '../db/database';
@@ -80,9 +81,20 @@ export default function ImportPreviewModal({
         const summary = buildSummaryFields(item);
         const engineLabel = DIVINATION_ENGINE_LABEL[item.engineType];
         return (
-            <TouchableOpacity style={styles.recordRow} onPress={() => toggleRecord(item.result.id)}>
-                <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
-                    <Text style={[styles.checkboxText, checked && styles.checkboxTextChecked]}>{checked ? '[x]' : '[ ]'}</Text>
+            <PressableScale scaleTo={0.985}
+                style={styles.recordRow}
+                onPress={() => toggleRecord(item.result.id)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked }}
+            >
+                <View style={styles.checkbox}>
+                    <View style={[styles.checkboxBox, checked && styles.checkboxBoxChecked]}>
+                        {checked ? (
+                            <Svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke={Colors.text.inverse} strokeWidth={3.2} strokeLinecap="round" strokeLinejoin="round">
+                                <Path d="M5 12.5l4.5 4.5L19 7.5" />
+                            </Svg>
+                        ) : null}
+                    </View>
                 </View>
                 <View style={styles.recordInfo}>
                     <Text style={styles.recordTitle} numberOfLines={1}>{summary.title}</Text>
@@ -91,7 +103,7 @@ export default function ImportPreviewModal({
                     </Text>
                     {summary.subtitle ? <Text style={styles.recordQuestion} numberOfLines={1}>{summary.subtitle}</Text> : null}
                 </View>
-            </TouchableOpacity>
+            </PressableScale>
         );
     };
 
@@ -107,22 +119,22 @@ export default function ImportPreviewModal({
                     <View style={styles.policyBox}>
                         <Text style={styles.policyTitle}>重复记录处理</Text>
                         <View style={styles.policyRow}>
-                            <TouchableOpacity
+                            <PressableScale
                                 style={[styles.policyBtn, conflictPolicy === 'skip' && styles.policyBtnActive]}
                                 onPress={() => setConflictPolicy('skip')}
                             >
                                 <Text style={[styles.policyBtnText, conflictPolicy === 'skip' && styles.policyBtnTextActive]}>
                                     跳过重复
                                 </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
+                            </PressableScale>
+                            <PressableScale
                                 style={[styles.policyBtn, conflictPolicy === 'replace' && styles.policyBtnActive]}
                                 onPress={() => setConflictPolicy('replace')}
                             >
                                 <Text style={[styles.policyBtnText, conflictPolicy === 'replace' && styles.policyBtnTextActive]}>
                                     覆盖重复
                                 </Text>
-                            </TouchableOpacity>
+                            </PressableScale>
                         </View>
                     </View>
 
@@ -137,14 +149,14 @@ export default function ImportPreviewModal({
                     <Text style={styles.selectionText}>已选择 {selectedRecords.length} / {records.length} 条</Text>
 
                     <View style={styles.footer}>
-                        <TouchableOpacity
+                        <PressableScale
                             style={[styles.footerBtn, styles.cancelBtn]}
                             onPress={onCancel}
                             disabled={loading}
                         >
                             <Text style={styles.cancelBtnText}>取消</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
+                        </PressableScale>
+                        <PressableScale
                             style={[
                                 styles.footerBtn,
                                 styles.confirmBtn,
@@ -154,7 +166,7 @@ export default function ImportPreviewModal({
                             disabled={!canConfirm}
                         >
                             <Text style={styles.confirmBtnText}>{loading ? '导入中...' : '开始导入'}</Text>
-                        </TouchableOpacity>
+                        </PressableScale>
                     </View>
                 </View>
             </View>
@@ -184,6 +196,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         fontSize: FontSize.sm,
         color: Colors.text.secondary,
         marginBottom: 4,
+        fontVariant: ['tabular-nums'],
     },
     summaryHint: {
         fontSize: FontSize.xs,
@@ -218,8 +231,8 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         backgroundColor: Colors.bg.elevated,
     },
     policyBtnActive: {
-        borderColor: Colors.accent.gold,
-        backgroundColor: Colors.bg.card,
+        borderColor: Colors.accent.goldBorder,
+        backgroundColor: Colors.accent.goldSoft,
     },
     policyBtnText: {
         fontSize: FontSize.sm,
@@ -251,15 +264,18 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         alignItems: 'center',
         borderRadius: BorderRadius.sm,
     },
-    checkboxChecked: {
-        backgroundColor: Colors.bg.elevated,
+    checkboxBox: {
+        width: 20,
+        height: 20,
+        borderRadius: 6,
+        borderWidth: 1.5,
+        borderColor: Colors.border.input,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
-    checkboxText: {
-        color: Colors.text.tertiary,
-        fontSize: FontSize.sm,
-    },
-    checkboxTextChecked: {
-        color: Colors.accent.gold,
+    checkboxBoxChecked: {
+        backgroundColor: Colors.accent.gold,
+        borderColor: Colors.accent.gold,
     },
     recordInfo: {
         flex: 1,
@@ -272,6 +288,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         fontSize: FontSize.xs,
         color: Colors.text.tertiary,
         marginTop: 2,
+        fontVariant: ['tabular-nums'],
     },
     recordQuestion: {
         fontSize: FontSize.xs,
@@ -282,6 +299,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         fontSize: FontSize.xs,
         color: Colors.text.tertiary,
         marginTop: Spacing.xs,
+        fontVariant: ['tabular-nums'],
     },
     footer: {
         flexDirection: 'row',

@@ -15,7 +15,7 @@ const baseColors = {
   text: {
     primary: '#E0E0E0',      // 主文字（浅灰色）
     secondary: '#A0A0A0',    // 次要文字（中灰）
-    tertiary: '#707070',     // 更弱文字（深灰）
+    tertiary: '#949494',     // 更弱文字（深灰；在主背景、卡片、浮层上对比度均 ≥ 4.5:1）
     inverse: '#121212',      // 反色文字
     heading: '#FFFFFF',      // 标题（纯白）
   },
@@ -25,6 +25,8 @@ const baseColors = {
     gold: '#CFB53B',         // 金色（主强调）
     goldLight: '#EAD576',    // 浅金
     goldDark: '#AA8C22',     // 深金
+    goldSoft: 'rgba(207,181,59,0.1)',   // 选中态底色（淡金）
+    goldBorder: 'rgba(207,181,59,0.34)', // 选中态边框（半透明金）
     red: '#C64D3E',          // 朱红（动爻/警示）
     redLight: '#DF6658',     // 浅朱红
     jade: '#5C9A7B',         // 翡翠绿
@@ -37,6 +39,7 @@ const baseColors = {
     yin: '#CFB53B',          // 阴爻（金色断线）
     moving: '#C64D3E',       // 动爻（朱红）
     movingBg: 'rgba(198,77,62,0.15)', // 动爻背景
+    movingText: '#EC8579',   // 动爻选项文字（在动爻背景上对比度 ≥ 4.5:1）
   },
 
   // 六神色
@@ -54,6 +57,7 @@ const baseColors = {
     subtle: '#2E2E2E',       // 微弱边框
     normal: '#424242',       // 普通边框
     accent: '#CFB53B',       // 强调边框
+    input: '#737373',        // 输入框边框（在主背景、卡片、高层级底上对比均 ≥ 3:1，看得出可输入）
   },
 };
 

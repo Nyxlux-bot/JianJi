@@ -10,9 +10,9 @@ import {
     Pressable,
     StyleSheet,
     Text,
-    TextInput,
     View,
 } from 'react-native';
+import FocusTextInput from './FocusTextInput';
 import {
     buildRegionPathLabel,
     getCitiesByProvinceCode,
@@ -356,7 +356,7 @@ export default function CityPicker({
                     </View>
 
                     <View style={styles.searchContainer}>
-                        <TextInput
+                        <FocusTextInput
                             style={styles.searchInput}
                             value={searchText}
                             onChangeText={setSearchText}
@@ -494,8 +494,8 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         paddingHorizontal: Spacing.lg,
         paddingVertical: Spacing.md,
         borderRadius: 999,
-        borderWidth: 0.5,
-        borderColor: Colors.border.subtle,
+        borderWidth: 1,
+        borderColor: Colors.border.input,
     },
     wheelArea: {
         flex: 1,

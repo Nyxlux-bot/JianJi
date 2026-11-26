@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, TouchableWithoutFeedback, Modal, DeviceEventEmitter } from 'react-native';
+import { View, Text, StyleSheet, TouchableWithoutFeedback, DeviceEventEmitter } from 'react-native';
+import DialogModal from './DialogModal';
+import PressableScale from './PressableScale';
 import { Spacing, FontSize, BorderRadius } from '../theme/colors';
 import { useTheme } from "../theme/ThemeContext";
+import { webTextWrapBalance, webTextWrapPretty } from '../theme/web-enhance';
 
 export interface AlertButton {
     text: string;
@@ -35,7 +38,7 @@ export default function CustomAlertProvider() {
         return () => sub.remove();
     }, []);
 
-    if (!visible || !config) return null;
+    if (!config) return null;
 
     const handleClose = () => {
         setVisible(false);
@@ -44,25 +47,20 @@ export default function CustomAlertProvider() {
     const buttons = config.buttons && config.buttons.length > 0 ? config.buttons : [{ text: '确定', onPress: handleClose }];
 
     return (
-        <Modal
-            visible={visible}
-            transparent={true}
-            animationType="fade"
-            onRequestClose={handleClose}
-        >
+        <DialogModal visible={visible} onRequestClose={handleClose}>
             <TouchableWithoutFeedback onPress={handleClose}>
                 <View style={styles.overlay}>
                     <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-                        <View style={styles.modalContent}>
-                            <Text style={styles.title}>{config.title}</Text>
-                            {!!config.message && <Text style={styles.message}>{config.message}</Text>}
+                        <View accessibilityViewIsModal style={styles.modalContent}>
+                            <Text {...webTextWrapBalance} style={styles.title}>{config.title}</Text>
+                            {!!config.message && <Text {...webTextWrapPretty} style={styles.message}>{config.message}</Text>}
 
                             <View style={styles.buttonContainer}>
                                 {buttons.map((btn, index) => {
                                     const isCancel = btn.style === 'cancel';
                                     const isDestructive = btn.style === 'destructive';
                                     return (
-                                        <TouchableOpacity
+                                        <PressableScale
                                             key={index}
                                             style={[
                                                 styles.button,
@@ -75,12 +73,11 @@ export default function CustomAlertProvider() {
                                                     btn.onPress && btn.onPress();
                                                 }, 100);
                                             }}
-                                            activeOpacity={0.7}
                                         >
                                             <Text style={[
-                                                isCancel ? styles.cancelButtonText : styles.confirmButtonText
+                                                isCancel ? styles.cancelButtonText : (isDestructive ? styles.destructiveButtonText : styles.confirmButtonText)
                                             ]}>{btn.text}</Text>
-                                        </TouchableOpacity>
+                                        </PressableScale>
                                     );
                                 })}
                             </View>
@@ -88,13 +85,13 @@ export default function CustomAlertProvider() {
                     </TouchableWithoutFeedback>
                 </View>
             </TouchableWithoutFeedback>
-        </Modal>
+        </DialogModal>
     );
 }
 
 const makeStyles = (Colors: any) => StyleSheet.create({
     overlay: {
-        flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.6)', justifyContent: 'center', alignItems: 'center', padding: Spacing.xl,
+        flex: 1, justifyContent: 'center', alignItems: 'center', padding: Spacing.xl,
     },
     modalContent: {
         width: '100%', maxWidth: 340, backgroundColor: Colors.bg.card, borderRadius: BorderRadius.lg, padding: Spacing.xl,
@@ -116,7 +113,7 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         backgroundColor: Colors.bg.elevated, borderWidth: 1, borderColor: Colors.border.subtle,
     },
     confirmButton: {
-        backgroundColor: Colors.accent.jade,
+        backgroundColor: Colors.accent.gold,
     },
     destructiveButton: {
         backgroundColor: Colors.accent.red,
@@ -125,6 +122,9 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         fontSize: FontSize.md, color: Colors.text.secondary, fontWeight: '500',
     },
     confirmButtonText: {
+        fontSize: FontSize.md, color: Colors.text.inverse, fontWeight: '500',
+    },
+    destructiveButtonText: {
         fontSize: FontSize.md, color: '#fff', fontWeight: '500',
     },
 });

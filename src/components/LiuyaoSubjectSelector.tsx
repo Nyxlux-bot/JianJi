@@ -1,5 +1,6 @@
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
+import { StyleSheet, Text, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
+import PressableScale from './PressableScale';
 import { BorderRadius, Colors as ThemeColors, FontSize, Spacing } from '../theme/colors';
 import { LIUYAO_SUBJECT_OPTIONS } from '../core/liuyao-data';
 import type { LiuyaoSubject } from '../core/liuyao-data';
@@ -28,10 +29,9 @@ export default function LiuyaoSubjectSelector({ value, onChange, style, labelSty
                 {LIUYAO_SUBJECT_OPTIONS.map((option) => {
                     const selected = value === option.value;
                     return (
-                        <TouchableOpacity
+                        <PressableScale
                             key={option.value}
                             style={[styles.option, selected && styles.optionSelected]}
-                            activeOpacity={0.75}
                             onPress={() => onChange(option.value)}
                             accessibilityRole="radio"
                             accessibilityState={{ selected }}
@@ -40,7 +40,7 @@ export default function LiuyaoSubjectSelector({ value, onChange, style, labelSty
                             <Text style={[styles.optionLabel, selected && styles.optionLabelSelected]}>
                                 {option.label}
                             </Text>
-                        </TouchableOpacity>
+                        </PressableScale>
                     );
                 })}
             </View>
@@ -76,8 +76,8 @@ const makeStyles = (Colors: typeof ThemeColors) => StyleSheet.create({
         justifyContent: 'center',
     },
     optionSelected: {
-        borderColor: Colors.accent.gold,
-        backgroundColor: Colors.bg.elevated,
+        borderColor: Colors.accent.goldBorder,
+        backgroundColor: Colors.accent.goldSoft,
     },
     optionLabel: {
         fontSize: FontSize.md,

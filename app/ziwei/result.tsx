@@ -1,15 +1,15 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     LayoutChangeEvent,
-    Modal,
     Pressable,
     ScrollView,
     StyleSheet,
     Text,
-    TouchableOpacity,
     useWindowDimensions,
     View,
 } from 'react-native';
+import SheetModal from '../../src/components/SheetModal';
+import PressableScale from '../../src/components/PressableScale';
 import { ScrollView as GestureScrollView } from 'react-native-gesture-handler';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -814,16 +814,16 @@ export default function ZiweiResultPage() {
             <View style={styles.container}>
                 <StatusBarDecor />
                 <View style={styles.errorHeader}>
-                    <TouchableOpacity onPress={() => router.back()} style={styles.errorBack}>
+                    <PressableScale onPress={() => router.back()} style={styles.errorBack}>
                         <BackIcon size={24} />
-                    </TouchableOpacity>
+                    </PressableScale>
                 </View>
                 <View style={styles.errorWrap}>
                     <Text style={styles.errorTitle}>命盘无法恢复</Text>
                     <Text style={styles.errorText}>{staticState.error || '静态命盘恢复失败。'}</Text>
-                    <TouchableOpacity style={styles.errorAction} onPress={() => router.replace('/ziwei/input')} activeOpacity={0.84}>
+                    <PressableScale style={styles.errorAction} onPress={() => router.replace('/ziwei/input')}>
                         <Text style={styles.errorActionText}>返回重新排盘</Text>
-                    </TouchableOpacity>
+                    </PressableScale>
                 </View>
             </View>
         );
@@ -969,9 +969,9 @@ export default function ZiweiResultPage() {
                 <View style={[styles.notice, persistNotice.tone === 'warning' && styles.noticeWarning]}>
                     <Text style={styles.noticeText}>{persistNotice.text}</Text>
                     {persistNotice.tone === 'warning' ? (
-                        <TouchableOpacity style={styles.retryBtn} onPress={handleRetryPersist}>
+                        <PressableScale style={styles.retryBtn} onPress={handleRetryPersist}>
                             <Text style={styles.retryBtnText}>重试保存</Text>
-                        </TouchableOpacity>
+                        </PressableScale>
                     ) : null}
                 </View>
             ) : null}
@@ -1138,8 +1138,7 @@ export default function ZiweiResultPage() {
             />
             ) : null}
 
-            {settingsVisible ? (
-            <Modal visible={settingsVisible} transparent animationType="fade" onRequestClose={handleDismissSettings}>
+            <SheetModal visible={settingsVisible} onRequestClose={handleDismissSettings}>
                 <View style={styles.modalWrap}>
                     <Pressable style={styles.modalBackdrop} onPress={handleDismissSettings} />
                     <View style={styles.configModalCard}>
@@ -1153,11 +1152,11 @@ export default function ZiweiResultPage() {
                         ) : null}
                         <View style={styles.configModalActions}>
                             {persistStatus === 'error' ? (
-                                <TouchableOpacity style={[styles.configActionBtn, styles.configActionSecondary]} onPress={handleRetryPersist}>
+                                <PressableScale style={[styles.configActionBtn, styles.configActionSecondary]} onPress={handleRetryPersist}>
                                     <Text style={[styles.configActionText, styles.configActionSecondaryText]}>重试保存</Text>
-                                </TouchableOpacity>
+                                </PressableScale>
                             ) : null}
-                            <TouchableOpacity
+                            <PressableScale
                                 style={[styles.configActionBtn, styles.configActionPrimary, persistStatus === 'saving' && styles.configActionDisabled]}
                                 onPress={() => { void handleSaveSettings(); }}
                                 disabled={persistStatus === 'saving'}
@@ -1165,12 +1164,11 @@ export default function ZiweiResultPage() {
                                 <Text style={[styles.configActionText, styles.configActionPrimaryText]}>
                                     {persistStatus === 'saving' ? '保存中...' : '完成'}
                                 </Text>
-                            </TouchableOpacity>
+                            </PressableScale>
                         </View>
                     </View>
                 </View>
-            </Modal>
-            ) : null}
+            </SheetModal>
 
             {recordResult && aiChatMounted && aiContext ? (
                 <ZiweiAIChat
@@ -1246,7 +1244,7 @@ function makeStyles(Colors: any, palette: ReturnType<typeof buildZiweiPalette>) 
         contextMain: { ...base, fontSize: 13, lineHeight: 18, fontWeight: '600', color: palette.ink, fontVariant: ['tabular-nums'] },
         contextMeta: { ...base, fontSize: 12, lineHeight: 18, color: palette.muted, flexShrink: 1 },
         contextAI: { ...base, fontSize: 12, lineHeight: 18, fontWeight: '600', color: palette.gold },
-        modalWrap: { flex: 1, backgroundColor: Colors.bg.overlay },
+        modalWrap: { flex: 1 },
         modalBackdrop: { ...StyleSheet.absoluteFill },
         configModalCard: {
             marginTop: 'auto',
