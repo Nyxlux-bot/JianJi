@@ -1,15 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import SheetModal from './SheetModal';
-import { View, Text, StyleSheet, SafeAreaView } from 'react-native';
 import PressableScale from './PressableScale';
 import { useTheme } from '../theme/ThemeContext';
-import { Spacing, FontSize, BorderRadius } from '../theme/colors';
+import { buildResultPalette, type ResultPalette } from '../theme/result-palette';
 import HexagramDetailView, { HexagramData } from './HexagramDetailView';
 import { CloseIcon } from './Icons';
 
 // Import hexagram dictionary
 import ichingData from '../data/iching.json';
 import { getAllRelatedGua } from '../core/hexagramTransform';
+
+const SERIF = Platform.select({ ios: 'Songti SC', android: 'serif', default: 'serif' });
 
 interface GuaXiangBottomSheetProps {
     visible: boolean;
@@ -21,11 +24,13 @@ type TabType = 'base' | 'hu' | 'cuo' | 'zong';
 
 export default function GuaXiangBottomSheet({ visible, onClose, baseHexagramArray }: GuaXiangBottomSheetProps) {
     const { Colors } = useTheme();
-    const styles = React.useMemo(() => makeStyles(Colors), [Colors]);
+    const insets = useSafeAreaInsets();
+    const palette = useMemo(() => buildResultPalette(Colors), [Colors]);
+    const styles = useMemo(() => makeStyles(palette), [palette]);
 
     const [activeTab, setActiveTab] = useState<TabType>('base');
     const [hexagramsData, setHexagramsData] = useState<Record<TabType, HexagramData | null>>({
-        base: null, hu: null, cuo: null, zong: null
+        base: null, hu: null, cuo: null, zong: null,
     });
 
     useEffect(() => {
@@ -34,10 +39,9 @@ export default function GuaXiangBottomSheet({ visible, onClose, baseHexagramArra
         try {
             const allRelatedArrays = getAllRelatedGua(baseHexagramArray);
 
-            // 辅助函数：通过数组匹配 dictionary 中的数据
             const findGuaDataByArray = (arr: number[]) => {
                 const targetStr = arr.join('');
-                return (ichingData as HexagramData[]).find(item => item.array.join('') === targetStr) || null;
+                return (ichingData as HexagramData[]).find((item) => item.array.join('') === targetStr) || null;
             };
 
             setHexagramsData({
@@ -46,13 +50,13 @@ export default function GuaXiangBottomSheet({ visible, onClose, baseHexagramArra
                 cuo: findGuaDataByArray(allRelatedArrays.cuo),
                 zong: findGuaDataByArray(allRelatedArrays.zong),
             });
-            setActiveTab('base'); // reset
+            setActiveTab('base');
         } catch (error) {
-            console.error("生成相连卦象失败:", error);
+            console.error('生成相连卦象失败:', error);
         }
     }, [visible, baseHexagramArray]);
 
-    const tabs: { key: TabType, label: string }[] = [
+    const tabs: { key: TabType; label: string }[] = [
         { key: 'base', label: '本卦' },
         { key: 'hu', label: '互卦' },
         { key: 'cuo', label: '错卦' },
@@ -64,21 +68,17 @@ export default function GuaXiangBottomSheet({ visible, onClose, baseHexagramArra
     return (
         <SheetModal visible={visible} onRequestClose={onClose}>
             <View style={styles.overlay}>
-                <View style={styles.sheetContainer}>
-                    {/* 伪首栏作为底色延伸 */}
-                    <SafeAreaView style={{ backgroundColor: Colors.bg.elevated }} />
-
-                    {/* Header 控制区 */}
+                <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityRole="button" accessibilityLabel="关闭卦象详释" />
+                <View style={[styles.sheetContainer, { paddingBottom: insets.bottom }]} accessibilityViewIsModal aria-modal>
                     <View style={styles.header}>
                         <View style={styles.iconBtnPlaceholder} />
-                        <Text style={styles.title}>卦象演化与详释</Text>
-                        <PressableScale style={styles.closeBtn} onPress={onClose}>
-                            <CloseIcon size={24} color={Colors.text.primary} />
+                        <Text style={styles.title} accessibilityRole="header">卦象演化与详释</Text>
+                        <PressableScale style={styles.closeBtn} onPress={onClose} accessibilityRole="button" accessibilityLabel="关闭">
+                            <CloseIcon size={20} color={palette.muted} />
                         </PressableScale>
                     </View>
 
-                    {/* Segmented Control */}
-                    <View style={styles.tabsContainer}>
+                    <View style={styles.tabsContainer} accessibilityRole="tablist">
                         {tabs.map((tab) => {
                             const isActive = activeTab === tab.key;
                             return (
@@ -86,21 +86,20 @@ export default function GuaXiangBottomSheet({ visible, onClose, baseHexagramArra
                                     key={tab.key}
                                     style={[styles.tabBtn, isActive && styles.tabBtnActive]}
                                     onPress={() => setActiveTab(tab.key)}
+                                    accessibilityRole="tab"
+                                    accessibilityState={{ selected: isActive }}
                                 >
                                     <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
                                         {tab.label}
                                     </Text>
-                                    <View style={styles.tabBadgeBox}>
-                                        <Text style={[styles.tabBadgeText, isActive && styles.tabBadgeTextActive]}>
-                                            {hexagramsData[tab.key]?.name || '...'}
-                                        </Text>
-                                    </View>
+                                    <Text style={[styles.tabBadgeText, isActive && styles.tabBadgeTextActive]} numberOfLines={1}>
+                                        {hexagramsData[tab.key]?.name || '…'}
+                                    </Text>
                                 </PressableScale>
                             );
                         })}
                     </View>
 
-                    {/* Content View */}
                     <View style={styles.contentWrapper}>
                         {currentData ? (
                             <HexagramDetailView data={currentData} />
@@ -116,30 +115,35 @@ export default function GuaXiangBottomSheet({ visible, onClose, baseHexagramArra
     );
 }
 
-const makeStyles = (Colors: any) => StyleSheet.create({
+const makeStyles = (palette: ResultPalette) => StyleSheet.create({
     overlay: {
         flex: 1,
         justifyContent: 'flex-end',
     },
     sheetContainer: {
-        height: '92%', // 占屏幕较高比例的半屏
-        backgroundColor: Colors.bg.primary,
-        borderTopLeftRadius: BorderRadius.xl,
-        borderTopRightRadius: BorderRadius.xl,
+        height: '88%',
+        backgroundColor: palette.page,
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        borderTopWidth: 1,
+        borderColor: palette.cardBorder,
         overflow: 'hidden',
     },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingHorizontal: Spacing.lg,
-        paddingVertical: Spacing.md,
-        backgroundColor: Colors.bg.elevated,
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        backgroundColor: palette.card,
     },
     title: {
-        fontSize: FontSize.lg,
-        color: Colors.text.heading,
-        fontWeight: 'bold',
+        fontFamily: SERIF,
+        fontSize: 17,
+        lineHeight: 24,
+        fontWeight: '700',
+        letterSpacing: 2,
+        color: palette.heading,
     },
     iconBtnPlaceholder: { width: 40, height: 40 },
     closeBtn: {
@@ -147,58 +151,61 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         height: 40,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: Colors.bg.card,
-        borderRadius: 20
+        borderRadius: 20,
     },
     tabsContainer: {
         flexDirection: 'row',
-        backgroundColor: Colors.bg.elevated,
-        paddingHorizontal: Spacing.md,
-        paddingBottom: Spacing.md,
-        borderBottomWidth: 0.5,
-        borderBottomColor: Colors.border.subtle,
+        gap: 6,
+        backgroundColor: palette.card,
+        paddingHorizontal: 12,
+        paddingBottom: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: palette.hairline,
     },
     tabBtn: {
         flex: 1,
         alignItems: 'center',
-        paddingVertical: Spacing.sm,
-        marginHorizontal: 4,
-        borderRadius: BorderRadius.md,
+        paddingVertical: 7,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: 'transparent',
         backgroundColor: 'transparent',
+        gap: 2,
     },
     tabBtnActive: {
-        backgroundColor: Colors.accent.gold + '20', // 透金背景
+        backgroundColor: palette.goldSoft,
+        borderColor: palette.segBorder,
     },
     tabLabel: {
-        fontSize: FontSize.md,
-        color: Colors.text.secondary,
+        fontSize: 13.5,
+        lineHeight: 18,
+        color: palette.muted,
         fontWeight: '500',
     },
     tabLabelActive: {
-        color: Colors.accent.gold,
-        fontWeight: 'bold',
-    },
-    tabBadgeBox: {
-        marginTop: 2,
+        color: palette.gold,
+        fontWeight: '700',
     },
     tabBadgeText: {
-        fontSize: FontSize.sm,
-        color: Colors.text.tertiary,
+        fontFamily: SERIF,
+        fontSize: 12,
+        lineHeight: 16,
+        color: palette.muted,
     },
     tabBadgeTextActive: {
-        color: Colors.accent.gold,
+        color: palette.heading,
     },
     contentWrapper: {
         flex: 1,
-        backgroundColor: Colors.bg.primary,
+        backgroundColor: palette.page,
     },
     emptyBox: {
         flex: 1,
         alignItems: 'center',
-        justifyContent: 'center'
+        justifyContent: 'center',
     },
     emptyText: {
-        color: Colors.text.tertiary,
-        fontSize: FontSize.md
-    }
+        color: palette.muted,
+        fontSize: 14,
+    },
 });

@@ -21,6 +21,9 @@ import { clearAIAnalysisJob } from '../../../src/services/ai-analysis-jobs';
 import { isAIConfigured } from '../../../src/services/settings';
 import { shareMeihuaResultMarkdown } from '../../../src/services/share';
 import AIChatModal from '../../../src/components/AIChatModal';
+import GuaXiangBottomSheet from '../../../src/components/GuaXiangBottomSheet';
+import { TermDetailProvider, TermInline, TermPress } from '../../../src/components/TermDetailModal';
+import { resolveMeihuaTerm } from '../../../src/core/glossary';
 import { getLinePositionName, getTiYong, getTrigram } from '../../../src/features/meihua/engine';
 import { analyzeMeihua, type MeihuaRelation, type MeihuaTone, type MeihuaTrigramRelation } from '../../../src/features/meihua/rules';
 import { getHexagramText, getLineText } from '../../../src/core/iching-texts';
@@ -36,6 +39,9 @@ const PLUM_BRANCH = require('../../../assets/meihua/ui/plum-branch.png');
 const TIYONG_LABEL: Record<MeihuaRelation, string> = { 比和: '体用比和', 生体: '用生体', 克体: '用克体', 体生: '体生用', 体克: '体克用' };
 const OTHER_LABEL: Record<MeihuaRelation, string> = { 比和: '比和', 生体: '生体', 克体: '克体', 体生: '泄体', 体克: '受克' };
 
+/** 断语四行各指到哪条词条 */
+const JUDGE_TERM: Record<string, string> = { season: '卦气', process: '互卦', outcome: '变卦' };
+
 function relationFormula(relation: MeihuaRelation, ti: string, yong: string): string {
     if (relation === '比和') return `${ti}${yong}同气`;
     if (relation === '生体') return `${yong}生${ti}`;
@@ -45,6 +51,14 @@ function relationFormula(relation: MeihuaRelation, ti: string, yong: string): st
 }
 
 export default function MeihuaResultPage() {
+    return (
+        <TermDetailProvider>
+            <MeihuaResultView />
+        </TermDetailProvider>
+    );
+}
+
+function MeihuaResultView() {
     const { Colors } = useTheme();
     const palette = useMemo(() => buildResultPalette(Colors), [Colors]);
     const chrome = useMemo(() => makeResultChromeStyles(palette), [palette]);
@@ -60,6 +74,7 @@ export default function MeihuaResultPage() {
     const [deleteVisible, setDeleteVisible] = useState(false);
     const [aiConfigured, setAiConfigured] = useState(false);
     const [aiVisible, setAiVisible] = useState(false);
+    const [sheetLines, setSheetLines] = useState<number[] | null>(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -159,21 +174,30 @@ export default function MeihuaResultPage() {
     };
     const yongRelation = analysis.yong.relation as MeihuaRelation;
     const relationNotes = (column: typeof columns[number]) => {
-        if (column.main) return [{ text: TIYONG_LABEL[yongRelation], tone: analysis.yong.tone }];
+        if (column.main) return [{ text: TIYONG_LABEL[yongRelation], term: TIYONG_LABEL[yongRelation], tone: analysis.yong.tone }];
         const items = [column.up, column.down].filter((item) => item.relation !== '体');
         const unique = items.filter((item, index) => items.findIndex((other) => other.index === item.index) === index);
-        return unique.map((item) => ({ text: `${item.name} ${OTHER_LABEL[item.relation as MeihuaRelation]}`, tone: item.tone }));
+        return unique.map((item) => {
+            const term = OTHER_LABEL[item.relation as MeihuaRelation];
+            return { text: `${item.name} ${term}`, term, tone: item.tone };
+        });
     };
     const benText = getHexagramText(result.ben);
     const movingText = getLineText(result.ben, result.movingLine);
 
-    const trigramCell = (item: MeihuaTrigramRelation, role: string, top: boolean) => (
-        <View style={[styles.cell, styles.trigramRow, top && styles.ruleTop]}>
+    const trigramCell = (item: MeihuaTrigramRelation, role: string, top: boolean, kind: string) => (
+        <TermPress
+            entry={resolveMeihuaTerm(item.name, 'trigram-image')}
+            context={`${kind}${top ? '上' : '下'}卦 ${item.name}${item.wuxing}${role ? ` · ${role}卦` : ''}`}
+            style={[styles.cell, styles.trigramCell, top && styles.ruleTop]}
+            innerStyle={styles.trigramRow}
+        >
             <WuXingIcon element={item.wuxing} size={15} />
             <Text style={[styles.trigramName, { color: palette.element[item.wuxing] }]}>{item.name}</Text>
             {role ? <Text style={styles.roleTag}>{role}</Text> : null}
-        </View>
+        </TermPress>
     );
+    const stateColor = (state: string) => (state === '旺' || state === '相' ? Colors.bazi.statePositive : state === '休' ? palette.body : Colors.bazi.stateNegative);
 
     return (
         <View style={styles.container}>
@@ -221,19 +245,28 @@ export default function MeihuaResultPage() {
                                 </View>
                                 {columns.map((column) => (
                                     <View key={column.kind} style={[styles.col, column.main && styles.colMain]}>
-                                        <View style={styles.headCell}>
+                                        <TermPress entry={resolveMeihuaTerm(column.kind, 'meihua-gua')} context={`${column.kind} ${column.hexagram.fullName}`} style={styles.headCell} innerStyle={styles.headInner}>
                                             <Text style={[styles.colHead, column.main && styles.colHeadMain]}>{column.kind}</Text>
                                             <Text style={styles.colStage}>{column.stage}</Text>
-                                        </View>
-                                        <Text style={[styles.hexName, styles.nameCell]} numberOfLines={1}>{column.hexagram.fullName}</Text>
+                                        </TermPress>
+                                        <Pressable
+                                            onPress={() => setSheetLines(column.hexagram.lines)}
+                                            style={({ pressed }) => [styles.nameCell, styles.namePress, pressed && { backgroundColor: palette.goldSoft }]}
+                                            accessibilityRole="button"
+                                            accessibilityHint={`查看${column.hexagram.fullName}卦辞与互错综卦`}
+                                        >
+                                            <Text style={[styles.hexName, styles.nameCell]} numberOfLines={1}>{column.hexagram.fullName}</Text>
+                                        </Pressable>
                                         <View style={styles.linesCell}>
                                             <HexagramLines lines={column.hexagram.lines} movingLines={column.moving ? [column.moving] : []} width={42} color={palette.gold} movingColor={palette.vermilion} />
                                         </View>
-                                        {trigramCell(column.up, roleLabel(column.up, column.main), true)}
-                                        <View style={styles.ruleTopSoft}>{trigramCell(column.down, roleLabel(column.down, column.main), false)}</View>
+                                        {trigramCell(column.up, roleLabel(column.up, column.main), true, column.kind)}
+                                        <View style={styles.ruleTopSoft}>{trigramCell(column.down, roleLabel(column.down, column.main), false, column.kind)}</View>
                                         <View style={[styles.noteCell, styles.ruleTopSoft]}>
                                             {relationNotes(column).map((note) => (
-                                                <Text key={note.text} style={[styles.note, { color: toneColor(note.tone) }]}>{note.text}</Text>
+                                                <TermPress key={note.text} entry={resolveMeihuaTerm(note.term, 'meihua-tiyong')} context={`${column.kind} · ${note.text}`}>
+                                                    <Text style={[styles.note, { color: toneColor(note.tone) }]}>{note.text}</Text>
+                                                </TermPress>
                                             ))}
                                         </View>
                                     </View>
@@ -245,20 +278,24 @@ export default function MeihuaResultPage() {
                             <View style={styles.tiyongRow}>
                                 {[{ label: '体', trigram: tiTrigram, state: analysis.tiState }, null, { label: '用', trigram: yongTrigram, state: analysis.yongState }].map((item, index) => (item ? (
                                     <View key={item.label} style={styles.tiyongSide}>
-                                        <Text style={styles.muted}>{item.label}</Text>
-                                        <View style={styles.tiyongMain}>
+                                        <TermPress entry={resolveMeihuaTerm(`${item.label}卦`, 'meihua-gua')} context={`${item.label}卦 ${item.trigram.name}${item.trigram.wuxing}`}>
+                                            <Text style={styles.muted}>{item.label}</Text>
+                                        </TermPress>
+                                        <TermPress entry={resolveMeihuaTerm(item.trigram.name, 'trigram-image')} context={`${item.label}卦 ${item.trigram.name}${item.trigram.wuxing}`} innerStyle={styles.tiyongMain}>
                                             <WuXingIcon element={item.trigram.wuxing} size={24} />
                                             <Text style={[styles.tiyongName, { color: palette.element[item.trigram.wuxing] }]}>{item.trigram.name}</Text>
-                                        </View>
+                                        </TermPress>
                                         <Text style={styles.tiyongMeta}>
-                                            {item.trigram.wuxing} · <Text style={{ color: item.state === '旺' || item.state === '相' ? Colors.bazi.statePositive : item.state === '休' ? palette.body : Colors.bazi.stateNegative }}>{item.state}</Text>
+                                            {item.trigram.wuxing} · <TermInline entry={resolveMeihuaTerm(item.state, 'wuxing-season')} context={`${analysis.monthZhi}月 · ${item.label}卦${item.trigram.wuxing}${item.state}`} style={{ color: stateColor(item.state) }}>{item.state}</TermInline>
                                         </Text>
                                     </View>
                                 ) : (
                                     <View key={index} style={styles.tiyongMid}>
                                         <Text style={styles.muted}>{relationFormula(yongRelation, tiTrigram.wuxing, yongTrigram.wuxing)}</Text>
                                         <View style={[styles.arrowLine, { backgroundColor: toneColor(analysis.yong.tone) }]} />
-                                        <Text style={[styles.tiyongVerdict, { color: toneColor(analysis.yong.tone) }]}>{relationNotes(columns[0])[0].text}</Text>
+                                        <TermPress entry={resolveMeihuaTerm(TIYONG_LABEL[yongRelation], 'meihua-tiyong')} context={`体${tiTrigram.name}${tiTrigram.wuxing} · 用${yongTrigram.name}${yongTrigram.wuxing}`}>
+                                            <Text style={[styles.tiyongVerdict, { color: toneColor(analysis.yong.tone) }]}>{relationNotes(columns[0])[0].text}</Text>
+                                        </TermPress>
                                     </View>
                                 )))}
                             </View>
@@ -290,7 +327,9 @@ export default function MeihuaResultPage() {
                                         <WuXingIcon element={row.wuxing} size={16} />
                                         <Text style={[styles.seasonWx, { color: palette.element[row.wuxing] }]}>{row.wuxing}</Text>
                                         <View style={styles.bar}><View style={[styles.barFill, { width: STATE_PCT[row.state], backgroundColor: palette.element[row.wuxing] }]} /></View>
-                                        <Text style={styles.seasonState}>{row.state}</Text>
+                                        <TermPress entry={resolveMeihuaTerm(row.state, 'wuxing-season')} context={`${analysis.monthZhi}月 · ${row.wuxing}${row.state}`} style={styles.seasonStateCell}>
+                                            <Text style={styles.seasonState}>{row.state}</Text>
+                                        </TermPress>
                                         <Text style={styles.seasonHolders} numberOfLines={1}>{row.holders.join(' · ')}</Text>
                                     </View>
                                 ))}
@@ -301,7 +340,13 @@ export default function MeihuaResultPage() {
                             <View style={styles.judgeList}>
                                 {analysis.judgements.map((item) => (
                                     <View key={item.key} style={styles.judgeRow}>
-                                        <Text style={styles.judgeLabel}>{item.label}</Text>
+                                        <TermPress
+                                            entry={item.key === 'tiyong' ? resolveMeihuaTerm(TIYONG_LABEL[yongRelation], 'meihua-tiyong') : resolveMeihuaTerm(JUDGE_TERM[item.key], 'meihua-gua')}
+                                            context={`断语 · ${item.label}`}
+                                            style={styles.judgeLabelCell}
+                                        >
+                                            <Text style={styles.judgeLabel}>{item.label}</Text>
+                                        </TermPress>
                                         <View style={styles.judgeBody}>
                                             <Text style={styles.bodyText}>{item.text}</Text>
                                             <Text style={styles.source}>{item.source}</Text>
@@ -317,11 +362,11 @@ export default function MeihuaResultPage() {
                             <View style={styles.judgeList}>
                                 {[{ role: '体', trigram: tiTrigram }, { role: '用', trigram: yongTrigram }].map((item) => (
                                     <View key={item.role} style={styles.imageRow}>
-                                        <View style={styles.imageHead}>
+                                        <TermPress entry={resolveMeihuaTerm(item.trigram.name, 'trigram-image')} context={`${item.role}卦 ${item.trigram.name}${item.trigram.wuxing}`} style={styles.imageHead} innerStyle={styles.imageInner}>
                                             <WuXingIcon element={item.trigram.wuxing} size={15} />
                                             <Text style={[styles.imageName, { color: palette.element[item.trigram.wuxing] }]}>{item.trigram.name}</Text>
                                             <Text style={styles.roleTag}>{item.role}</Text>
-                                        </View>
+                                        </TermPress>
                                         <Text style={styles.bodyText}>{getTrigramImages(item.trigram.name).join(' · ')}</Text>
                                     </View>
                                 ))}
@@ -336,6 +381,8 @@ export default function MeihuaResultPage() {
                     </>
                 )}
             </ScrollView>
+
+            <GuaXiangBottomSheet visible={sheetLines !== null} onClose={() => setSheetLines(null)} baseHexagramArray={sheetLines ?? []} />
 
             <AIChatModal
                 visible={aiVisible}
@@ -381,6 +428,9 @@ function makeStyles(palette: ResultPalette) {
         col: { flex: 1, alignItems: 'stretch', borderRadius: 10 },
         colMain: { backgroundColor: palette.dayTint },
         headCell: { height: ROW.head, alignItems: 'center', justifyContent: 'center' },
+        headInner: { alignItems: 'center' },
+        namePress: { marginHorizontal: 2, borderRadius: 6 },
+        trigramCell: { alignItems: 'center', justifyContent: 'center' },
         colHead: { fontSize: 12, lineHeight: 17, color: palette.muted },
         colHeadMain: { fontWeight: '600', color: palette.ink },
         colStage: { fontSize: 10.5, lineHeight: 14, color: palette.muted },
@@ -415,17 +465,20 @@ function makeStyles(palette: ResultPalette) {
         seasonWx: { width: 16, fontSize: 12.5, fontWeight: '700' },
         bar: { flex: 1, height: 4, borderRadius: 2, overflow: 'hidden', backgroundColor: palette.barTrack },
         barFill: { height: '100%' },
-        seasonState: { width: 18, fontSize: 12.5, fontWeight: '600', color: palette.heading },
+        seasonStateCell: { width: 18, alignItems: 'center' },
+        seasonState: { fontSize: 12.5, fontWeight: '600', color: palette.heading },
         seasonHolders: { width: 140, fontSize: 12, color: palette.muted },
         judgeList: { marginTop: 8, gap: 10 },
         judgeRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
-        judgeLabel: { width: 32, fontSize: 12, lineHeight: 20, color: palette.muted },
+        judgeLabelCell: { width: 32 },
+        judgeLabel: { fontSize: 12, lineHeight: 20, color: palette.muted },
         judgeBody: { flex: 1, gap: 2 },
         judgeTag: { width: 34, textAlign: 'right', fontSize: 13, lineHeight: 20, fontWeight: '700' },
         source: { fontSize: 11, lineHeight: 16, color: palette.muted },
         footnote: { marginTop: 12 },
         imageRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-        imageHead: { width: 60, flexDirection: 'row', alignItems: 'center', gap: 3 },
+        imageHead: { width: 60, flexDirection: 'row', alignItems: 'center' },
+        imageInner: { flexDirection: 'row', alignItems: 'center', gap: 3 },
         imageName: { fontSize: 16, fontWeight: '700' },
     });
 }

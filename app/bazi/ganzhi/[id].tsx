@@ -15,9 +15,11 @@ import Svg, { Line } from 'react-native-svg';
 import ArcChart, { ArcColumn, ArcLink, ArcVertical } from '../../../src/components/ArcChart';
 import { BackIcon, SettingsIcon } from '../../../src/components/Icons';
 import StatusBarDecor from '../../../src/components/StatusBarDecor';
+import { TermDetailProvider, TermPress } from '../../../src/components/TermDetailModal';
 import WuXingIcon from '../../../src/components/WuXingIcon';
 import { makeResultChromeStyles, ResultCard, ResultChromeStyles } from '../../../src/components/result/ResultChrome';
 import { normalizeBaziResultV2 } from '../../../src/core/bazi-normalize';
+import { resolveRelationSummary } from '../../../src/core/glossary';
 import { BaziPillarKey, BaziResult } from '../../../src/core/bazi-types';
 import { getRecord } from '../../../src/db/database';
 import {
@@ -128,7 +130,16 @@ function arrowTarget(label: string, direction: string, from: number, to: number)
     return undefined;
 }
 
-export default function BaziGanZhiVisualPage() {
+/** 关系清单左侧的短标签（冲、合、刑……）点开原地精解；点整行仍是在图上只亮这一条 */
+export default function BaziGanZhiVisualScreen() {
+    return (
+        <TermDetailProvider>
+            <BaziGanZhiVisualPage />
+        </TermDetailProvider>
+    );
+}
+
+function BaziGanZhiVisualPage() {
     const params = useLocalSearchParams();
     const { Colors } = useTheme();
     const palette = useMemo(() => buildResultPalette(Colors), [Colors]);
@@ -452,18 +463,24 @@ const GanZhiTab: React.FC<TabProps> = ({ viewModel, context, width, palette, chr
                         {list.map((relation) => {
                             const on = focus === relation.key;
                             return (
-                                <Pressable
-                                    key={relation.key}
-                                    onPress={() => setFocus(on ? null : relation.key)}
-                                    style={({ pressed }) => [styles.relRow, on && styles.relRowOn, pressed && styles.pressed]}
-                                    accessibilityRole="button"
-                                    accessibilityState={{ selected: on }}
-                                    accessibilityLabel={`${relation.name}，${relation.positions}`}
-                                >
-                                    <Tag text={relation.tag} tone={relation.tone} palette={palette} styles={styles} />
-                                    <Text style={styles.relName} numberOfLines={1}>{relation.name}</Text>
-                                    <Text style={styles.relPos} numberOfLines={1}>{relation.positions}</Text>
-                                </Pressable>
+                                <View key={relation.key} style={[styles.relRow, on && styles.relRowOn]}>
+                                    <TermPress
+                                        entry={resolveRelationSummary(relation.name, relation.layer === 'stem' ? 'stem' : relation.layer === 'branch' ? 'branch' : 'pillar')}
+                                        context={`${relation.name} · ${relation.positions}`}
+                                    >
+                                        <Tag text={relation.tag} tone={relation.tone} palette={palette} styles={styles} />
+                                    </TermPress>
+                                    <Pressable
+                                        onPress={() => setFocus(on ? null : relation.key)}
+                                        style={({ pressed }) => [styles.relRowMain, pressed && styles.pressed]}
+                                        accessibilityRole="button"
+                                        accessibilityState={{ selected: on }}
+                                        accessibilityLabel={`${relation.name}，${relation.positions}`}
+                                    >
+                                        <Text style={styles.relName} numberOfLines={1}>{relation.name}</Text>
+                                        <Text style={styles.relPos} numberOfLines={1}>{relation.positions}</Text>
+                                    </Pressable>
+                                </View>
                             );
                         })}
                     </View>
@@ -989,6 +1006,8 @@ const makeStyles = (palette: ResultPalette) => StyleSheet.create({
     group: { marginTop: 10, marginBottom: 2, fontSize: 11.5, lineHeight: 16, color: palette.muted },
     relRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: -8, paddingHorizontal: 8, borderRadius: 8 },
     relRowOn: { backgroundColor: palette.goldSoft },
+    // 左边短标签点开释义，右边整段点了在图上只亮这一条
+    relRowMain: { flex: 1, minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10 },
     relName: { flexShrink: 1, fontSize: 14, lineHeight: 20, fontWeight: '600', color: palette.heading },
     relPos: { marginLeft: 'auto', fontSize: 12, lineHeight: 20, color: palette.muted },
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingTop: 4, paddingBottom: 2 },

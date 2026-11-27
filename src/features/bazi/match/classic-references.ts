@@ -1,3 +1,5 @@
+import type { GlossaryClassicBookLink } from '../../../core/glossary/types';
+
 export const BAZI_MATCH_CLASSIC_SECTIONS = [
     '合婚总纲',
     '夫妻星',
@@ -29,6 +31,8 @@ export interface BaziMatchClassicReference {
     title: string;
     source: string;
     sourceUrl?: string;
+    /** 对应站内书阁典籍章节（优先于外部网页链接） */
+    bookLink?: GlossaryClassicBookLink;
     quote: string;
     meaning: string;
     localRule: string;
@@ -43,6 +47,7 @@ export const BAZI_MATCH_CLASSIC_REFERENCES: BaziMatchClassicReference[] = [
         title: '合婚须统看四柱',
         source: '《命理探源·论男女合婚》',
         sourceUrl: 'https://ctext.org/wiki.pl?chapter=435028&if=gb',
+        bookLink: { bookId: 'minglitanyuan', bookTitle: '命理探源', chapterId: 'minglitanyuan-023', chapterTitle: '卷五 化合刑冲' },
         quote: '男女合婚之说，由来久矣。',
         meaning: '合婚不是单看属相、年命或神煞，而要把双方四柱、五行、夫星、子星合看。',
         localRule: '合盘总分以五维同看，不用生肖或单一神煞直接定吉凶。',
@@ -55,6 +60,7 @@ export const BAZI_MATCH_CLASSIC_REFERENCES: BaziMatchClassicReference[] = [
         title: '五行生克为合看底盘',
         source: '《命理探源·论男女合婚》',
         sourceUrl: 'https://ctext.org/wiki.pl?chapter=435028&if=gb',
+        bookLink: { bookId: 'minglitanyuan', bookTitle: '命理探源', chapterId: 'minglitanyuan-023', chapterTitle: '卷五 化合刑冲' },
         quote: '年、月、日、时干支八字，及五行生克。',
         meaning: '合婚要先看双方五行偏盛偏弱，再看一方能否补另一方所需。',
         localRule: '旺夫、帮妻以双方旺势五行、偏需五行和未来大运补益为主要依据。',
@@ -67,6 +73,7 @@ export const BAZI_MATCH_CLASSIC_REFERENCES: BaziMatchClassicReference[] = [
         title: '男命以财星论妻',
         source: '《滴天髓阐微·夫妻》',
         sourceUrl: 'https://zh.wikisource.org/wiki/%E6%BB%B4%E5%A4%A9%E9%AB%93%E9%97%A1%E5%BE%AE',
+        bookLink: { bookId: 'ditiansuichanwei', bookTitle: '滴天髓阐微', chapterId: 'ditiansuichanwei-036', chapterTitle: '夫妻' },
         quote: '夫妻因缘宿世来，喜神有意傍天财。',
         meaning: '男命看妻不只看见财星，还要看财星是否为喜、是否有承接。',
         localRule: '旺夫维度检查男命财星、比劫与女方食伤制化，避免只见财星就判吉。',
@@ -79,6 +86,7 @@ export const BAZI_MATCH_CLASSIC_REFERENCES: BaziMatchClassicReference[] = [
         title: '财星要看清浊承接',
         source: '《滴天髓阐微·夫妻》',
         sourceUrl: 'https://zh.wikisource.org/wiki/%E6%BB%B4%E5%A4%A9%E9%AB%93%E9%97%A1%E5%BE%AE',
+        bookLink: { bookId: 'ditiansuichanwei', bookTitle: '滴天髓阐微', chapterId: 'ditiansuichanwei-036', chapterTitle: '夫妻' },
         quote: '财旺身弱，又喜比劫。',
         meaning: '妻星、财星须结合日主承受力和全局制化，不能死看单星。',
         localRule: '男命比劫、财星偏重时，需看女方食伤与五行是否能化泄或补益。',
@@ -91,6 +99,7 @@ export const BAZI_MATCH_CLASSIC_REFERENCES: BaziMatchClassicReference[] = [
         title: '妻财子禄切近日主',
         source: '《子平真诠·论妻子》',
         sourceUrl: 'https://www.suanzhun.net/book/2515.html',
+        bookLink: { bookId: 'zipingzhenquan', bookTitle: '子平真诠', chapterId: 'zipingzhenquan-025', chapterTitle: '论妻子' },
         quote: '妻以配身，子为后嗣。',
         meaning: '配偶与子女都与日主切近，判断时要重视日支、时柱等近身位置。',
         localRule: '和睦看日支夫妻宫，子女看时柱子女宫，并结合双方宫位关系。',
@@ -103,7 +112,8 @@ export const BAZI_MATCH_CLASSIC_REFERENCES: BaziMatchClassicReference[] = [
         title: '妻宫须参月令喜忌',
         source: '《子平真诠·论妻子》',
         sourceUrl: 'https://www.suanzhun.net/book/2515.html',
-        quote: '此盖以月令用神，配成喜忌。',
+        bookLink: { bookId: 'zipingzhenquan', bookTitle: '子平真诠', chapterId: 'zipingzhenquan-025', chapterTitle: '论妻子' },
+        quote: '此盖月令用神，配成喜忌。',
         meaning: '妻宫坐吉神未必吉，坐凶神也未必凶，关键在格局喜忌。',
         localRule: '夫妻宫合冲刑害先定互动形态，再用五行补益和星情判断可否承接。',
         boundary: '没有完整月令格局判定时，只输出谨慎的合盘倾向。',
@@ -115,6 +125,7 @@ export const BAZI_MATCH_CLASSIC_REFERENCES: BaziMatchClassicReference[] = [
         title: '子女星要活看',
         source: '《滴天髓阐微·子女》',
         sourceUrl: 'https://zh.wikisource.org/wiki/%E6%BB%B4%E5%A4%A9%E9%AB%93%E9%97%A1%E5%BE%AE',
+        bookLink: { bookId: 'ditiansuichanwei', bookTitle: '滴天髓阐微', chapterId: 'ditiansuichanwei-037', chapterTitle: '子女' },
         quote: '子女根枝一世传。',
         meaning: '子女缘分不宜只死看一颗星，要看食伤、官杀、日主旺衰与喜忌。',
         localRule: '子女维度同时看男方官杀、女方食伤和双方时柱子女宫。',
@@ -127,6 +138,7 @@ export const BAZI_MATCH_CLASSIC_REFERENCES: BaziMatchClassicReference[] = [
         title: '时柱为子息落点',
         source: '《渊海子平》',
         sourceUrl: 'https://ctext.org/wiki.pl?chapter=524726&if=gb',
+        bookLink: { bookId: 'yuanhaiziping', bookTitle: '渊海子平', chapterId: 'yuanhaiziping-010', chapterTitle: '看命入式' },
         quote: '时为花实，为子息。',
         meaning: '时柱常作为子女宫，适合观察后嗣、养育与晚景落点。',
         localRule: '子女维度将双方时支合冲刑害作为重要加减分依据。',
@@ -139,6 +151,7 @@ export const BAZI_MATCH_CLASSIC_REFERENCES: BaziMatchClassicReference[] = [
         title: '婚期须看岁运引动',
         source: '《命理探源·论流年》引《三命通会》',
         sourceUrl: 'https://ctext.org/wiki.pl?chapter=435028&if=gb',
+        bookLink: { bookId: 'minglitanyuan', bookTitle: '命理探源', chapterId: 'minglitanyuan-023', chapterTitle: '卷五 化合刑冲' },
         quote: '流年者，逐年游行之太岁也。',
         meaning: '婚期不是静态看本命一处，而要看大运、流年如何引动夫妻星宫。',
         localRule: '先算双方单盘婚缘应期，再取两盘同年共振，并只展示18至45岁候选。',

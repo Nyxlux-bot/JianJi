@@ -1,6 +1,8 @@
 /**
  * 典籍阅读：宋体正文、字号三档、底部目录、上一篇 / 下一篇；读到的篇和位置存本机，再打开这部书时接着读。
  * 目录随包内置，正文打开时才读入。
+ * preview=1 是查典模式：从术语弹窗临时翻来，不动案头续读（lastBookId 与这部书的进度），只记字号；
+ * q 是引文开头，进来时定位到引文所在段并淡金标出。
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import SheetModal from '../../src/components/SheetModal';
@@ -12,6 +14,7 @@ import StatusBarDecor from '../../src/components/StatusBarDecor';
 import { BackIcon, ChevronRightIcon } from '../../src/components/Icons';
 import { getClassicBookMeta, loadClassicChapters, type ClassicChapter } from '../../src/data/classics';
 import { loadReadingState, saveReadingState, type ReadingState } from '../../src/services/reading-progress';
+import { findQuoteParagraphRange } from '../../src/core/glossary/quote-match';
 import { buildResultPalette, type ResultPalette } from '../../src/theme/result-palette';
 import { useTheme } from '../../src/theme/ThemeContext';
 
@@ -24,7 +27,8 @@ export default function ReaderPage() {
     const insets = useSafeAreaInsets();
     const palette = useMemo(() => buildResultPalette(Colors), [Colors]);
     const styles = useMemo(() => makeStyles(palette), [palette]);
-    const params = useLocalSearchParams<{ book?: string; chapter?: string }>();
+    const params = useLocalSearchParams<{ book?: string; chapter?: string; preview?: string; q?: string; from?: string }>();
+    const preview = params.preview === '1';
     const book = useMemo(() => getClassicBookMeta(params.book || ''), [params.book]);
     const [texts, setTexts] = useState<ClassicChapter[] | null>(null);
     const [loadFailed, setLoadFailed] = useState(false);
@@ -55,20 +59,42 @@ export default function ReaderPage() {
             setFontSize(state.fontSize);
             const saved = state.books[book.id];
             const target = params.chapter || saved?.chapterId || book.chapters[0]?.id || null;
-            restoreRef.current = saved && saved.chapterId === target ? saved.progress : 0;
+            // 查典模式直接定位引文，不接续上次读到的位置
+            restoreRef.current = !preview && saved && saved.chapterId === target ? saved.progress : 0;
             setChapterId(target);
         });
-    }, [book, params.chapter]);
+    }, [book, params.chapter, preview]);
 
     const index = book && chapterId ? book.chapters.findIndex((item) => item.id === chapterId) : -1;
     const chapter = index >= 0 ? texts?.[index] : undefined;
     const paragraphs = useMemo(() => (chapter ? chapter.text.split('\n').filter(Boolean) : []), [chapter]);
+    const quoteRange = useMemo(() => {
+        if (!preview || !params.q || !book || chapter?.id !== params.chapter) return null;
+        return findQuoteParagraphRange(paragraphs, params.q, book.id);
+    }, [preview, params.q, params.chapter, book, chapter?.id, paragraphs]);
+    const quoteScrolled = useRef(false);
+    useEffect(() => {
+        quoteScrolled.current = false;
+    }, [book?.id, params.chapter, params.q]);
+    const scrollToQuote = (y: number) => {
+        if (quoteScrolled.current) return;
+        quoteScrolled.current = true;
+        setTimeout(() => scrollRef.current?.scrollTo({ y: Math.max(0, y - 40), animated: false }), 0);
+    };
     const progressRef = useRef(0);
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
     const save = (progress: number, nextFont = fontSize) => {
         clearTimeout(saveTimerRef.current);
         if (!book || !chapter || !stateRef.current) return;
+        if (preview) {
+            // 查典不算在读：案头续读和这部书的进度原样留着，只记字号
+            if (nextFont === stateRef.current.fontSize) return;
+            const next: ReadingState = { ...stateRef.current, fontSize: nextFont };
+            stateRef.current = next;
+            saveReadingState(next);
+            return;
+        }
         const next: ReadingState = {
             ...stateRef.current,
             lastBookId: book.id,
@@ -158,7 +184,10 @@ export default function ReaderPage() {
                 <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="返回">
                     <BackIcon size={22} color={palette.ink} />
                 </Pressable>
-                <Text style={styles.bookTitle} numberOfLines={1}>{book.title}</Text>
+                <View style={styles.titleWrap}>
+                    <Text style={styles.bookTitleInline} numberOfLines={1}>{book.title}</Text>
+                    {preview ? <Text style={styles.previewTag}>查典</Text> : null}
+                </View>
                 <Pressable onPress={cycleFont} style={({ pressed }) => [styles.iconBtn, styles.fontBtn, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel={`字号：${font.label}，点按切换`}>
                     <Text style={styles.fontSmall}>A</Text>
                     <Text style={styles.fontBig}>a</Text>
@@ -172,6 +201,15 @@ export default function ReaderPage() {
                     </Svg>
                 </Pressable>
             </View>
+
+            {preview ? (
+                <View style={styles.previewStrip}>
+                    <Text style={styles.previewStripText}>查典模式 · 不计入案头续读</Text>
+                    <Pressable onPress={() => router.back()} style={styles.previewBack} accessibilityRole="button" accessibilityLabel="返回原页">
+                        <Text style={styles.previewBackText}>返回</Text>
+                    </Pressable>
+                </View>
+            ) : null}
 
             <ScrollView
                 ref={scrollRef}
@@ -191,9 +229,34 @@ export default function ReaderPage() {
                     <View style={styles.ornamentDiamond} />
                     <View style={styles.ornamentLine} />
                 </View>
-                {paragraphs.map((paragraph, i) => (
-                    <Text key={i} style={[styles.paragraph, { fontSize: font.size, lineHeight: font.lineHeight }]}>{'　　'}{paragraph}</Text>
-                ))}
+                {paragraphs.map((paragraph, i) => {
+                    if (quoteRange && i === quoteRange.start) {
+                        const span = paragraphs.slice(quoteRange.start, quoteRange.end + 1);
+                        return (
+                            <View key={`quote-${chapter.id}-${i}-${params.q ?? ''}`} onLayout={(event) => scrollToQuote(event.nativeEvent.layout.y)}>
+                                <Text style={styles.quoteCaption}>{params.from ? `「${params.from}」释义所引` : '释义所引'}</Text>
+                                <View style={styles.quoteBox}>
+                                    {span.map((text, offset) => (
+                                        <Text
+                                            key={i + offset}
+                                            style={[
+                                                styles.paragraph,
+                                                offset === span.length - 1 && styles.quoteParagraphLast,
+                                                { fontSize: font.size, lineHeight: font.lineHeight },
+                                            ]}
+                                        >
+                                            {'　　'}{text}
+                                        </Text>
+                                    ))}
+                                </View>
+                            </View>
+                        );
+                    }
+                    if (quoteRange && i > quoteRange.start && i <= quoteRange.end) return null;
+                    return (
+                        <Text key={i} style={[styles.paragraph, { fontSize: font.size, lineHeight: font.lineHeight }]}>{'　　'}{paragraph}</Text>
+                    );
+                })}
             </ScrollView>
 
             <View style={[styles.pager, { paddingBottom: Math.max(insets.bottom, 8) }]}>
@@ -258,6 +321,19 @@ const makeStyles = (palette: ResultPalette) => StyleSheet.create({
     },
     iconBtn: { width: 40, height: 44, alignItems: 'center', justifyContent: 'center' },
     bookTitle: { flex: 1, textAlign: 'center', fontFamily: SERIF, fontSize: 16, fontWeight: '700', letterSpacing: 2, color: palette.heading },
+    titleWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+    bookTitleInline: { flexShrink: 1, fontFamily: SERIF, fontSize: 16, fontWeight: '700', letterSpacing: 2, color: palette.heading },
+    previewTag: { paddingHorizontal: 6, borderRadius: 4, overflow: 'hidden', fontSize: 11, lineHeight: 17, letterSpacing: 1, color: palette.gold, backgroundColor: palette.goldSoft },
+    previewStrip: {
+        minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16,
+        backgroundColor: palette.isLight ? palette.raised : palette.surface, borderBottomWidth: 1, borderBottomColor: palette.hairline,
+    },
+    previewStripText: { flex: 1, fontSize: 12, lineHeight: 17, color: palette.muted },
+    previewBack: { minHeight: 36, minWidth: 44, alignItems: 'flex-end', justifyContent: 'center' },
+    previewBackText: { fontSize: 12, color: palette.gold },
+    quoteCaption: { marginBottom: 6, fontSize: 11.5, lineHeight: 16, letterSpacing: 1, color: palette.gold },
+    quoteBox: { marginHorizontal: -10, marginBottom: 16, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10, overflow: 'hidden', backgroundColor: palette.dayTint },
+    quoteParagraphLast: { marginBottom: 0 },
     fontBtn: { flexDirection: 'row', alignItems: 'baseline', paddingTop: 10 },
     fontSmall: { fontFamily: SERIF, fontSize: 12, color: palette.ink },
     fontBig: { fontFamily: SERIF, fontSize: 17, fontWeight: '700', color: palette.ink },

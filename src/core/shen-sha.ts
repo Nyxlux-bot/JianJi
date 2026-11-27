@@ -19,6 +19,12 @@ export interface ShenShaResult {
     zaiSha: string;             // 灾煞
 }
 
+/** 细批神煞卡的排列与简称，页面和词典校验共用 */
+export const SHEN_SHA_FIELDS: ReadonlyArray<readonly [keyof ShenShaResult, string]> = [
+    ['yiMa', '驿马'], ['taoHua', '桃花'], ['tianYiGuiRen', '天乙'], ['luShen', '禄神'], ['yangRen', '羊刃'],
+    ['wenChang', '文昌'], ['jiangXing', '将星'], ['huaGai', '华盖'], ['jieSha', '劫煞'], ['zaiSha', '灾煞'],
+];
+
 const ZHI_GROUPS = {
     SHUI: ['申', '子', '辰'], // 水局
     MU: ['亥', '卯', '未'], // 木局

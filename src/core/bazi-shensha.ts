@@ -266,7 +266,7 @@ function xueTang(yearNaYin: string, gan: string, zhi: string): boolean {
 function ciGuan(yearNaYin: string, gan: string, zhi: string): boolean {
     const element = yearNaYin.slice(-1);
     const map: Record<string, [string, [string, string]]> = {
-        金: ['申', ['壬', '卯']],
+        金: ['申', ['壬', '申']],
         木: ['寅', ['庚', '寅']],
         水: ['亥', ['癸', '亥']],
         土: ['亥', ['丁', '亥']],
@@ -344,6 +344,7 @@ function jiangXing(baseZhi: string, targetZhi: string): boolean {
     const map: Record<string, readonly string[]> = {
         申: ['子'],
         子: ['子'],
+        辰: ['子'],
         寅: ['午'],
         午: ['午'],
         戌: ['午'],
@@ -650,8 +651,11 @@ function tongZi(monthZhi: string, yearNaYin: string, zhi: string): boolean {
     return (elementRule[element] ?? []).includes(zhi);
 }
 
+/** 天厨：食神的临官位（甲食丙，丙禄在巳；乙食丁，丁禄在午……） */
 function tianChu(yearGan: string, dayGan: string, zhi: string): boolean {
     const map: Record<string, string> = {
+        甲: '巳',
+        乙: '午',
         丙: '巳',
         丁: '午',
         戊: '申',

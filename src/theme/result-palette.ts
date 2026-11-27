@@ -42,6 +42,8 @@ export function buildResultPalette(Colors: any) {
         // 与 dayTint 同色但不透明：要压住连线的高亮块用它
         dayFill: isLight ? '#f7eedb' : mixHex(card, gold, 0.1),
         chipBg: isLight ? '#f3ead8' : '#333333',
+        // 引文原文的底色：比卡片略深一阶的纸色
+        quoteBg: isLight ? '#f8f0e1' : '#1D1D1D',
         chipInk: isLight ? '#6f5b39' : '#C8C8C8',
         segTrack: isLight ? '#f1e8d6' : '#1A1A1A',
         segOn: isLight ? '#fffaf0' : '#333333',

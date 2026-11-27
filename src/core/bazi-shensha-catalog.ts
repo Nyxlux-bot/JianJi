@@ -1,8 +1,9 @@
 import { BaziShenShaCatalogItem } from './bazi-types';
+import { BAZI_SHENSHA_SUMMARY_BY_KEY } from './glossary/bazi-shensha';
 
 const SOURCE = 'https://www.fatemaster.ai/guides/shensha';
 
-const CATALOG: BaziShenShaCatalogItem[] = [
+const RAW_CATALOG: BaziShenShaCatalogItem[] = [
     { key: 'tian-yi-gui-ren', fullName: '天乙贵人', aliases: ['天乙'], category: '贵人', description: '主贵人与助力。', sourceRefs: [SOURCE] },
     { key: 'tian-de-gui-ren', fullName: '天德贵人', aliases: ['天德'], category: '贵人', description: '主德助与逢凶化吉。', sourceRefs: [SOURCE] },
     { key: 'yue-de-gui-ren', fullName: '月德贵人', aliases: ['月德'], category: '贵人', description: '主人缘与缓和冲突。', sourceRefs: [SOURCE] },
@@ -59,6 +60,11 @@ const CATALOG: BaziShenShaCatalogItem[] = [
     { key: 'di-zhuan-ri', fullName: '地转日', aliases: [], category: '日煞', description: '地转日曜。', sourceRefs: [SOURCE] },
     { key: 'tian-zhuan-ri', fullName: '天转日', aliases: [], category: '日煞', description: '天转日曜。', sourceRefs: [SOURCE] },
 ];
+
+const CATALOG: BaziShenShaCatalogItem[] = RAW_CATALOG.map((item) => ({
+    ...item,
+    description: BAZI_SHENSHA_SUMMARY_BY_KEY[item.key] ?? item.description,
+}));
 
 export const BAZI_SHENSHA_CATALOG = CATALOG;
 

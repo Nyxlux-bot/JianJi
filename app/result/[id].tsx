@@ -26,6 +26,9 @@ import { getLiuQin, LIUYAO_SUBJECT_SHORT, type LiuQin } from '../../src/core/liu
 import { analyzeLiuyaoStatus, type LiuyaoMark } from '../../src/core/liuyao-status';
 import { getHexagramText, getLineText } from '../../src/core/iching-texts';
 import { getMonthGeneralByJieqi, getMoonPhase } from '../../src/core/time-signs';
+import { SHEN_SHA_FIELDS } from '../../src/core/shen-sha';
+import { resolveBaziTerm, resolveLiuyaoTerm } from '../../src/core/glossary';
+import { TermDetailProvider, TermInline, TermPress } from '../../src/components/TermDetailModal';
 import { getGanZhiElement } from '../../src/features/bazi/wuxing';
 import { getRecord, deleteRecord, toggleFavorite } from '../../src/db/database';
 import { isAIConfigured } from '../../src/services/settings';
@@ -66,6 +69,14 @@ function describeShiYing(result: PanResult): string {
 }
 
 export default function ResultPage() {
+    return (
+        <TermDetailProvider>
+            <LiuyaoResultView />
+        </TermDetailProvider>
+    );
+}
+
+function LiuyaoResultView() {
     const { Colors } = useTheme();
     const palette = useMemo(() => buildResultPalette(Colors), [Colors]);
     const chrome = useMemo(() => makeResultChromeStyles(palette), [palette]);
@@ -191,9 +202,16 @@ export default function ResultPage() {
         return element ? palette.element[element] : palette.ink;
     };
     const ganZhi = (text: string) => [...text].map((char, index) => <Text key={index} style={{ color: elementColor(char) }}>{char}</Text>);
-    const markText = (marks: LiuyaoMark[]) => marks.map((mark, index) => (
-        <Text key={mark.label} style={{ color: mark.tone === 'good' ? Colors.bazi.statePositive : mark.tone === 'bad' ? Colors.bazi.stateNegative : palette.muted }}>
-            {index > 0 ? ' · ' : ''}{mark.label}
+    const markText = (marks: LiuyaoMark[], context: string) => marks.map((mark, index) => (
+        <Text key={mark.label}>
+            {index > 0 ? <Text style={{ color: palette.muted }}> · </Text> : null}
+            <TermInline
+                entry={resolveLiuyaoTerm(mark.label, 'liuyao-status')}
+                context={context}
+                style={{ color: mark.tone === 'good' ? Colors.bazi.statePositive : mark.tone === 'bad' ? Colors.bazi.stateNegative : palette.muted }}
+            >
+                {mark.label}
+            </TermInline>
         </Text>
     ));
 
@@ -207,11 +225,12 @@ export default function ResultPage() {
     const monthGeneral = result.monthGeneral || getMonthGeneralByJieqi(result.jieqi?.current || '', result.monthGanZhi?.[1]);
     const createdAt = new Date(result.createdAt);
     const moonPhase = getMoonPhase(Number.isNaN(createdAt.getTime()) ? new Date() : createdAt, result.lunarInfo?.day);
-    const shenSha = result.shenSha ? [
-        ['驿马', result.shenSha.yiMa], ['桃花', result.shenSha.taoHua], ['天乙', result.shenSha.tianYiGuiRen?.join('')],
-        ['禄神', result.shenSha.luShen], ['羊刃', result.shenSha.yangRen], ['文昌', result.shenSha.wenChang],
-        ['将星', result.shenSha.jiangXing], ['华盖', result.shenSha.huaGai], ['劫煞', result.shenSha.jieSha], ['灾煞', result.shenSha.zaiSha],
-    ] : [];
+    const shenSha: Array<[string, string]> = result.shenSha
+        ? SHEN_SHA_FIELDS.map(([key, label]) => {
+            const value = result.shenSha![key];
+            return [label, Array.isArray(value) ? value.join('') : value];
+        })
+        : [];
     const pillars = [
         { label: '年柱', ganZhi: result.yearGanZhi, naYin: result.yearNaYin },
         { label: '月柱', ganZhi: result.monthGanZhi, naYin: result.monthNaYin },
@@ -284,9 +303,13 @@ export default function ResultPage() {
                                                 <Text style={styles.movingTitle}>{YAO_TITLE(yao.position, yao.nature === 'yang')}</Text>
                                                 <View style={styles.flex}>
                                                     <View style={styles.inline}>
-                                                        <LiuShenIcon liuShen={yao.liuShen} size={16} />
-                                                        <Text style={[styles.inlineText, styles.shenName]}>{yao.liuShen}</Text>
-                                                        <Text style={styles.inlineText}>{yao.liuQin}</Text>
+                                                        <TermPress entry={resolveLiuyaoTerm(yao.liuShen, 'liuyao-liushen')} context={`${yao.positionName}爻 · ${result.dayGanZhi[0]}日起${result.benGuaYao[0].liuShen}`} innerStyle={styles.inline}>
+                                                            <LiuShenIcon liuShen={yao.liuShen} size={16} />
+                                                            <Text style={[styles.inlineText, styles.shenName]}>{yao.liuShen}</Text>
+                                                        </TermPress>
+                                                        <TermPress entry={resolveLiuyaoTerm(yao.liuQin, 'liuyao-liuqin')} context={`${yao.positionName}爻 ${yao.liuQin}${yao.zhi}${yao.wuxing} · ${yaoStatus.state}`}>
+                                                            <Text style={styles.inlineText}>{yao.liuQin}</Text>
+                                                        </TermPress>
                                                         <WuXingIcon element={yao.zhi} size={14} />
                                                         <Text style={[styles.inlineZhi, { color: elementColor(yao.zhi) }]}>{yao.zhi}</Text>
                                                         {yao.bianZhi ? (
@@ -299,7 +322,7 @@ export default function ResultPage() {
                                                         ) : null}
                                                     </View>
                                                     {yaoStatus.marks.length + yaoStatus.transform.length > 0 ? (
-                                                        <Text style={styles.notes}>{markText([...yaoStatus.marks, ...yaoStatus.transform])}</Text>
+                                                        <Text style={styles.notes}>{markText([...yaoStatus.marks, ...yaoStatus.transform], `${yao.positionName}爻 ${yao.liuQin}${yao.zhi}${yao.wuxing} · ${result.monthGanZhi[1]}月${result.dayGanZhi}日`)}</Text>
                                                     ) : null}
                                                     <Text style={styles.scripture}>{getLineText({ lines: benLines }, yao.position).scripture}</Text>
                                                 </View>
@@ -312,7 +335,9 @@ export default function ResultPage() {
                             <ResultCard title="静卦" meta="六爻安静，看用神旺衰与世应" styles={chrome}>
                                 <View style={styles.list}>
                                     <View style={styles.textRow}>
-                                        <Text style={styles.textLabel}>世应</Text>
+                                        <TermPress entry={resolveLiuyaoTerm('世', 'liuyao-yao')} context="静卦看世应" style={styles.textLabelCell}>
+                                            <Text style={styles.textLabelText}>世应</Text>
+                                        </TermPress>
                                         <Text style={styles.textBody}>{describeShiYing(result)}</Text>
                                     </View>
                                     <View style={styles.textRow}>
@@ -346,7 +371,9 @@ export default function ResultPage() {
                                                 <Text style={[styles.pillarChar, { color: elementColor(char) }]}>{char}</Text>
                                             </View>
                                         ))}
-                                        <Text style={[styles.nayinCell, styles.nayin]}>{pillar.naYin}</Text>
+                                        <TermPress entry={resolveBaziTerm(pillar.naYin, 'bazi-nayin')} context={`${pillar.label} ${pillar.ganZhi}`} style={styles.nayinCell}>
+                                            <Text style={styles.nayin}>{pillar.naYin}</Text>
+                                        </TermPress>
                                     </View>
                                 ))}
                             </View>
@@ -354,15 +381,15 @@ export default function ResultPage() {
 
                         <ResultCard title="旬空 · 月将 · 月相" styles={chrome}>
                             <View style={styles.metaRow}>
-                                <View style={styles.metaCell}>
+                                <TermPress entry={resolveLiuyaoTerm('旬空', 'liuyao-status')} context={`${result.dayGanZhi}日 · 旬空${result.xunKong.join('')}`} style={styles.metaCell} innerStyle={styles.metaInner}>
                                     <Text style={styles.metaLabel}>旬空</Text>
                                     <Text style={styles.metaValue}>{ganZhi(result.xunKong.join(' '))}</Text>
-                                </View>
-                                <View style={styles.metaCellWide}>
+                                </TermPress>
+                                <TermPress entry={resolveLiuyaoTerm('月将', 'liuyao-yao')} context={`${monthGeneral.zhi}将${monthGeneral.name} · ${monthGeneral.basedOnTerm}`} style={styles.metaCellWide} innerStyle={styles.metaInner}>
                                     <Text style={styles.metaLabel}>月将</Text>
                                     <Text style={[styles.metaValue, { color: palette.gold }]}>{`${monthGeneral.zhi}将 · ${monthGeneral.name}`}</Text>
                                     <Text style={styles.metaHint}>{`依据节气：${monthGeneral.basedOnTerm}`}</Text>
-                                </View>
+                                </TermPress>
                                 <View style={styles.metaCellWide}>
                                     <Text style={styles.metaLabel}>月相</Text>
                                     <Text style={[styles.metaValue, { color: palette.gold }]}>{moonPhase.name}</Text>
@@ -375,10 +402,16 @@ export default function ResultPage() {
                             <ResultCard title="神煞" styles={chrome}>
                                 <View style={styles.shenShaGrid}>
                                     {shenSha.map(([label, value], index) => (
-                                        <View key={label} style={[styles.shenShaCell, index >= 5 && styles.shenShaRule]}>
+                                        <TermPress
+                                            key={label}
+                                            entry={resolveLiuyaoTerm(label, 'liuyao-shensha')}
+                                            context={`${result.dayGanZhi}日 · ${label}${value ? `在${value}` : '无'}`}
+                                            style={[styles.shenShaCell, index >= 5 && styles.shenShaRule]}
+                                            innerStyle={styles.shenShaInner}
+                                        >
                                             <Text style={styles.metaLabel}>{label}</Text>
                                             <Text style={styles.shenShaValue}>{value ? ganZhi(value) : '无'}</Text>
-                                        </View>
+                                        </TermPress>
                                     ))}
                                 </View>
                             </ResultCard>
@@ -416,7 +449,9 @@ export default function ResultPage() {
                                         <WuXingIcon element={row.wuxing} size={16} />
                                         <Text style={[styles.seasonWx, { color: palette.element[row.wuxing] }]}>{row.wuxing}</Text>
                                         <View style={styles.bar}><View style={[styles.barFill, { width: STATE_PCT[row.state], backgroundColor: palette.element[row.wuxing] }]} /></View>
-                                        <Text style={styles.seasonState}>{row.state}</Text>
+                                        <TermPress entry={resolveLiuyaoTerm(row.state, 'wuxing-season')} context={`${result.monthGanZhi[1]}月 · ${row.wuxing}${row.state}`} style={styles.seasonStateCell}>
+                                            <Text style={styles.seasonState}>{row.state}</Text>
+                                        </TermPress>
                                         <Text style={styles.seasonHolders} numberOfLines={1}>{row.holders.join(' ')}</Text>
                                     </View>
                                 ))}
@@ -482,6 +517,8 @@ function makeStyles(palette: ResultPalette) {
         scripture: { fontSize: 13, lineHeight: 20, color: palette.muted },
         textRow: { flexDirection: 'row', gap: 8 },
         textLabel: { width: 56, fontSize: 12, lineHeight: 21, color: palette.muted },
+        textLabelCell: { width: 56, alignItems: 'flex-start' },
+        textLabelText: { fontSize: 12, lineHeight: 21, color: palette.muted },
         textScripture: { flex: 1, fontSize: 13.5, lineHeight: 21, color: palette.ink },
         textBody: { flex: 1, fontSize: 13, lineHeight: 21, color: palette.body },
         pillarTable: { flexDirection: 'row', marginTop: 6 },
@@ -496,23 +533,26 @@ function makeStyles(palette: ResultPalette) {
         pillarCharCell: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 },
         pillarChar: { fontSize: 28, lineHeight: 36, fontWeight: '700' },
         nayinCell: { height: 32, lineHeight: 32, borderTopWidth: 1, borderTopColor: palette.hairline },
-        nayin: { textAlign: 'center', fontSize: 13, color: palette.body },
+        nayin: { textAlign: 'center', fontSize: 13, lineHeight: 32, color: palette.body },
         metaRow: { flexDirection: 'row', gap: 10, marginTop: 8 },
         metaCell: { flex: 1 },
         metaCellWide: { flex: 1.3 },
+        metaInner: { alignItems: 'flex-start' },
         metaLabel: { fontSize: 11, lineHeight: 15, color: palette.muted },
         metaValue: { fontSize: 16, lineHeight: 24, fontWeight: '700', color: palette.heading },
         metaHint: { fontSize: 11, lineHeight: 15, color: palette.muted },
         shenShaGrid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 },
         shenShaCell: { width: '20%', alignItems: 'center', paddingVertical: 6 },
         shenShaRule: { borderTopWidth: 1, borderTopColor: palette.hairline },
+        shenShaInner: { alignItems: 'center' },
         shenShaValue: { fontSize: 15, lineHeight: 21, fontWeight: '700', color: palette.heading },
         seasonList: { marginTop: 8, gap: 6 },
         seasonRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
         seasonWx: { width: 16, fontSize: 12.5, fontWeight: '700' },
         bar: { flex: 1, height: 4, borderRadius: 2, overflow: 'hidden', backgroundColor: palette.barTrack },
         barFill: { height: '100%' },
-        seasonState: { width: 18, fontSize: 12.5, fontWeight: '600', color: palette.heading },
+        seasonStateCell: { width: 18, alignItems: 'center' },
+        seasonState: { fontSize: 12.5, fontWeight: '600', color: palette.heading },
         seasonHolders: { width: 110, fontSize: 12, color: palette.muted },
     });
 }

@@ -459,7 +459,7 @@ const STAR_ORDER: StarName[] = ['偏财', '正财', '正官', '七杀', '正印'
 const BRANCH_PALACE: Record<BaziPillarKey, string> = { year: '祖辈宫', month: '父母宫', day: '夫妻宫', hour: '子女宫' };
 const FAMILY_PERSONS: Record<'male' | 'female', string[]> = {
     male: ['父亲', '母亲', '妻子', '兄弟', '姐妹', '儿子', '女儿'],
-    female: ['丈夫', '父亲', '婆婆', '兄弟', '姐妹', '儿子', '女儿'],
+    female: ['丈夫', '父亲', '母亲', '婆婆', '兄弟', '姐妹', '儿子', '女儿'],
 };
 
 export interface KinSpot {

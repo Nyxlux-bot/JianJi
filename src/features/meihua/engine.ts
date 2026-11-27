@@ -2,7 +2,7 @@
  * 梅花易数起卦：先天数取上下卦，总数除六取动爻，再推互卦、变卦与体用。
  * 依据《梅花易数》卷一「年月日时起例」「物数占例」「互卦」。
  */
-import { BA_GUA, DIZHI_INDEX, GUA_64, WuXing, yaoToGuaIndex } from '../../core/liuyao-data';
+import { BA_GUA, DIZHI_INDEX, GUA_64, type WuXing, yaoToGuaIndex } from '../../core/liuyao-data';
 import { getCurrentJieqi, solarToLunar } from '../../core/lunar';
 import type { MeihuaCastContext, MeihuaHexagram, MeihuaMethod, MeihuaNumberSource, MeihuaResult } from './types';
 
@@ -44,9 +44,12 @@ export function getTrigram(index: number): { index: number; name: string; wuxing
 /** 由上下卦和动爻排出本、互、变卦与体用。 */
 export function buildMeihuaHexagrams(upper: number, lower: number, movingLine: number): Pick<MeihuaResult, 'ben' | 'hu' | 'bian' | 'tiPosition'> {
     const ben = hexagramOf(upper, lower);
-    // 互卦：去初、上二爻，二三四爻为下卦，三四五爻为上卦
-    const hu = hexagramFromLines([ben.lines[1], ben.lines[2], ben.lines[3], ben.lines[2], ben.lines[3], ben.lines[4]]);
     const bianLines = ben.lines.map((value, index) => (index === movingLine - 1 ? 1 - value : value));
+    // 互卦：去初、上二爻，二三四爻为下卦，三四五爻为上卦。
+    // 纯乾、纯坤去爻后仍是自身，「乾坤无互，互其变卦」（《梅花易数·互卦起例》）
+    const pure = ben.lines.every((value) => value === ben.lines[0]);
+    const source = pure ? bianLines : ben.lines;
+    const hu = hexagramFromLines([source[1], source[2], source[3], source[2], source[3], source[4]]);
     return { ben, hu, bian: hexagramFromLines(bianLines), tiPosition: movingLine > 3 ? 'lower' : 'upper' };
 }
 

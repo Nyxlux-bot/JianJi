@@ -3,7 +3,7 @@
  * 只列事实性的生克冲合，不替代断卦。
  */
 import type { PanResult, YaoDetail } from './liuyao-calc';
-import { DIZHI_WUXING, getLiuQin, type LiuQin, type WuXing } from './liuyao-data';
+import { DIZHI_WUXING, getLiuQin, GUA_64, type GuaInfo, type LiuQin, type WuXing } from './liuyao-data';
 import { buildWuXingBandFromMonthBranch } from './renyuan-duty';
 
 export type LiuyaoTone = 'good' | 'bad' | 'neutral';
@@ -19,8 +19,11 @@ export interface LiuyaoMark {
 
 const CHONG: Record<string, string> = { 子: '午', 午: '子', 丑: '未', 未: '丑', 寅: '申', 申: '寅', 卯: '酉', 酉: '卯', 辰: '戌', 戌: '辰', 巳: '亥', 亥: '巳' };
 const HE: Record<string, string> = { 子: '丑', 丑: '子', 寅: '亥', 亥: '寅', 卯: '戌', 戌: '卯', 辰: '酉', 酉: '辰', 巳: '申', 申: '巳', 午: '未', 未: '午' };
-/** 进神：同五行顺行一位 */
-const JIN: Record<string, string> = { 寅: '卯', 巳: '午', 申: '酉', 亥: '子', 丑: '辰', 辰: '未', 未: '戌', 戌: '丑' };
+/**
+ * 进神：同五行顺行一位，按《增删卜易·进神退神章》七对。
+ * 纳甲装卦里实际只会出现寅化卯、申化酉、丑化辰、未化戌，其余三对与戌丑之间都碰不到（scripts/check-glossary.cjs 枚举核对）。
+ */
+const JIN: Record<string, string> = { 寅: '卯', 巳: '午', 申: '酉', 亥: '子', 丑: '辰', 辰: '未', 未: '戌' };
 /** 五行入墓 */
 const MU: Record<WuXing, string> = { 火: '戌', 水: '辰', 土: '辰', 木: '未', 金: '丑' };
 const LIUQIN_ORDER: LiuQin[] = ['父母', '兄弟', '子孙', '妻财', '官鬼'];
@@ -131,4 +134,24 @@ export function analyzeLiuyaoStatus(result: PanResult): LiuyaoStatus {
     });
 
     return { yao, season, summary };
+}
+
+export type LiuyaoGuaShape = '六冲卦' | '六合卦' | '游魂卦' | '归魂卦';
+
+/**
+ * 卦型：内外卦对应三爻（初四、二五、三上）的地支两两相冲为六冲卦、两两相合为六合卦；
+ * 八宫每宫第七卦为游魂、第八卦为归魂（《增删卜易》六冲章、六合章、归魂游魂章）。
+ */
+export function getGuaShapes(gua: Pick<GuaInfo, 'gong' | 'fullName'>, yao: Array<Pick<YaoDetail, 'zhi'>>): LiuyaoGuaShape[] {
+    const shapes: LiuyaoGuaShape[] = [];
+    if (yao.length === 6) {
+        const pairs = [0, 1, 2].map((i) => [yao[i].zhi, yao[i + 3].zhi]);
+        if (pairs.every(([a, b]) => CHONG[a] === b)) shapes.push('六冲卦');
+        if (pairs.every(([a, b]) => HE[a] === b)) shapes.push('六合卦');
+    }
+    const palace = Object.values(GUA_64).filter((item) => item.gong === gua.gong);
+    const index = palace.findIndex((item) => item.fullName === gua.fullName);
+    if (index === 6) shapes.push('游魂卦');
+    if (index === 7) shapes.push('归魂卦');
+    return shapes;
 }

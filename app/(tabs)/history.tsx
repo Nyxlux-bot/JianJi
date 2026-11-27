@@ -14,7 +14,7 @@ import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture
 // 滑动区内用手势库的 Pressable：左滑开始后点按会被取消，不会误开记录
 import { Pressable as GesturePressable } from 'react-native-gesture-handler';
 import Svg, { Circle, Path } from 'react-native-svg';
-import Animated, { Keyframe, ReduceMotion } from 'react-native-reanimated';
+import Animated, { Keyframe, ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import ConfirmModal from '../../src/components/ConfirmModal';
 import StatusBarDecor from '../../src/components/StatusBarDecor';
 import HexagramLines from '../../src/components/result/HexagramLines';
@@ -24,7 +24,7 @@ import { BA_GUA, GUA_64 } from '../../src/core/liuyao-data';
 import { getRecordRoute } from '../../src/utils/record-route';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { buildResultPalette, type ResultPalette } from '../../src/theme/result-palette';
-import { riseIn, stampIn } from '../../src/theme/motion';
+import { EASE_OUT, stampIn } from '../../src/theme/motion';
 import { clearAIAnalysisJob } from '../../src/services/ai-analysis-jobs';
 import {
     BaziHistoryCategory,
@@ -232,6 +232,20 @@ const HistoryRow = memo(function HistoryRow({ record, first, last, palette, styl
     useEffect(() => {
         favoriteRef.current = record.isFavorite;
     }, [record.isFavorite]);
+    // 不用 entering={riseIn()}：Reanimated 网页端 Keyframe 入场会给节点挂绝对定位，切主题或切页签后行高塌陷导致分组重叠
+    const reduceMotion = useReducedMotion();
+    const shown = useSharedValue(introOrder === undefined || reduceMotion ? 1 : 0);
+    useEffect(() => {
+        if (introOrder !== undefined && !reduceMotion) {
+            shown.value = withDelay(introOrder * 30, withTiming(1, { duration: 360, easing: EASE_OUT }));
+        }
+        // 只在首屏挂载时播一次
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+    const rowMotion = useAnimatedStyle(() => ({
+        opacity: shown.value,
+        transform: [{ translateY: (1 - shown.value) * 10 }],
+    }));
     const metaKey = getHistoryMetaLabel(record);
     const { title, sub, hasQuestion } = describeRecord(record);
     const lines = record.engineType === 'liuyao' || record.engineType === 'meihua' ? LINES_BY_NAME.get(record.title) : undefined;
@@ -241,7 +255,7 @@ const HistoryRow = memo(function HistoryRow({ record, first, last, palette, styl
     const corner = [first && styles.rowFirst, last && styles.rowLast];
 
     return (
-        <Animated.View entering={introOrder === undefined ? undefined : riseIn(introOrder * 30, 10, 360)} style={[styles.rowShell, corner, !first && styles.rowRule]}>
+        <Animated.View style={[styles.rowShell, corner, !first && styles.rowRule, rowMotion]}>
             <ReanimatedSwipeable
                 ref={swipeRef}
                 friction={2}
@@ -293,8 +307,8 @@ const HistoryRow = memo(function HistoryRow({ record, first, last, palette, styl
                         accessibilityRole="button"
                         accessibilityLabel={record.isFavorite ? '取消收藏' : '收藏'}
                     >
-                        {stamped ? <Animated.View entering={inkRipple} style={styles.starRipple} /> : null}
-                        <Animated.View key={record.isFavorite ? 'on' : 'off'} entering={stamped ? stampIn() : undefined}>
+                        {stamped && Platform.OS !== 'web' ? <Animated.View entering={inkRipple} style={styles.starRipple} /> : null}
+                        <Animated.View key={record.isFavorite ? 'on' : 'off'} entering={stamped && Platform.OS !== 'web' ? stampIn() : undefined}>
                             <StarIcon size={18} color={record.isFavorite ? palette.gold : palette.muted} filled={record.isFavorite} />
                         </Animated.View>
                     </GesturePressable>
@@ -547,6 +561,7 @@ export default function HistoryPage() {
             ) : (
                 <SectionList
                     sections={sections}
+                    extraData={styles}
                     keyExtractor={(item) => item.id}
                     stickySectionHeadersEnabled={false}
                     contentContainerStyle={[styles.listContent, { paddingBottom: 64 + Math.max(insets.bottom, 16) + 24 }]}

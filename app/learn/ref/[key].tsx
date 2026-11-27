@@ -1,5 +1,6 @@
 /**
  * 书阁速查：八卦类象、纳音、神煞释义、梅花体用诀，都取自程序里已有的资料表。
+ * 接入术语精解弹窗，轻点任意一项原地展开查法与原典。
  */
 import React, { useMemo } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -8,8 +9,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import StatusBarDecor from '../../../src/components/StatusBarDecor';
 import HexagramLines from '../../../src/components/result/HexagramLines';
 import { ResultCard, makeResultChromeStyles } from '../../../src/components/result/ResultChrome';
+import { TermDetailProvider, TermPress } from '../../../src/components/TermDetailModal';
 import WuXingIcon from '../../../src/components/WuXingIcon';
 import { BackIcon } from '../../../src/components/Icons';
+import { resolveBaziTerm, resolveMeihuaTerm } from '../../../src/core/glossary';
 import { BA_GUA, NAYIN } from '../../../src/core/liuyao-data';
 import { BAZI_SHENSHA_CATALOG } from '../../../src/core/bazi-shensha-catalog';
 import { TRIGRAM_IMAGES, TRIGRAM_IMAGE_SOURCE } from '../../../src/features/meihua/images';
@@ -23,6 +26,14 @@ const TITLES: Record<string, string> = { trigram: '八卦类象', nayin: '纳音
 const RELATION_LABEL: Record<MeihuaRelation, string> = { 比和: '体用比和', 生体: '用生体', 体克: '体克用', 克体: '用克体', 体生: '体生用' };
 
 export default function LearnRefPage() {
+    return (
+        <TermDetailProvider>
+            <LearnRefView />
+        </TermDetailProvider>
+    );
+}
+
+function LearnRefView() {
     const { Colors } = useTheme();
     const insets = useSafeAreaInsets();
     const palette = useMemo(() => buildResultPalette(Colors), [Colors]);
@@ -40,7 +51,13 @@ export default function LearnRefPage() {
                             const image = TRIGRAM_IMAGES[trigram.name];
                             const color = palette.element[trigram.wuxing];
                             return (
-                                <View key={index} style={[styles.row, i > 0 && styles.rule]}>
+                                <TermPress
+                                    key={index}
+                                    entry={resolveMeihuaTerm(trigram.name, 'trigram-image')}
+                                    context="八卦类象"
+                                    style={i > 0 ? styles.rule : undefined}
+                                    innerStyle={styles.row}
+                                >
                                     <HexagramLines lines={trigram.yao} width={22} barHeight={3} gap={3} color={color} movingColor={color} />
                                     <View style={styles.trigramHead}>
                                         <WuXingIcon element={trigram.wuxing} size={14} />
@@ -50,7 +67,7 @@ export default function LearnRefPage() {
                                         <Text style={styles.rowTitle}>{image.virtue} · {trigram.nature}</Text>
                                         <Text style={styles.rowText}>{image.items.join(' · ')}</Text>
                                     </View>
-                                </View>
+                                </TermPress>
                             );
                         })}
                     </ResultCard>
@@ -65,13 +82,19 @@ export default function LearnRefPage() {
                             {pairs.map(([a, b, name]) => {
                                 const element = resolveWuXingElement(name.slice(-1));
                                 return (
-                                    <View key={a} style={styles.nayinCell}>
+                                    <TermPress
+                                        key={a}
+                                        entry={resolveBaziTerm(name, 'bazi-nayin')}
+                                        context={`${a} ${b}`}
+                                        style={styles.nayinCell}
+                                        innerStyle={styles.nayinCellInner}
+                                    >
                                         <Text style={styles.nayinPillars}>{a} {b}</Text>
                                         <View style={styles.nayinName}>
                                             {element ? <WuXingIcon element={element} size={13} /> : null}
                                             <Text style={[styles.nayinText, element && { color: palette.element[element] }]}>{name}</Text>
                                         </View>
-                                    </View>
+                                    </TermPress>
                                 );
                             })}
                         </View>
@@ -87,17 +110,23 @@ export default function LearnRefPage() {
                 }, []);
                 return (
                     <>
-                        <Text style={styles.note}>释义为常见说法的简述，各家取法不尽相同，仅作查阅。</Text>
+                        <Text style={styles.note}>释义为常见说法的简述，轻点条目可看查法与原典；各家取法不尽相同，仅作查阅。</Text>
                         {groups.map((group) => (
                             <ResultCard key={group.category} title={group.category} meta={`${group.items.length} 项`} styles={chrome}>
                                 {group.items.map((item, i) => (
-                                    <View key={item.key} style={[styles.row, i > 0 && styles.rule]}>
+                                    <TermPress
+                                        key={item.key}
+                                        entry={resolveBaziTerm(item.fullName, 'bazi-shensha')}
+                                        context={`神煞 · ${group.category}`}
+                                        style={i > 0 ? styles.rule : undefined}
+                                        innerStyle={styles.row}
+                                    >
                                         <View style={styles.shenshaHead}>
                                             <Text style={styles.rowTitle}>{item.fullName}</Text>
                                             {item.aliases.length ? <Text style={styles.alias}>又名 {item.aliases.join('、')}</Text> : null}
                                         </View>
                                         <Text style={[styles.rowText, styles.flex]}>{item.description}</Text>
-                                    </View>
+                                    </TermPress>
                                 ))}
                             </ResultCard>
                         ))}
@@ -112,20 +141,32 @@ export default function LearnRefPage() {
                                 const rule = RELATION_RULES[relation];
                                 const good = rule.tone === 'good';
                                 return (
-                                    <View key={relation} style={[styles.row, i > 0 && styles.rule]}>
+                                    <TermPress
+                                        key={relation}
+                                        entry={resolveMeihuaTerm(RELATION_LABEL[relation], 'meihua-tiyong')}
+                                        context="体用生克"
+                                        style={i > 0 ? styles.rule : undefined}
+                                        innerStyle={styles.row}
+                                    >
                                         <Text style={styles.relation}>{RELATION_LABEL[relation]}</Text>
                                         <Text style={[styles.quote, styles.flex]}>{rule.quote}</Text>
                                         <Text style={[styles.tone, { color: good ? palette.element.木 : palette.vermilion }]}>{good ? '吉' : '凶'}</Text>
-                                    </View>
+                                    </TermPress>
                                 );
                             })}
                         </ResultCard>
                         <ResultCard title="互变" meta={SOURCE_TIYONG} styles={chrome}>
-                            <Text style={[styles.quote, styles.block]}>{QUOTE_HU}</Text>
-                            <Text style={[styles.quote, styles.block]}>{QUOTE_BIAN}</Text>
+                            <TermPress entry={resolveMeihuaTerm('互卦', 'meihua-gua')} context="互变" style={styles.block}>
+                                <Text style={styles.quote}>{QUOTE_HU}</Text>
+                            </TermPress>
+                            <TermPress entry={resolveMeihuaTerm('变卦', 'meihua-gua')} context="互变" style={styles.block}>
+                                <Text style={styles.quote}>{QUOTE_BIAN}</Text>
+                            </TermPress>
                         </ResultCard>
                         <ResultCard title="衰旺" meta={SOURCE_SEASON} styles={chrome}>
-                            <Text style={[styles.quote, styles.block]}>{QUOTE_SEASON}</Text>
+                            <TermPress entry={resolveMeihuaTerm('卦气', 'meihua-gua')} context="衰旺" style={styles.block}>
+                                <Text style={styles.quote}>{QUOTE_SEASON}</Text>
+                            </TermPress>
                         </ResultCard>
                     </>
                 );
@@ -163,7 +204,8 @@ const makeStyles = (palette: ResultPalette) => StyleSheet.create({
     rowTitle: { fontSize: 14, lineHeight: 20, fontWeight: '700', color: palette.heading },
     rowText: { fontSize: 13, lineHeight: 19, color: palette.body },
     grid: { marginTop: 6, flexDirection: 'row', flexWrap: 'wrap' },
-    nayinCell: { width: '50%', paddingVertical: 8, paddingRight: 8, gap: 2 },
+    nayinCell: { width: '50%', paddingRight: 8 },
+    nayinCellInner: { paddingVertical: 8, gap: 2 },
     nayinPillars: { fontFamily: SERIF, fontSize: 15, lineHeight: 21, fontWeight: '700', color: palette.heading },
     nayinName: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     nayinText: { fontSize: 13, lineHeight: 18, color: palette.body },

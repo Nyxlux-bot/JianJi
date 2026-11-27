@@ -1,12 +1,16 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import React, { useMemo } from 'react';
+import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
-import { Spacing, FontSize, BorderRadius } from '../theme/colors';
+import { buildResultPalette, type ResultPalette } from '../theme/result-palette';
+import HexagramLines from './result/HexagramLines';
+import { findHexagramByLines } from '../core/iching-texts';
 
 // Import datasets
 import tuanData from '../data/ichuan/tuan.json';
 import xiangData from '../data/ichuan/xiang.json';
 import wenData from '../data/ichuan/wen.json';
+
+const SERIF = Platform.select({ ios: 'Songti SC', android: 'serif', default: 'serif' });
 
 export interface HexagramData {
     id: number;
@@ -33,168 +37,233 @@ interface HexagramDetailViewProps {
 
 export default function HexagramDetailView({ data }: HexagramDetailViewProps) {
     const { Colors } = useTheme();
-    const styles = React.useMemo(() => makeStyles(Colors), [Colors]);
+    const palette = useMemo(() => buildResultPalette(Colors), [Colors]);
+    const styles = useMemo(() => makeStyles(palette), [palette]);
 
-    const getTuan = (id: number) => TuanDict[`iching__${id}`] || null;
-    const getDaXiang = (id: number) => XiangDict[`iching__${id}`] || null;
-    const getWen = (id: number) => WenDict[`iching__${id}`] || null;
+    const hexagram = useMemo(() => findHexagramByLines(data.array), [data.array]);
+    const tuan = TuanDict[`iching__${data.id}`] || null;
+    const daXiang = XiangDict[`iching__${data.id}`] || null;
+    const wen = WenDict[`iching__${data.id}`] || null;
     const getXiaoXiang = (hexId: number, lineIndex: number) => XiangDict[`iching__${hexId}_${lineIndex + 1}`] || null;
 
     return (
         <ScrollView style={styles.detailScroll} contentContainerStyle={styles.detailContent} showsVerticalScrollIndicator={false}>
             <View style={styles.detailTop}>
-                <Text style={styles.detailSymbol}>{data.symbol}</Text>
-                <Text style={styles.detailName}>{data.name}</Text>
-                <Text style={styles.detailMeta}>{data.combination[0]}上 · {data.combination[1]}下</Text>
-                <Text style={styles.detailArray}>爻象: {data.array.join('').replace(/0/g, '⚋').replace(/1/g, '—')}</Text>
+                <HexagramLines
+                    lines={data.array}
+                    width={68}
+                    barHeight={7}
+                    gap={6}
+                    trigramGap={4}
+                    color={palette.gold}
+                    movingColor={palette.gold}
+                />
+                <Text style={styles.detailName}>{hexagram?.fullName ?? data.name}</Text>
+                <Text style={styles.detailMeta}>
+                    {data.combination[1]}上 · {data.combination[0]}下 · 第 {data.id} 卦
+                </Text>
             </View>
 
             <View style={styles.sectionBlock}>
-                <Text style={styles.sectionLabel}>卦辞</Text>
-                <Text style={styles.scriptureText}>{data.scripture}</Text>
-            </View>
-
-            <View style={styles.sectionBlock}>
-                <Text style={styles.sectionLabel}>彖传 (Tuan)</Text>
-                <Text style={styles.scriptureText}>{getTuan(data.id) || '暂无内容'}</Text>
-            </View>
-
-            <View style={styles.sectionBlock}>
-                <Text style={styles.sectionLabel}>象传 (Da Xiang)</Text>
-                <Text style={styles.scriptureText}>{getDaXiang(data.id) || '暂无内容'}</Text>
-            </View>
-
-            {getWen(data.id) && (
-                <View style={styles.sectionBlock}>
-                    <Text style={styles.sectionLabel}>文言 (Wen Yan)</Text>
-                    <Text style={styles.scriptureText}>{getWen(data.id)}</Text>
+                <View style={styles.sectionHead}>
+                    <Text style={styles.sectionLabel}>卦辞</Text>
+                    <View style={styles.sectionRule} />
                 </View>
-            )}
+                <Text style={styles.scriptureHero}>{data.scripture}</Text>
+            </View>
+
+            {tuan ? (
+                <View style={styles.sectionBlock}>
+                    <View style={styles.sectionHead}>
+                        <Text style={styles.sectionLabel}>彖传</Text>
+                        <View style={styles.sectionRule} />
+                    </View>
+                    <Text style={styles.scriptureText}>{tuan}</Text>
+                </View>
+            ) : null}
+
+            {daXiang ? (
+                <View style={styles.sectionBlock}>
+                    <View style={styles.sectionHead}>
+                        <Text style={styles.sectionLabel}>大象</Text>
+                        <View style={styles.sectionRule} />
+                    </View>
+                    <Text style={styles.scriptureText}>{daXiang}</Text>
+                </View>
+            ) : null}
+
+            {wen ? (
+                <View style={styles.sectionBlock}>
+                    <View style={styles.sectionHead}>
+                        <Text style={styles.sectionLabel}>文言</Text>
+                        <View style={styles.sectionRule} />
+                    </View>
+                    <Text style={styles.scriptureText}>{wen}</Text>
+                </View>
+            ) : null}
 
             <View style={styles.sectionBlock}>
-                <Text style={styles.sectionLabel}>爻辞与小象</Text>
-                {data.lines.map((line, index) => {
-                    const xiaoXiang = getXiaoXiang(data.id, index);
-                    return (
-                        <View key={line.id} style={styles.lineItem}>
-                            <View style={styles.lineHeader}>
-                                <Text style={styles.lineName}>{line.name}</Text>
+                <View style={styles.sectionHead}>
+                    <Text style={styles.sectionLabel}>爻辞与小象</Text>
+                    <View style={styles.sectionRule} />
+                </View>
+                <View style={styles.linesCard}>
+                    {data.lines.map((line, index) => {
+                        const xiaoXiang = getXiaoXiang(data.id, index);
+                        return (
+                            <View key={line.id} style={[styles.lineItem, index > 0 && styles.lineRule]}>
+                                <View style={styles.lineHeader}>
+                                    {index < 6 ? (
+                                        <HexagramLines
+                                            lines={[data.array[index]]}
+                                            width={24}
+                                            barHeight={3.5}
+                                            color={palette.gold}
+                                            movingColor={palette.gold}
+                                        />
+                                    ) : null}
+                                    <Text style={styles.lineName}>{line.name}</Text>
+                                </View>
+                                <View style={styles.lineBody}>
+                                    <Text style={styles.lineScripture}>{line.scripture}</Text>
+                                    {xiaoXiang ? (
+                                        <Text style={styles.xiaoXiangText}>
+                                            <Text style={styles.xiaoXiangLabel}>《象》曰　</Text>
+                                            {xiaoXiang}
+                                        </Text>
+                                    ) : null}
+                                </View>
                             </View>
-                            <View style={styles.lineBody}>
-                                <Text style={styles.lineScripture}>{line.scripture}</Text>
-                                {xiaoXiang && (
-                                    <View style={styles.xiaoXiangBox}>
-                                        <Text style={styles.xiaoXiangLabel}>《象》曰：</Text>
-                                        <Text style={styles.xiaoXiangText}>{xiaoXiang}</Text>
-                                    </View>
-                                )}
-                            </View>
-                        </View>
-                    );
-                })}
+                        );
+                    })}
+                </View>
             </View>
-            <View style={{ height: 100 }} />
+            <View style={styles.bottomPad} />
         </ScrollView>
     );
 }
 
-const makeStyles = (Colors: any) => StyleSheet.create({
+const makeStyles = (palette: ResultPalette) => StyleSheet.create({
     detailScroll: {
         flex: 1,
     },
     detailContent: {
-        padding: Spacing.lg,
-        paddingBottom: 40,
+        paddingHorizontal: 16,
+        paddingTop: 14,
+        paddingBottom: 24,
+        gap: 18,
     },
     detailTop: {
         alignItems: 'center',
-        marginBottom: Spacing.xxl,
-        paddingVertical: Spacing.lg,
-        backgroundColor: Colors.bg.elevated,
-        borderRadius: BorderRadius.xl,
+        paddingVertical: 18,
+        paddingHorizontal: 16,
+        backgroundColor: palette.card,
+        borderRadius: 16,
         borderWidth: 1,
-        borderColor: Colors.border.subtle,
-    },
-    detailSymbol: {
-        fontSize: 72,
-        color: Colors.text.heading,
-        lineHeight: 80,
+        borderColor: palette.cardBorder,
     },
     detailName: {
-        fontSize: FontSize.xxl,
-        color: Colors.accent.gold,
-        fontWeight: 'bold',
-        marginTop: Spacing.md,
+        marginTop: 14,
+        fontFamily: SERIF,
+        fontSize: 24,
+        lineHeight: 32,
+        fontWeight: '700',
+        letterSpacing: 3,
+        paddingLeft: 3,
+        color: palette.heading,
     },
     detailMeta: {
-        fontSize: FontSize.md,
-        color: Colors.text.secondary,
-        marginTop: Spacing.sm,
-        letterSpacing: 2,
-    },
-    detailArray: {
-        fontSize: FontSize.sm,
-        color: Colors.text.tertiary,
-        marginTop: Spacing.xs,
-        letterSpacing: 4,
+        marginTop: 4,
+        fontSize: 12.5,
+        lineHeight: 18,
+        letterSpacing: 1.5,
+        color: palette.muted,
     },
     sectionBlock: {
-        marginBottom: Spacing.xxl,
+        gap: 8,
+    },
+    sectionHead: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
     },
     sectionLabel: {
-        fontSize: FontSize.md,
-        color: Colors.accent.gold,
-        fontWeight: 'bold',
-        marginBottom: Spacing.md,
-        borderBottomWidth: 1,
-        borderBottomColor: Colors.border.subtle,
-        paddingBottom: Spacing.xs,
+        fontSize: 12,
+        lineHeight: 18,
+        fontWeight: '600',
+        letterSpacing: 2,
+        color: palette.gold,
+    },
+    sectionRule: {
+        flex: 1,
+        height: 1,
+        backgroundColor: palette.hairline,
+    },
+    scriptureHero: {
+        fontFamily: SERIF,
+        fontSize: 17,
+        lineHeight: 28,
+        color: palette.heading,
+        backgroundColor: palette.quoteBg,
+        borderRadius: 12,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
     },
     scriptureText: {
-        fontSize: FontSize.md,
-        color: Colors.text.primary,
+        fontFamily: SERIF,
+        fontSize: 15,
         lineHeight: 26,
+        color: palette.ink,
+        textAlign: 'justify',
+    },
+    linesCard: {
+        backgroundColor: palette.card,
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: palette.cardBorder,
+        paddingHorizontal: 12,
     },
     lineItem: {
         flexDirection: 'row',
-        marginBottom: Spacing.md,
-        backgroundColor: Colors.bg.card,
-        padding: Spacing.md,
-        borderRadius: BorderRadius.md,
-        borderWidth: 0.5,
-        borderColor: Colors.border.subtle,
+        gap: 12,
+        paddingVertical: 11,
+    },
+    lineRule: {
+        borderTopWidth: 1,
+        borderTopColor: palette.hairline,
     },
     lineHeader: {
-        width: 60,
+        width: 42,
+        alignItems: 'center',
+        gap: 6,
+        paddingTop: 4,
     },
     lineName: {
-        fontSize: FontSize.md,
-        color: Colors.text.secondary,
-        fontWeight: 'bold',
+        fontSize: 12.5,
+        lineHeight: 16,
+        fontWeight: '700',
+        color: palette.ink,
     },
     lineBody: {
         flex: 1,
+        minWidth: 0,
     },
     lineScripture: {
-        fontSize: FontSize.md,
-        color: Colors.text.primary,
+        fontFamily: SERIF,
+        fontSize: 15,
         lineHeight: 24,
-    },
-    xiaoXiangBox: {
-        marginTop: Spacing.sm,
-        paddingTop: Spacing.sm,
-        borderTopWidth: 0.5,
-        borderStyle: 'dashed',
-        borderTopColor: Colors.border.subtle,
+        color: palette.heading,
     },
     xiaoXiangLabel: {
-        fontSize: FontSize.sm,
-        color: Colors.accent.gold,
-        marginBottom: 4,
+        color: palette.gold,
     },
     xiaoXiangText: {
-        fontSize: FontSize.sm,
-        color: Colors.text.tertiary,
-        lineHeight: 20,
-    }
+        marginTop: 4,
+        fontSize: 12.5,
+        lineHeight: 19,
+        color: palette.muted,
+    },
+    bottomPad: {
+        height: 36,
+    },
 });

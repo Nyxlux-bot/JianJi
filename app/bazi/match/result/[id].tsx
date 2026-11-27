@@ -11,18 +11,20 @@ import {
 import Svg, { Circle, Line, Path } from 'react-native-svg';
 import { router, useLocalSearchParams } from 'expo-router';
 import StatusBarDecor from '../../../../src/components/StatusBarDecor';
-import { CloseIcon } from '../../../../src/components/Icons';
+import { ChevronRightIcon, CloseIcon } from '../../../../src/components/Icons';
+import { TermDetailProvider, useTermDetail } from '../../../../src/components/TermDetailModal';
 import ConfirmModal from '../../../../src/components/ConfirmModal';
 import OverflowMenu, { OverflowMenuItem } from '../../../../src/components/OverflowMenu';
 import { CustomAlert } from '../../../../src/components/CustomAlertProvider';
 import PairArcChart from '../../../../src/components/PairArcChart';
 import WuXingIcon from '../../../../src/components/WuXingIcon';
 import { makeResultChromeStyles, ResultCard, type ResultChromeStyles, ResultTopBar, type ResultTab } from '../../../../src/components/result/ResultChrome';
+import { findGlossaryEntry } from '../../../../src/core/glossary';
 import { TIANGAN_WUXING } from '../../../../src/core/liuyao-data';
 import { BaziCompatibilityResult, BaziMatchDimensionScore, BaziMatchProfile } from '../../../../src/features/bazi/match/types';
 import { formatCanProceed, getBaziMatchReview, getDisplayMarriageYears } from '../../../../src/features/bazi/match/formatter';
 import { getBaziMatchClassicRefs, getBaziMatchDimensionReferenceFallbackIds } from '../../../../src/features/bazi/match/classic-references';
-import type { BaziMatchClassicReferenceId } from '../../../../src/features/bazi/match/classic-references';
+import type { BaziMatchClassicReference, BaziMatchClassicReferenceId } from '../../../../src/features/bazi/match/classic-references';
 import {
     buildMutualView,
     buildPairLinks,
@@ -70,7 +72,28 @@ function complementText(me: BaziMatchProfile, ta: BaziMatchProfile): string {
     return parts.length ? `${parts.join('；')}。` : '两人五行互补信号不明显。';
 }
 
-export default function BaziMatchResultPage() {
+/** 外层包术语弹窗：依据行里的「夫妻宫」「女命夫星」等点开原地精解 */
+export default function BaziMatchResultScreen() {
+    return (
+        <TermDetailProvider>
+            <BaziMatchResultPage />
+        </TermDetailProvider>
+    );
+}
+
+/** 收起典籍依据弹层（240ms）后再以查典模式打开书阁，定位到这句引文 */
+function openReferenceInReader(item: BaziMatchClassicReference) {
+    if (!item.bookLink) return;
+    const link = item.bookLink;
+    setTimeout(() => {
+        router.push({
+            pathname: '/learn/reader',
+            params: { book: link.bookId, chapter: link.chapterId, preview: '1', from: item.title, q: item.quote },
+        });
+    }, 260);
+}
+
+function BaziMatchResultPage() {
     const { id } = useLocalSearchParams<{ id: string }>();
     const { Colors } = useTheme();
     const palette = useMemo(() => buildResultPalette(Colors), [Colors]);
@@ -347,6 +370,10 @@ export default function BaziMatchResultPage() {
                 visible={referenceIds.length > 0}
                 referenceIds={referenceIds}
                 onClose={() => setReferenceIds([])}
+                onOpenBook={(item) => {
+                    setReferenceIds([]);
+                    openReferenceInReader(item);
+                }}
                 palette={palette}
                 styles={styles}
             />
@@ -459,13 +486,32 @@ const ElementButterfly: React.FC<{ me: BaziMatchProfile; ta: BaziMatchProfile; p
     );
 };
 
+/** 依据行的标签：「夫妻宫」「时柱子女宫」「女命夫星」「男命财星」有宫星词条的可点，其余照常 */
+const EvidenceLabel: React.FC<{
+    label: string;
+    context: string;
+    term: ReturnType<typeof useTermDetail>;
+    styles: Styles;
+}> = ({ label, context, term, styles }) => {
+    const entry = findGlossaryEntry(label, 'bazi-palace');
+    const palaceHit = entry && entry.category === 'bazi-palace' ? entry : null;
+    if (!palaceHit || !term) return <Text style={styles.evLabel}>{label}　</Text>;
+    return (
+        <Text style={styles.evLabel} onPress={() => term.open(palaceHit, context)} accessibilityRole="button" accessibilityHint={`查看「${palaceHit.title}」释义`}>
+            {label}　
+        </Text>
+    );
+};
+
 const DimensionDetail: React.FC<{
     dimension: BaziMatchDimensionScore;
     onOpenReferences?: () => void;
     palette: ResultPalette;
     chrome: ResultChromeStyles;
     styles: Styles;
-}> = ({ dimension, onOpenReferences, palette, chrome, styles }) => (
+}> = ({ dimension, onOpenReferences, palette, chrome, styles }) => {
+    const term = useTermDetail();
+    return (
     <ResultCard
         title={dimension.title}
         styles={chrome}
@@ -487,7 +533,10 @@ const DimensionDetail: React.FC<{
                         <View style={[styles.tag, { backgroundColor: item.effect === 'positive' ? palette.positiveSoft : item.effect === 'negative' ? palette.negativeSoft : palette.chipBg }]}>
                             <Text style={[styles.tagText, { color: item.effect === 'positive' ? palette.positive : item.effect === 'negative' ? palette.negative : palette.chipInk }]}>{EFFECT_TAG[item.effect]}</Text>
                         </View>
-                        <Text style={styles.evText}><Text style={styles.evLabel}>{item.label}　</Text>{item.detail}</Text>
+                        <Text style={styles.evText}>
+                            <EvidenceLabel label={item.label} context={`合盘 · ${dimension.title}`} term={term} styles={styles} />
+                            {item.detail}
+                        </Text>
                     </View>
                 ))}
             </View>
@@ -498,15 +547,17 @@ const DimensionDetail: React.FC<{
             </Pressable>
         ) : null}
     </ResultCard>
-);
+    );
+};
 
 const ClassicReferenceSheet: React.FC<{
     visible: boolean;
     referenceIds: BaziMatchClassicReferenceId[];
     onClose: () => void;
+    onOpenBook: (item: BaziMatchClassicReference) => void;
     palette: ResultPalette;
     styles: Styles;
-}> = ({ visible, referenceIds, onClose, palette, styles }) => {
+}> = ({ visible, referenceIds, onClose, onOpenBook, palette, styles }) => {
     const references = getBaziMatchClassicRefs(referenceIds);
 
     return (
@@ -533,7 +584,20 @@ const ClassicReferenceSheet: React.FC<{
                                     </Text>
                                 </View>
                                 <Text style={styles.refTitle}>{item.title}</Text>
-                                <Text style={styles.refSource}>{item.source}</Text>
+                                {item.bookLink ? (
+                                    <Pressable
+                                        onPress={() => onOpenBook(item)}
+                                        style={({ pressed }) => [styles.refSourceLink, pressed && styles.pressed]}
+                                        accessibilityRole="link"
+                                        accessibilityLabel={`翻阅《${item.bookLink.bookTitle}·${item.bookLink.chapterTitle}》`}
+                                    >
+                                        <Text style={[styles.refSource, styles.refSourceFlex]} numberOfLines={1}>{item.source}</Text>
+                                        <Text style={styles.refBookAction}>翻阅原典</Text>
+                                        <ChevronRightIcon size={12} color={palette.gold} />
+                                    </Pressable>
+                                ) : (
+                                    <Text style={styles.refSource}>{item.source}</Text>
+                                )}
                                 <Text style={styles.refQuote}>「{item.quote}」</Text>
                                 {[['原意', item.meaning], ['规则', item.localRule], ['边界', item.boundary]].map(([label, text]) => (
                                     <View key={label} style={styles.refRow}>
@@ -645,6 +709,9 @@ const makeStyles = (palette: ResultPalette, Colors: any) => StyleSheet.create({
     refType: { fontSize: 11, fontWeight: '700' },
     refTitle: { marginTop: 8, fontSize: 15, lineHeight: 22, fontWeight: '700', color: palette.heading },
     refSource: { fontSize: 12, lineHeight: 17, color: palette.muted },
+    refSourceLink: { flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 32, alignSelf: 'stretch' },
+    refSourceFlex: { flexShrink: 1 },
+    refBookAction: { marginLeft: 'auto', fontSize: 12, color: palette.gold },
     refQuote: { marginVertical: 8, fontSize: 15, lineHeight: 24, fontWeight: '600', color: palette.heading },
     refRow: { flexDirection: 'row', gap: 10, paddingTop: 6 },
     refLabel: { width: 30, fontSize: 12, lineHeight: 20, color: palette.muted },

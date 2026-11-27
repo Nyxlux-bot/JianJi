@@ -6,10 +6,13 @@ import {
     Pressable,
     ScrollView,
     type ScrollViewInstance,
+    type StyleProp,
     StyleSheet,
     Text,
+    type TextStyle,
     useWindowDimensions,
     View,
+    type ViewStyle,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -29,6 +32,7 @@ import ConfirmModal from '../../../src/components/ConfirmModal';
 import { CustomAlert } from '../../../src/components/CustomAlertProvider';
 import OverflowMenu, { OverflowMenuItem } from '../../../src/components/OverflowMenu';
 import StatusBarDecor from '../../../src/components/StatusBarDecor';
+import { TermDetailProvider, TermPress } from '../../../src/components/TermDetailModal';
 import WuXingIcon from '../../../src/components/WuXingIcon';
 import ZodiacPaperCut from '../../../src/components/ZodiacPaperCut';
 import { useTheme } from '../../../src/theme/ThemeContext';
@@ -40,6 +44,7 @@ import {
     BaziResult,
 } from '../../../src/core/bazi-types';
 import { getBaziChartTimeLabel, getBaziTimeModeLabel } from '../../../src/core/bazi-time';
+import { findGlossaryEntry, resolveBaziTerm, resolveRelationSummary, type BaziTermCategory, type GlossaryEntry } from '../../../src/core/glossary';
 import {
     buildBaziWuXingEnergy,
     type BaziWuXingEnergySnapshot,
@@ -203,7 +208,16 @@ function spacedDots(value: string): string {
 
 const SEASON_BAND_ORDER: Record<string, number> = { 木: 0, 火: 1, 土: 2, 金: 3, 水: 4 };
 
-export default function BaziResultPage() {
+/** 外层包术语弹窗：盘面上的十神、长生、纳音、神煞点开原地精解 */
+export default function BaziResultScreen() {
+    return (
+        <TermDetailProvider>
+            <BaziResultPage />
+        </TermDetailProvider>
+    );
+}
+
+function BaziResultPage() {
     const { Colors } = useTheme();
     const { width } = useWindowDimensions();
     const palette = useMemo(() => buildPalette(Colors), [Colors]);
@@ -1076,6 +1090,31 @@ const StemLine: React.FC<{
     );
 };
 
+/** 日柱的「元男 / 元女」与专业细盘日柱的主星，都指到日主 */
+const RIZHU_ENTRY = findGlossaryEntry('日主', 'bazi-rizhu');
+const DETAIL_TERM_CATEGORY: Partial<Record<string, BaziTermCategory>> = { xingYun: 'bazi-changsheng', ziZuo: 'bazi-changsheng', naYin: 'bazi-nayin' };
+const detailContext = (key: string, pillar: string, gan: string, zhi: string, dayGan: string): string => {
+    if (key === 'xingYun') return `${pillar}星运 · 日干${dayGan}临${zhi}`;
+    if (key === 'ziZuo') return `${pillar}自坐 · ${gan}临${zhi}`;
+    return `${pillar} ${gan}${zhi}`;
+};
+
+/** 盘面术语格：查得到词条就可点（按下才有淡金底），查不到原样显示；格子尺寸不变 */
+const TermText: React.FC<{
+    value: string;
+    category?: BaziTermCategory;
+    entry?: GlossaryEntry | null;
+    context?: string;
+    cellStyle?: StyleProp<ViewStyle>;
+    style: StyleProp<TextStyle>;
+    numberOfLines?: number;
+    shrink?: boolean;
+}> = ({ value, category, entry, context, cellStyle, style, numberOfLines, shrink }) => (
+    <TermPress entry={entry !== undefined ? entry : category ? resolveBaziTerm(value, category) : null} context={context} style={cellStyle}>
+        <Text style={[{ textAlign: 'center' }, style]} numberOfLines={numberOfLines} adjustsFontSizeToFit={shrink} minimumFontScale={shrink ? 0.8 : undefined}>{value}</Text>
+    </TermPress>
+);
+
 const ColoredGanZhi: React.FC<{ value: string; palette: Palette; style: any }> = ({ value, palette, style }) => (
     <Text style={style}>
         {value.split('').map((char, index) => (
@@ -1126,7 +1165,15 @@ const SiZhuCard: React.FC<{ rows: BaziPillarMatrixRow[]; palette: Palette; style
                 <View style={[styles.tableRow, styles.siZhuStarRow]}>
                     <Text style={[styles.siZhuLabelCell, styles.tableRowLabel]}>十神</Text>
                     {mainStars.map((value, index) => (
-                        <Text key={`star-${index}`} style={[styles.tableCellText, styles.siZhuStarText]} numberOfLines={1}>{value || '—'}</Text>
+                        <TermText
+                            key={`star-${index}`}
+                            value={value || '—'}
+                            category="bazi-shishen"
+                            context={`${PILLAR_LABELS[index]}天干 ${tianGan[index] ?? ''}`}
+                            cellStyle={styles.tableCell}
+                            style={styles.siZhuStarText}
+                            numberOfLines={1}
+                        />
                     ))}
                 </View>
                 {[{ label: '天干', values: tianGan }, { label: '地支', values: diZhi }].map((row) => (
@@ -1144,7 +1191,9 @@ const SiZhuCard: React.FC<{ rows: BaziPillarMatrixRow[]; palette: Palette; style
                     {cangGan.map((value, index) => (
                         <View key={`cang-${index}`} style={styles.tableCellStack}>
                             {splitMatrixLines(value).map((line, lineIndex) => (
-                                <StemLine key={`${line}-${lineIndex}`} line={line} stemSize={13} noteSize={12} lineHeight={18} palette={palette} styles={styles} />
+                                <TermPress key={`${line}-${lineIndex}`} entry={resolveBaziTerm(line, 'bazi-shishen')} context={`${PILLAR_LABELS[index]}藏干 ${line.charAt(0)}`}>
+                                    <StemLine line={line} stemSize={13} noteSize={12} lineHeight={18} palette={palette} styles={styles} />
+                                </TermPress>
                             ))}
                         </View>
                     ))}
@@ -1156,7 +1205,15 @@ const SiZhuCard: React.FC<{ rows: BaziPillarMatrixRow[]; palette: Palette; style
                         <View key={row.key} style={[styles.tableRow, styles.siZhuDetailRow, rowIndex === 0 && styles.siZhuDetailFirst]}>
                             <Text style={[styles.siZhuLabelCell, styles.tableRowLabel]}>{row.label}</Text>
                             {values.map((value, index) => (
-                                <Text key={`${row.key}-${index}`} style={[styles.tableCellText, styles.siZhuDetailText]} numberOfLines={1}>{value || '—'}</Text>
+                                <TermText
+                                    key={`${row.key}-${index}`}
+                                    value={value || '—'}
+                                    category={DETAIL_TERM_CATEGORY[row.key]}
+                                    context={detailContext(row.key, PILLAR_LABELS[index], tianGan[index] ?? '', diZhi[index] ?? '', tianGan[2] ?? '')}
+                                    cellStyle={styles.tableCell}
+                                    style={styles.siZhuDetailText}
+                                    numberOfLines={1}
+                                />
                             ))}
                         </View>
                     );
@@ -1166,7 +1223,7 @@ const SiZhuCard: React.FC<{ rows: BaziPillarMatrixRow[]; palette: Palette; style
                     {shenSha.map((value, index) => (
                         <View key={`sha-${index}`} style={styles.tableCellStack}>
                             {splitMatrixLines(value).map((line, lineIndex) => (
-                                <Text key={`${line}-${lineIndex}`} style={styles.siZhuShenShaText}>{line}</Text>
+                                <TermText key={`${line}-${lineIndex}`} value={line} category="bazi-shensha" context={`${PILLAR_LABELS[index]} ${tianGan[index] ?? ''}${diZhi[index] ?? ''}`} style={styles.siZhuShenShaText} />
                             ))}
                         </View>
                     ))}
@@ -1638,7 +1695,7 @@ const SuiYunTable: React.FC<{
     };
 
     const column = (item: ProChartColumnView) => (
-        <ProColumn key={item.key} column={item} width={columnWidth} cangHeight={cangHeight} shenShaHeight={shenShaHeight} palette={palette} styles={styles} />
+        <ProColumn key={item.key} column={item} dayGan={pillarColumns.find((c) => c.key === 'day')?.tianGan ?? ''} width={columnWidth} cangHeight={cangHeight} shenShaHeight={shenShaHeight} palette={palette} styles={styles} />
     );
 
     return (
@@ -1697,21 +1754,26 @@ const SuiYunTable: React.FC<{
 
 const ProColumn: React.FC<{
     column: ProChartColumnView;
+    dayGan: string;
     width: number;
     cangHeight: number;
     shenShaHeight: number;
     palette: Palette;
     styles: Styles;
-}> = ({ column, width, cangHeight, shenShaHeight, palette, styles }) => (
+}> = ({ column, dayGan, width, cangHeight, shenShaHeight, palette, styles }) => (
     <View style={[{ width }, column.key === 'day' && styles.tableDayTint]}>
         <View style={styles.proColHead}>
             <Text style={[styles.proHeadText, column.key === 'day' && styles.tableHeadTextDay]} numberOfLines={1}>{column.label}</Text>
             {column.subLabel ? <Text style={styles.proHeadSub} numberOfLines={1}>{column.subLabel}</Text> : null}
         </View>
         <View style={[styles.proColCenter, styles.proColStar]}>
-            <Text style={[styles.tableCellText, styles.proStarText]} numberOfLines={1}>
-                {(column.key === 'day' ? column.mainStarShort : column.mainStarFull) || '—'}
-            </Text>
+            <TermText
+                value={(column.key === 'day' ? column.mainStarShort : column.mainStarFull) || '—'}
+                entry={column.key === 'day' ? RIZHU_ENTRY : resolveBaziTerm(column.mainStarFull, 'bazi-shishen')}
+                context={`${column.label}天干 ${column.tianGan}`}
+                style={styles.proStarText}
+                numberOfLines={1}
+            />
         </View>
         <View style={[styles.proColCenter, styles.proGlyphRow]}>
             <GlyphWithIcon char={column.tianGan} textStyle={styles.proGlyphText} iconSize={11} palette={palette} styles={styles} />
@@ -1721,24 +1783,26 @@ const ProColumn: React.FC<{
         </View>
         <View style={[styles.proColCenter, styles.proColCang, { height: cangHeight }]}>
             {(column.cangGanLines.length > 0 ? column.cangGanLines : ['—']).map((line, lineIndex) => (
-                <StemLine key={`${line}-${lineIndex}`} line={line} stemSize={12} noteSize={11} lineHeight={17} palette={palette} styles={styles} />
+                <TermPress key={`${line}-${lineIndex}`} entry={resolveBaziTerm(line, 'bazi-shishen')} context={`${column.label}藏干 ${line.charAt(0)}`}>
+                    <StemLine line={line} stemSize={12} noteSize={11} lineHeight={17} palette={palette} styles={styles} />
+                </TermPress>
             ))}
         </View>
         {PRO_DETAIL_ROWS.map((row, index) => (
             <View key={row.key} style={[styles.proColCenter, styles.proColDetail, index === 0 && styles.proDetailFirst]}>
-                <Text
-                    style={[styles.tableCellText, styles.proDetailText, row.small && styles.proDetailTextSmall]}
+                <TermText
+                    value={row.pick(column) || '—'}
+                    category={DETAIL_TERM_CATEGORY[row.key]}
+                    context={detailContext(row.key, column.label, column.tianGan, column.diZhi, dayGan)}
+                    style={[styles.proDetailText, row.small && styles.proDetailTextSmall]}
                     numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.8}
-                >
-                    {row.pick(column) || '—'}
-                </Text>
+                    shrink
+                />
             </View>
         ))}
         <View style={[styles.proColShenSha, { height: shenShaHeight }]}>
             {(column.shenSha.length > 0 ? column.shenSha : ['—']).map((line, lineIndex) => (
-                <Text key={`${line}-${lineIndex}`} style={styles.proShenShaText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{line}</Text>
+                <TermText key={`${line}-${lineIndex}`} value={line} category="bazi-shensha" context={`${column.label} ${column.tianGan}${column.diZhi}`} style={styles.proShenShaText} numberOfLines={1} shrink />
             ))}
         </View>
     </View>
@@ -1789,9 +1853,15 @@ const TaimingTable: React.FC<{ columns: ProChartColumnView[]; palette: Palette; 
                 <View style={[styles.tableRow, styles.proStarRow]}>
                     <Text style={[styles.proLabelCell, styles.tableRowLabel]}>主星</Text>
                     {columns.map((column) => (
-                        <Text key={column.key} style={[styles.tableCellText, styles.proStarText]} numberOfLines={1}>
-                            {(column.key === 'day' ? column.mainStarShort : column.mainStarFull) || '—'}
-                        </Text>
+                        <TermText
+                            key={column.key}
+                            value={(column.key === 'day' ? column.mainStarShort : column.mainStarFull) || '—'}
+                            entry={column.key === 'day' ? RIZHU_ENTRY : resolveBaziTerm(column.mainStarFull, 'bazi-shishen')}
+                            context={`${column.label}天干 ${column.tianGan}`}
+                            cellStyle={styles.tableCell}
+                            style={styles.proStarText}
+                            numberOfLines={1}
+                        />
                     ))}
                 </View>
                 {[{ label: '天干', pick: (column: ProChartColumnView) => column.tianGan }, { label: '地支', pick: (column: ProChartColumnView) => column.diZhi }].map((row) => (
@@ -1809,7 +1879,9 @@ const TaimingTable: React.FC<{ columns: ProChartColumnView[]; palette: Palette; 
                     {columns.map((column) => (
                         <View key={column.key} style={styles.tableCellStack}>
                             {(column.cangGanLines.length > 0 ? column.cangGanLines : ['—']).map((line, lineIndex) => (
-                                <StemLine key={`${line}-${lineIndex}`} line={line} stemSize={12} noteSize={11} lineHeight={17} palette={palette} styles={styles} />
+                                <TermPress key={`${line}-${lineIndex}`} entry={resolveBaziTerm(line, 'bazi-shishen')} context={`${column.label}藏干 ${line.charAt(0)}`}>
+                                    <StemLine line={line} stemSize={12} noteSize={11} lineHeight={17} palette={palette} styles={styles} />
+                                </TermPress>
                             ))}
                         </View>
                     ))}
@@ -1818,15 +1890,16 @@ const TaimingTable: React.FC<{ columns: ProChartColumnView[]; palette: Palette; 
                     <View key={row.key} style={[styles.tableRow, styles.proDetailRow, rowIndex === 0 && styles.proDetailFirst]}>
                         <Text style={[styles.proLabelCell, styles.tableRowLabel]}>{row.label}</Text>
                         {columns.map((column) => (
-                            <Text
+                            <TermText
                                 key={column.key}
-                                style={[styles.tableCellText, styles.proDetailText, row.small && styles.proDetailTextSmall]}
+                                value={row.pick(column) || '—'}
+                                category={DETAIL_TERM_CATEGORY[row.key]}
+                                context={detailContext(row.key, column.label, column.tianGan, column.diZhi, columns[dayIndex]?.tianGan ?? '')}
+                                cellStyle={styles.tableCell}
+                                style={[styles.proDetailText, row.small && styles.proDetailTextSmall]}
                                 numberOfLines={1}
-                                adjustsFontSizeToFit
-                                minimumFontScale={0.8}
-                            >
-                                {row.pick(column) || '—'}
-                            </Text>
+                                shrink
+                            />
                         ))}
                     </View>
                 ))}
@@ -1835,7 +1908,7 @@ const TaimingTable: React.FC<{ columns: ProChartColumnView[]; palette: Palette; 
                     {columns.map((column) => (
                         <View key={column.key} style={styles.tableCellStack}>
                             {(column.shenSha.length > 0 ? column.shenSha : ['—']).map((line, lineIndex) => (
-                                <Text key={`${line}-${lineIndex}`} style={[styles.proShenShaText, dense && styles.proShenShaTextDense]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{line}</Text>
+                                <TermText key={`${line}-${lineIndex}`} value={line} category="bazi-shensha" context={`${column.label} ${column.tianGan}${column.diZhi}`} style={[styles.proShenShaText, dense && styles.proShenShaTextDense]} numberOfLines={1} shrink />
                             ))}
                         </View>
                     ))}
@@ -1903,9 +1976,18 @@ const ShenShaCard: React.FC<{ rows: ProShenShaRowView[]; palette: Palette; style
                     >
                         <Text style={styles.shenShaLabel}>{row.label}</Text>
                         <ColoredGanZhi value={row.ganZhi || '—'} palette={palette} style={styles.shenShaGanZhi} />
-                        <Text style={[styles.shenShaStars, row.stars.length === 0 && styles.shenShaStarsEmpty]}>
-                            {row.stars.length > 0 ? row.stars.join(' · ') : '—'}
-                        </Text>
+                        {row.stars.length > 0 ? (
+                            <View style={styles.shenShaStarsWrap}>
+                                {row.stars.map((star, starIndex) => (
+                                    <React.Fragment key={star}>
+                                        {starIndex > 0 ? <Text style={styles.shenShaSep}> · </Text> : null}
+                                        <TermText value={star} category="bazi-shensha" context={`${row.label} ${row.ganZhi}`} style={styles.shenShaStarText} />
+                                    </React.Fragment>
+                                ))}
+                            </View>
+                        ) : (
+                            <Text style={[styles.shenShaStars, styles.shenShaStarsEmpty]}>—</Text>
+                        )}
                     </View>
                 );
             })}
@@ -1967,9 +2049,15 @@ const GanZhiLayerCard: React.FC<{
                                     {chips.length > 0 ? (
                                         <View style={styles.relationChips}>
                                             {chips.map((chip, chipIndex) => (
-                                                <View key={`${chip}-${chipIndex}`} style={styles.relationChip}>
-                                                    <Text style={styles.relationChipText}>{chip}</Text>
-                                                </View>
+                                                <TermPress
+                                                    key={`${chip}-${chipIndex}`}
+                                                    entry={resolveRelationSummary(chip, row.label === '天干' ? 'stem' : row.label === '地支' ? 'branch' : 'pillar')}
+                                                    context={`${group.title} · ${chip}`}
+                                                >
+                                                    <View style={styles.relationChip}>
+                                                        <Text style={styles.relationChipText}>{chip}</Text>
+                                                    </View>
+                                                </TermPress>
                                             ))}
                                         </View>
                                     ) : (
@@ -2590,6 +2678,9 @@ const makeStyles = (Colors: any, palette: Palette, viewportWidth: number = 862) 
         shenShaGanZhi: { width: 32, fontSize: 13, lineHeight: 20, fontWeight: '600' },
         shenShaStars: { flex: 1, fontSize: 13, lineHeight: 20, color: palette.ink },
         shenShaStarsEmpty: { color: palette.muted },
+        shenShaStarsWrap: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
+        shenShaStarText: { fontSize: 13, lineHeight: 20, color: palette.ink },
+        shenShaSep: { fontSize: 13, lineHeight: 20, color: palette.muted },
 
         /* 干支分层 */
         relationGroupFirst: { marginTop: 10 },

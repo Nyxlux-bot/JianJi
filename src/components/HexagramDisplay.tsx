@@ -6,17 +6,20 @@ import React, { useMemo, useRef, useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { PanResult, YaoDetail } from '../core/liuyao-calc';
 import type { LiuQin } from '../core/liuyao-data';
-import type { LiuyaoMark, LiuyaoStatus } from '../core/liuyao-status';
+import { getGuaShapes, type LiuyaoMark, type LiuyaoStatus } from '../core/liuyao-status';
+import { resolveLiuyaoTerm } from '../core/glossary';
 import { useTheme } from '../theme/ThemeContext';
 import { buildResultPalette, type ResultPalette } from '../theme/result-palette';
 import { getGanZhiElement } from '../features/bazi/wuxing';
 import WuXingIcon from './WuXingIcon';
 import LiuShenIcon from './LiuShenIcon';
+import { TermPress } from './TermDetailModal';
 
 const LIUQIN_OPTIONS: LiuQin[] = ['父母', '兄弟', '子孙', '妻财', '官鬼'];
 /** 伏神列只有一字位，「子孙」取「孙」免与地支子混淆 */
 const FU_SHORT: Record<LiuQin, string> = { 父母: '父', 兄弟: '兄', 子孙: '孙', 妻财: '财', 官鬼: '鬼' };
 const ROW_HEIGHT = 40;
+const MARK_SLOP = [{ top: 8, bottom: 2, left: 2, right: 8 }, { top: 2, bottom: 12, left: 2, right: 8 }];
 const FACE_HEIGHT = 44 + 22 + ROW_HEIGHT * 6;
 
 interface HexagramDisplayProps {
@@ -87,14 +90,21 @@ function HexagramDisplayComponent({ result, status, yong, onYongChange }: Hexagr
             <Text style={[styles.sealText, !primary && styles.sealTextMuted]}>{text}</Text>
         </View>
     );
-    const shiYing = (isShi: boolean, isYing: boolean) => (isShi || isYing ? seal(isShi ? '世' : '应', isShi) : null);
-    const naJia = (liuQin: string, zhi: string, size: 'lg' | 'sm', qinColor: string) => (
-        <View style={styles.naJia}>
+    const shiYing = (isShi: boolean, isYing: boolean, context: string) => (isShi || isYing ? (
+        <TermPress entry={resolveLiuyaoTerm(isShi ? '世' : '应', 'liuyao-yao')} context={context}>
+            {seal(isShi ? '世' : '应', isShi)}
+        </TermPress>
+    ) : null);
+    /** 六亲纳甲：点开六亲；化出的那一格点开变爻 */
+    const naJia = (liuQin: string, zhi: string, size: 'lg' | 'sm', qinColor: string, term: { entry: ReturnType<typeof resolveLiuyaoTerm>; context: string }) => (
+        <TermPress entry={term.entry} context={term.context} innerStyle={styles.naJia}>
             <Text style={[size === 'lg' ? styles.qin : styles.qinSmall, { color: qinColor }]}>{liuQin}</Text>
             <WuXingIcon element={zhi} size={size === 'lg' ? 14 : 13} />
             <Text style={[size === 'lg' ? styles.zhi : styles.zhiSmall, { color: zhiColor(zhi) }]}>{zhi}</Text>
-        </View>
+        </TermPress>
     );
+    const day = `${result.monthGanZhi[1]}月${result.dayGanZhi}日`;
+    const yaoName = (yao: YaoDetail) => `${yao.positionName}爻 ${yao.liuQin}${yao.zhi}${yao.wuxing}`;
     const highlight = (hit: boolean) => (hit ? styles.rowHit : null);
 
     const header = (isFront: boolean) => {
@@ -106,6 +116,11 @@ function HexagramDisplayComponent({ result, status, yong, onYongChange }: Hexagr
                     {seal(isFront ? '本卦' : '变卦', isFront)}
                     <Text style={styles.guaName}>{gua.fullName}</Text>
                     <Text style={styles.guaMeta}>{gua.gong}宫</Text>
+                    {getGuaShapes(gua, isFront ? result.benGuaYao : result.bianGuaYao ?? []).map((shape) => (
+                        <TermPress key={shape} entry={resolveLiuyaoTerm(shape, 'liuyao-guaxing')} context={`${gua.fullName} · ${gua.gong}宫`}>
+                            <Text style={styles.guaMeta}>{shape.slice(0, 2)}</Text>
+                        </TermPress>
+                    ))}
                 </View>
                 {hasBian && other ? (
                     <Pressable onPress={toggle} style={({ pressed }) => [styles.flipBtn, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel={isFront ? '翻看变卦' : '翻回本卦'}>
@@ -140,27 +155,48 @@ function HexagramDisplayComponent({ result, status, yong, onYongChange }: Hexagr
                 return (
                     <View key={yao.position} style={[styles.row, highlight(hit)]}>
                         {hit ? <View style={styles.hitBar} /> : null}
-                        <View style={[styles.c0, styles.shen]}>
+                        <TermPress entry={resolveLiuyaoTerm(yao.liuShen, 'liuyao-liushen')} context={`${yao.positionName}爻 · ${result.dayGanZhi[0]}日起${result.benGuaYao[0].liuShen}`} style={styles.c0} innerStyle={styles.shen}>
                             <LiuShenIcon liuShen={yao.liuShen} size={16} />
                             <Text style={[styles.shenText, { color: shenColor[yao.liuShen] }]}>{yao.liuShen}</Text>
-                        </View>
-                        <Text style={[styles.c1, styles.fu]} numberOfLines={1}>
-                            {yao.fuShen ? <>{FU_SHORT[yao.fuShen.liuQin]}<Text style={{ color: zhiColor(yao.fuShen.zhi) }}>{yao.fuShen.zhi}</Text></> : ''}
-                        </Text>
+                        </TermPress>
+                        <TermPress
+                            entry={yao.fuShen ? resolveLiuyaoTerm('伏神', 'liuyao-yao') : null}
+                            context={yao.fuShen ? `伏 ${yao.fuShen.liuQin}${yao.fuShen.zhi}${yao.fuShen.wuxing} · 飞神 ${yao.liuQin}${yao.zhi}${yao.wuxing}` : undefined}
+                            style={styles.c1}
+                        >
+                            <Text style={styles.fu} numberOfLines={1}>
+                                {yao.fuShen ? <>{FU_SHORT[yao.fuShen.liuQin]}<Text style={{ color: zhiColor(yao.fuShen.zhi) }}>{yao.fuShen.zhi}</Text></> : ''}
+                            </Text>
+                        </TermPress>
                         <View style={[styles.c2, styles.naJiaCell]}>
-                            {naJia(yao.liuQin, yao.zhi, 'lg', yao.isMoving ? palette.vermilion : palette.body)}
+                            {naJia(yao.liuQin, yao.zhi, 'lg', yao.isMoving ? palette.vermilion : palette.body, {
+                                entry: resolveLiuyaoTerm(yao.liuQin, 'liuyao-liuqin'),
+                                context: `${yaoName(yao)} · ${yaoStatus.state}`,
+                            })}
                             <View style={styles.marks}>
-                                {marks.map((mark) => <Text key={mark.label} style={[styles.mark, { color: toneColor(mark) }]}>{mark.short}</Text>)}
+                                {marks.map((mark, index) => (
+                                    <TermPress key={mark.label} entry={resolveLiuyaoTerm(mark.label, 'liuyao-status')} context={`${yaoName(yao)} · ${day}`} hitSlop={MARK_SLOP[index]}>
+                                        <Text style={[styles.mark, { color: toneColor(mark) }]}>{mark.short}</Text>
+                                    </TermPress>
+                                ))}
                             </View>
                         </View>
-                        <View style={[styles.c3, styles.lineCell]}>
+                        <TermPress
+                            entry={yao.isMoving ? resolveLiuyaoTerm('动爻', 'liuyao-yao') : null}
+                            context={yao.isMoving ? `${yao.positionName}爻 ${yao.value === 9 ? '老阳' : '老阴'}发动` : undefined}
+                            style={[styles.c3, styles.stretch]}
+                            innerStyle={styles.lineCell}
+                        >
                             <YaoLine yang={yao.nature === 'yang'} width={hasBian ? 54 : 72} color={lineColor} />
                             {yao.isMoving ? <MoveMark yang={yao.value === 9} color={palette.vermilion} /> : <View style={MOVE_MARK.box} />}
-                        </View>
-                        <View style={styles.c4}>{shiYing(yao.isShi, yao.isYing)}</View>
+                        </TermPress>
+                        <View style={styles.c4}>{shiYing(yao.isShi, yao.isYing, yaoName(yao))}</View>
                         {hasBian ? (
                             <View style={styles.c5}>
-                                {yao.isMoving && yao.bianZhi && yao.bianLiuQin ? naJia(yao.bianLiuQin, yao.bianZhi, 'sm', palette.body) : null}
+                                {yao.isMoving && yao.bianZhi && yao.bianLiuQin ? naJia(yao.bianLiuQin, yao.bianZhi, 'sm', palette.body, {
+                                    entry: resolveLiuyaoTerm('变爻', 'liuyao-yao'),
+                                    context: `${yaoName(yao)} 化 ${yao.bianLiuQin}${yao.bianZhi}${yao.bianWuXing ?? ''}${yaoStatus.transform.length ? ` · ${yaoStatus.transform.map((m) => m.label).join('、')}` : ''}`,
+                                }) : null}
                             </View>
                         ) : null}
                     </View>
@@ -189,13 +225,19 @@ function HexagramDisplayComponent({ result, status, yong, onYongChange }: Hexagr
                         {yao.liuQin === yong ? <View style={styles.hitBar} /> : null}
                         <Text style={[styles.c0, styles.pos]}>{yao.positionName}爻</Text>
                         <View style={styles.c1} />
-                        <View style={[styles.c2, styles.naJiaCell]}>{naJia(yao.liuQin, yao.zhi, 'lg', changed ? palette.vermilion : palette.body)}</View>
+                        <View style={[styles.c2, styles.naJiaCell]}>{naJia(yao.liuQin, yao.zhi, 'lg', changed ? palette.vermilion : palette.body, {
+                            entry: resolveLiuyaoTerm(yao.liuQin, 'liuyao-liuqin'),
+                            context: `变卦${yaoName(yao)}`,
+                        })}</View>
                         <View style={[styles.c3, styles.lineCell]}>
                             <YaoLine yang={yao.nature === 'yang'} width={54} color={changed ? palette.vermilion : palette.gold} />
                             <View style={MOVE_MARK.box} />
                         </View>
-                        <View style={styles.c4}>{shiYing(result.bianGua!.shiYao === yao.position, result.bianGua!.yingYao === yao.position)}</View>
-                        <View style={[styles.c5, styles.dim]}>{changed ? naJia(source.liuQin, source.zhi, 'sm', palette.body) : null}</View>
+                        <View style={styles.c4}>{shiYing(result.bianGua!.shiYao === yao.position, result.bianGua!.yingYao === yao.position, `变卦${yaoName(yao)}`)}</View>
+                        <View style={[styles.c5, styles.dim]}>{changed ? naJia(source.liuQin, source.zhi, 'sm', palette.body, {
+                            entry: resolveLiuyaoTerm('动爻', 'liuyao-yao'),
+                            context: `本卦${yaoName(source)} 发动`,
+                        }) : null}</View>
                     </View>
                 );
             })}
@@ -232,7 +274,9 @@ function HexagramDisplayComponent({ result, status, yong, onYongChange }: Hexagr
             </View>
 
             <View style={styles.summary}>
-                <Text style={styles.summaryLabel}>用神</Text>
+                <TermPress entry={resolveLiuyaoTerm('用神', 'liuyao-yao')} context={`本盘取${yong}为用神`}>
+                    <Text style={styles.summaryLabel}>用神</Text>
+                </TermPress>
                 <Text style={styles.summaryText}>{status.summary[yong]}</Text>
             </View>
         </View>
@@ -295,9 +339,10 @@ function makeStyles(palette: ResultPalette) {
         qinSmall: { fontSize: 12 },
         zhi: { fontSize: 20, lineHeight: 24, fontWeight: '700' },
         zhiSmall: { fontSize: 18, lineHeight: 22, fontWeight: '700' },
-        marks: { alignSelf: 'flex-start', marginTop: 5, marginLeft: 1 },
+        marks: { alignSelf: 'flex-start', marginTop: 5, marginLeft: 1, gap: 0 },
         mark: { fontSize: 10, lineHeight: 11 },
-        lineCell: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 },
+        lineCell: { flex: 1, alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 },
+        stretch: { alignSelf: 'stretch' },
         pos: { fontSize: 11, color: palette.muted },
         dim: { opacity: 0.75 },
         summary: { flexDirection: 'row', gap: 8, paddingTop: 8 },

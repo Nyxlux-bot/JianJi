@@ -14,6 +14,7 @@
     "setup:hooks": "git config core.hooksPath .githooks",
     "guard:no-tests": "sh scripts/guard-no-test-files.sh --staged",
     "check:motion": "node scripts/check-motion.cjs",
+    "check:glossary": "node scripts/check-glossary.cjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
