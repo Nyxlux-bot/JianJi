@@ -1,9 +1,9 @@
 /**
  * 地区选择组件
- * 搜索 + 省 / 市 / 区县三列滚轮
+ * 搜索 + 省 / 市 / 区县三列滚轮，内置全国区县离线 WGS-84 经纬度
  */
 
-import React, { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import SheetModal from './SheetModal';
 import {
     FlatList,
@@ -19,17 +19,16 @@ import {
     getDefaultRegionCandidate,
     getDistrictsByCityCode,
     getProvinceOptions,
+    getRegionCoordinates,
     RegionCandidate,
     RegionSearchResult,
     RegionSelection,
     resolveRegionCandidate,
+    resolveRegionSelection,
     searchRegions,
 } from '../core/city-data';
-import { CustomAlert } from './CustomAlertProvider';
 import ScrollPicker from './ScrollPicker';
 import { Spacing, FontSize, BorderRadius } from '../theme/colors';
-import { getCachedRegionCoordinates, resolveRegionSelection } from '../services/region-geocode';
-import { getSettings } from '../services/settings';
 import { useTheme } from '../theme/ThemeContext';
 
 interface CityPickerProps {
@@ -86,6 +85,15 @@ function createCandidateFromSelection(selection?: RegionSelection | null): Regio
     }) || getDefaultRegionCandidate();
 }
 
+function formatCoordinateLabel(coordinates: { longitude: number; latitude: number } | null): string {
+    if (!coordinates) {
+        return '';
+    }
+    const lngLabel = coordinates.longitude >= 0 ? '东经' : '西经';
+    const latLabel = coordinates.latitude >= 0 ? '北纬' : '南纬';
+    return `${lngLabel} ${Math.abs(coordinates.longitude).toFixed(2)}° · ${latLabel} ${Math.abs(coordinates.latitude).toFixed(2)}°`;
+}
+
 export default function CityPicker({
     visible,
     onClose,
@@ -97,11 +105,6 @@ export default function CityPicker({
     const provinceOptions = useMemo(() => getProvinceOptions(), []);
     const [candidate, setCandidate] = useState<RegionCandidate>(() => createCandidateFromSelection(selectedRegion));
     const [searchText, setSearchText] = useState('');
-    const [geocoderApiKey, setGeocoderApiKey] = useState('');
-    const [cachedCoordinates, setCachedCoordinates] = useState<{ longitude: number; latitude: number | null } | null>(null);
-    const [cacheStatus, setCacheStatus] = useState<'loading' | 'hit' | 'miss'>('loading');
-    const [resolving, setResolving] = useState(false);
-    const [statusMessage, setStatusMessage] = useState('');
     const deferredSearchText = useDeferredValue(searchText);
 
     const initialCandidate = useMemo(
@@ -116,25 +119,7 @@ export default function CityPicker({
 
         setCandidate(initialCandidate);
         setSearchText('');
-        setStatusMessage('');
     }, [initialCandidate, visible]);
-
-    useEffect(() => {
-        if (!visible) {
-            return;
-        }
-
-        let active = true;
-        getSettings().then((settings) => {
-            if (active) {
-                setGeocoderApiKey(settings.geocoderApiKey);
-            }
-        });
-
-        return () => {
-            active = false;
-        };
-    }, [visible]);
 
     const cityOptions = useMemo(
         () => getCitiesByProvinceCode(candidate.provinceCode),
@@ -192,36 +177,6 @@ export default function CityPicker({
             districtName: nextDistrict.name,
         }));
     }, [candidate.districtCode, districtOptions]);
-
-    useEffect(() => {
-        if (!visible || !candidate.districtCode) {
-            setCachedCoordinates(null);
-            setCacheStatus('miss');
-            return;
-        }
-
-        let active = true;
-        setCacheStatus('loading');
-        getCachedRegionCoordinates(candidate.districtCode)
-            .then((coordinates) => {
-                if (!active) {
-                    return;
-                }
-                setCachedCoordinates(coordinates);
-                setCacheStatus(coordinates ? 'hit' : 'miss');
-            })
-            .catch(() => {
-                if (!active) {
-                    return;
-                }
-                setCachedCoordinates(null);
-                setCacheStatus('miss');
-            });
-
-        return () => {
-            active = false;
-        };
-    }, [candidate.districtCode, visible]);
 
     const searchResults = useMemo(
         () => (deferredSearchText.trim().length > 0 ? searchRegions(deferredSearchText, 20) : []),
@@ -292,9 +247,15 @@ export default function CityPicker({
         if (!item) {
             return;
         }
-        setCandidate(item);
+        setCandidate({
+            provinceCode: item.provinceCode,
+            provinceName: item.provinceName,
+            cityCode: item.cityCode,
+            cityName: item.cityName,
+            districtCode: item.districtCode,
+            districtName: item.districtName,
+        });
         setSearchText('');
-        setStatusMessage('');
     }, [searchResultsByDistrictCode]);
 
     const handleClear = useCallback(async () => {
@@ -303,35 +264,21 @@ export default function CityPicker({
     }, [onClose, onSelect]);
 
     const handleConfirm = useCallback(async () => {
-        try {
-            setResolving(true);
-            setStatusMessage('');
-            const region = cachedCoordinates
-                ? {
-                    ...candidate,
-                    longitude: cachedCoordinates.longitude,
-                    latitude: cachedCoordinates.latitude,
-                }
-                : await resolveRegionSelection(candidate);
-
-            await Promise.resolve(onSelect(region));
-            onClose();
-        } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : '地区解析失败';
-            setStatusMessage(message);
-            CustomAlert.alert('地区解析失败', message);
-        } finally {
-            setResolving(false);
+        const region = resolveRegionSelection(candidate);
+        if (!region) {
+            return;
         }
-    }, [cachedCoordinates, candidate, onClose, onSelect]);
 
-    const confirmDisabled = resolving || (cacheStatus === 'miss' && geocoderApiKey.trim().length === 0);
+        await Promise.resolve(onSelect(region));
+        onClose();
+    }, [candidate, onClose, onSelect]);
+
     const previewLabel = buildRegionPathLabel(candidate);
-    const footerHint = cacheStatus === 'hit'
-        ? '已缓存该区县经纬度，确认后将直接使用缓存结果。'
-        : (geocoderApiKey.trim().length > 0
-            ? '确认后将联网解析该区县经纬度，并缓存到本地。'
-            : '请先在设置中填写腾讯位置服务 Key，或选择已缓存过的区县。');
+    const coordinates = useMemo(
+        () => getRegionCoordinates(candidate.districtCode),
+        [candidate.districtCode],
+    );
+    const coordinateLabel = formatCoordinateLabel(coordinates);
 
     return (
         <SheetModal visible={visible} onRequestClose={onClose}>
@@ -397,18 +344,21 @@ export default function CityPicker({
                                     value={candidate.provinceName}
                                     onValueChange={handleProvinceChange}
                                     Colors={Colors}
+                                    adaptiveFontSize
                                 />
                                 <ScrollPicker
                                     data={cityNames}
                                     value={candidate.cityName}
                                     onValueChange={handleCityChange}
                                     Colors={Colors}
+                                    adaptiveFontSize
                                 />
                                 <ScrollPicker
                                     data={districtNames}
                                     value={candidate.districtName}
                                     onValueChange={handleDistrictChange}
                                     Colors={Colors}
+                                    adaptiveFontSize
                                 />
                             </View>
                         </View>
@@ -416,25 +366,25 @@ export default function CityPicker({
 
                     <View style={styles.footer}>
                         <View style={styles.previewCard}>
-                            <Text style={styles.previewLabel}>当前候选</Text>
+                            <View style={styles.previewHeader}>
+                                <Text style={styles.previewLabel}>当前候选</Text>
+                                {coordinateLabel ? (
+                                    <Text style={styles.previewCoords}>{coordinateLabel}</Text>
+                                ) : null}
+                            </View>
                             <Text style={styles.previewValue}>{previewLabel}</Text>
-                            <Text style={styles.previewHint}>{statusMessage || footerHint}</Text>
                         </View>
 
                         <Pressable
                             style={({ pressed }) => [
                                 styles.confirmBtn,
-                                confirmDisabled && styles.confirmBtnDisabled,
-                                pressed && !confirmDisabled && styles.pressablePressed,
+                                pressed && styles.pressablePressed,
                             ]}
                             onPress={() => {
                                 void handleConfirm();
                             }}
-                            disabled={confirmDisabled}
                         >
-                            <Text style={styles.confirmBtnText}>
-                                {resolving ? '解析中...' : '确定'}
-                            </Text>
+                            <Text style={styles.confirmBtnText}>确定</Text>
                         </Pressable>
                     </View>
                 </View>
@@ -559,30 +509,33 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         borderWidth: 0.5,
         borderColor: Colors.border.subtle,
     },
+    previewHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: Spacing.sm,
+        marginBottom: 4,
+    },
     previewLabel: {
         fontSize: FontSize.xs,
         color: Colors.text.tertiary,
-        marginBottom: 4,
+    },
+    previewCoords: {
+        fontSize: FontSize.xs,
+        color: Colors.accent.gold,
+        fontWeight: '600',
+        fontVariant: ['tabular-nums'],
     },
     previewValue: {
         fontSize: FontSize.md,
         color: Colors.text.heading,
         fontWeight: '600',
     },
-    previewHint: {
-        marginTop: Spacing.xs,
-        fontSize: FontSize.xs,
-        color: Colors.text.secondary,
-        lineHeight: 18,
-    },
     confirmBtn: {
         backgroundColor: Colors.accent.gold,
         borderRadius: BorderRadius.lg,
         paddingVertical: Spacing.lg,
         alignItems: 'center',
-    },
-    confirmBtnDisabled: {
-        opacity: 0.5,
     },
     confirmBtnText: {
         fontSize: FontSize.lg,

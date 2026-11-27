@@ -8,7 +8,6 @@ export interface AISettings {
     version: 2;
     providers: AIProviderProfile[];
     activeProviderId: string | null;
-    geocoderApiKey: string;
 }
 
 const SETTINGS_KEY = 'settings_document_v2';
@@ -16,7 +15,7 @@ const SETTINGS_KEY = 'settings_document_v2';
 const ENDPOINT_RULES_MIGRATION_KEY = 'settings_endpoint_rules_v2';
 const LEGACY_KEYS = ['settings_api_url', 'settings_api_key', 'settings_model', 'settings_ai_protocol', 'settings_ai_protocol_verified', 'settings_temperature', 'settings_geocoder_api_key'];
 const LEGACY_PROMPT_KEYS = ['settings_prompt_liuyao_system', 'settings_prompt_liuyao_version', 'settings_prompt_liuyao_is_custom', 'settings_prompt_bazi_system', 'settings_prompt_bazi_version', 'settings_prompt_bazi_is_custom', 'settings_system_prompt', 'settings_ai_unlocked', 'settings_prompt_version', 'settings_prompt_is_custom'];
-export const DEFAULT_SETTINGS: AISettings = { version: 2, providers: [], activeProviderId: null, geocoderApiKey: '' };
+export const DEFAULT_SETTINGS: AISettings = { version: 2, providers: [], activeProviderId: null };
 const listeners = new Set<(settings: AISettings) => void>();
 let cachedSettings: AISettings | undefined;
 let migration: Promise<AISettings> | undefined;
@@ -204,7 +203,8 @@ function parseSettings(value: unknown): AISettings {
     if (providers.some((provider) => !provider.id) || new Set(providers.map((provider) => provider.id)).size !== providers.length) throw new Error('接口标识为空或重复');
     const activeProviderId = raw.activeProviderId === null ? null : string(raw.activeProviderId, '当前接口');
     if (activeProviderId && !providers.some((provider) => provider.id === activeProviderId)) throw new Error('当前接口不存在');
-    return { version: 2, providers, activeProviderId, geocoderApiKey: string(raw.geocoderApiKey, '地理编码 Key') };
+    // 静默忽略旧本地存储或旧 v4 备份中遗留的 geocoderApiKey 等已废弃字段
+    return { version: 2, providers, activeProviderId };
 }
 
 function legacyProvider(raw: Record<string, unknown>): AIProviderProfile {
@@ -251,7 +251,7 @@ async function loadSettings(): Promise<AISettings> {
         model: values.get(LEGACY_KEYS[2]) ?? undefined, protocol: values.get(LEGACY_KEYS[3]),
         protocolVerified: values.get(LEGACY_KEYS[4]), temperature: values.get(LEGACY_KEYS[5]) ?? undefined,
     }) : undefined;
-    const settings: AISettings = { version: 2, providers: provider ? [provider] : [], activeProviderId: provider?.id ?? null, geocoderApiKey: values.get(LEGACY_KEYS[6]) ?? '' };
+    const settings: AISettings = { version: 2, providers: provider ? [provider] : [], activeProviderId: provider?.id ?? null };
     await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     await AsyncStorage.multiRemove([...LEGACY_KEYS, ...LEGACY_PROMPT_KEYS]);
     return migrateEndpointRules(settings);
@@ -299,7 +299,7 @@ export async function isAIConfigured(): Promise<boolean> {
 
 export function buildBackupSettings(settings: AISettings): AISettings {
     const clean = parseSettings(settings);
-    return { ...clean, geocoderApiKey: '', providers: clean.providers.map((provider) => ({ ...provider, apiKey: '' })) };
+    return { ...clean, providers: clean.providers.map((provider) => ({ ...provider, apiKey: '' })) };
 }
 
 export function mergeImportedSettings(value: unknown, current: AISettings): AISettings {

@@ -38,7 +38,7 @@
 - `@react-native-async-storage/async-storage`
 - `tyme4ts@1.5.6`
 - `iztro@2.6.5`
-- `@province-city-china/*`
+- 内置全国离线行政区经纬度数据集 `src/data/china-regions.json`（源自 `xiangyuecn/AreaCity-JsSpider-StatsGov 2025.251231.260403`，MIT）
 - `react-native-reanimated@4.7.1`、`react-native-worklets@0.13.0`、`react-native-gesture-handler`
 - `react-native-sse`
 - `react-native-svg`
@@ -95,7 +95,7 @@
 | `/` | `app/(tabs)/index.tsx` | 首页，提供六爻、梅花易数、奇门遁甲、八字命理（含合盘）、紫微斗数五大术数卡片 |
 | `/learn` | `app/(tabs)/learn.tsx` | 书阁首页：5 项速查入口 + 山医命相卜五卷 41 部古籍书目与搜索 |
 | `/history` | `app/(tabs)/history.tsx` | 六引擎统一历史记录、收藏筛选、关键词搜索与分舱过滤 |
-| `/settings` | `app/(tabs)/settings.tsx` | 主题切换、多接口 AI 中枢、地理编码 Key、备份/恢复、检查更新与故障日志导出 |
+| `/settings` | `app/(tabs)/settings.tsx` | 主题切换、多接口 AI 中枢、备份/恢复、检查更新与故障日志导出 |
 | `/learn/hexagrams` | `app/learn/hexagrams.tsx` | 六十四卦速查列表 |
 | `/learn/hexagram/[id]` | `app/learn/hexagram/[id].tsx` | 单卦详情页（卦象、卦辞、爻辞） |
 | `/learn/ref/[key]` | `app/learn/ref/[key].tsx` | 速查页：`trigram`（八卦类象）、`nayin`（纳音）、`shensha`（神煞）、`tiyong`（体用诀） |
@@ -181,7 +181,7 @@
 6. 数据持久化层：`src/db/`
 7. 服务层：`src/services/`
 8. 主题 / Hook / 工具 / Polyfill 层：`src/theme/`、`src/hooks/`、`src/utils/`、`src/polyfills/`
-9. 静态数据与典籍层：`src/data/`（含 `classics/`）
+9. 静态数据与典籍层：`src/data/`（含 `china-regions.json` 与 `classics/`）
 10. 本地原生模块层：`modules/liquid-glass/`
 
 ```mermaid
@@ -189,10 +189,10 @@ flowchart LR
   A["app 页面层"] --> B["src/core 纯计算核心"]
   A --> C["src/features 领域模块（home/bazi/ziwei/meihua/qimen）"]
   A --> E["src/components 通用组件"]
-  A --> F["src/services AI / 设置 / 分享 / 更新 / 诊断 / 地理编码"]
+  A --> F["src/services AI / 设置 / 分享 / 更新 / 诊断 / 位置"]
   A --> G["src/db 六引擎记录与导入导出"]
   A --> H["src/theme / hooks / utils / polyfills"]
-  A --> I["src/data 卦象与书阁古籍"]
+  A --> I["src/data 卦象 / 离线区县坐标 / 书阁古籍"]
   A --> J["modules/liquid-glass 原生底栏"]
   C --> B
   C --> G
@@ -370,7 +370,7 @@ flowchart LR
 - 六引擎记录混合导出
 - 一并导出应用设置（`settings`）与干支关系规则设置（`ganZhiRelationSettings`）
 - 导入前结构校验与冲突预览（`src/db/import-strategy.ts` 支持跳过重复或覆盖重复）
-- 导出时自动清空 `apiKey` 与 `geocoderApiKey`（并在 `meta.apiKeyIncluded: false` 中标注）
+- 导出时自动清空 `apiKey`（并在 `meta.apiKeyIncluded: false` 中标注；导入旧备份中残留的 `geocoderApiKey` 会静默忽略）
 
 ### 7.3 兼容与辅助持久化策略
 
@@ -399,7 +399,7 @@ flowchart LR
 
 ### 8.2 设置与配置
 
-`src/services/settings.ts` 保存版本化的设置文档（`settings_document_v2`）：多个接口（Base URL、API Key），每个接口下多个模型配置（协议、思考档位、输出上限等），以及 `geocoderApiKey`。设置页改动后自动保存（防抖），无需手动点击保存；同时会清理旧版 prompt / AI 解锁相关存储键。
+`src/services/settings.ts` 保存版本化的设置文档（`settings_document_v2`）：多个接口（Base URL、API Key）及每个接口下的多个模型配置（协议、思考档位、输出上限等）。设置页改动后自动保存（防抖），无需手动点击保存；读取时静默忽略历史配置/备份中残留的 `geocoderApiKey`，并清理旧版 prompt / AI 解锁 / `settings_geocoder_api_key` 等历史存储键。
 
 ### 8.3 AI 接口与协议
 
@@ -412,11 +412,10 @@ flowchart LR
 - **Responses 推理摘要**：开启思考时附带 `reasoning.summary: 'auto'`，让思考期间持续有事件推送，避免中转空闲断线；接口拒收时自动去掉。
 - **Web 跨域代理**（`src/services/ai-web-proxy.ts` + `metro.config.js`）：Web 端遇到跨源接口时，本地开发自动走同源 `/__jianji_ai_proxy`，生产 Web 可通过环境变量 `EXPO_PUBLIC_AI_WEB_PROXY_URL` 指定代理地址，且不把 API Key 放进 URL。
 
-### 8.4 地点、地理编码与典籍阅读
+### 8.4 地点、离线行政区与典籍阅读
 
-- `src/services/location.ts`：保存用户已选出生地
-- `src/services/region-geocode.ts`：调用腾讯位置服务补全区县经纬度，并缓存结果
-- `src/core/city-data.ts`：省市区候选、旧数据兼容与显示标签构建
+- `src/services/location.ts`：保存用户已选出生地，兼容旧版城市结构归一化到 `RegionSelection`
+- `src/core/city-data.ts` + `src/data/china-regions.json`：内置全国 34 省、392 市、3209 区县三级行政区与离线 WGS-84 经纬度（4 位小数，数据源自 `AreaCity-JsSpider-StatsGov 2025.251231.260403`），支持同步查表（`getRegionCoordinates`、`resolveRegionSelection`）、模糊检索、显示标签去重与旧区划码兼容，无需任何第三方联网地理编码 Key
 - `src/data/classics/index.ts` 与 `src/services/reading-progress.ts`：管理书阁 41 部古籍书目（`index.json`）、按需读取 `.book` 正文（内存仅保留最近打开的一部）与阅读进度持久化
 
 ### 8.5 分享导出、更新检查与诊断日志

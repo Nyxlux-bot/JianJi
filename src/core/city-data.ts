@@ -1,32 +1,16 @@
 /**
  * 中国行政区数据与地区选择模型
- * 基于 GB/T 2260 省 / 市 / 区县数据构建三级联动与搜索能力
+ * 数据来源：xiangyuecn/AreaCity-JsSpider-StatsGov 2025.251231.260403 (MIT)
+ * 内置全国 34 个省级行政区、全部地市与区县的离线 WGS-84 经纬度（4 位小数）
  */
 
-interface RawProvince {
-    code: string;
-    name: string;
-    province: string;
-}
+import rawRegionsJson from '../data/china-regions.json';
 
-interface RawCity {
-    code: string;
-    name: string;
-    province: string;
-    city: string;
-}
+type RawDistrictTuple = readonly [code: string, name: string, longitude: number, latitude: number];
+type RawCityTuple = readonly [code: string, name: string, districts: readonly RawDistrictTuple[]];
+type RawProvinceTuple = readonly [code: string, name: string, cities: readonly RawCityTuple[]];
 
-interface RawArea {
-    code: string;
-    name: string;
-    province: string;
-    city: string;
-    area: string;
-}
-
-const provinceSource = require('@province-city-china/province') as RawProvince[];
-const citySource = require('@province-city-china/city') as RawCity[];
-const areaSource = require('@province-city-china/area') as RawArea[];
+const regionSource = rawRegionsJson as unknown as readonly RawProvinceTuple[];
 
 export interface LegacyCityInfo {
     name: string;
@@ -71,85 +55,55 @@ export interface RegionSearchResult extends RegionCandidate {
     label: string;
 }
 
-const provinces: ProvinceOption[] = provinceSource.map((item) => ({
-    code: item.code,
-    name: item.name,
-}));
-
-const provinceByCode = new Map(provinces.map((item) => [item.code, item]));
-
-function getSyntheticCityName(provinceName: string, cityCode: string): string {
-    if (cityCode === '110100') {
-        return '北京';
-    }
-    if (cityCode === '120100') {
-        return '天津';
-    }
-    if (cityCode === '310100') {
-        return '上海';
-    }
-    if (cityCode === '500100') {
-        return '重庆城区';
-    }
-    if (cityCode === '500200') {
-        return '重庆郊县';
-    }
-    return provinceName;
-}
-
-const baseCities: CityOption[] = citySource.map((item) => ({
-    code: item.code,
-    name: item.name,
-    provinceCode: `${item.province}0000`,
-}));
-
-const districts: DistrictOption[] = areaSource.map((item) => ({
-    code: item.code,
-    name: item.name,
-    provinceCode: `${item.province}0000`,
-    cityCode: `${item.province}${item.city}00`,
-}));
-
-const syntheticCitiesMap = new Map<string, CityOption>();
-for (const district of districts) {
-    const province = provinceByCode.get(district.provinceCode);
-    if (!province) {
-        continue;
-    }
-    const hasBaseCity = baseCities.some((item) => item.code === district.cityCode);
-    if (hasBaseCity || syntheticCitiesMap.has(district.cityCode)) {
-        continue;
-    }
-
-    syntheticCitiesMap.set(district.cityCode, {
-        code: district.cityCode,
-        name: getSyntheticCityName(province.name, district.cityCode),
-        provinceCode: province.code,
-    });
-}
-
-const cities: CityOption[] = [...baseCities, ...Array.from(syntheticCitiesMap.values())];
-const cityByCode = new Map(cities.map((item) => [item.code, item]));
-const districtByCode = new Map(districts.map((item) => [item.code, item]));
-
+const provinces: ProvinceOption[] = [];
+const cities: CityOption[] = [];
+const districts: DistrictOption[] = [];
+const provinceByCode = new Map<string, ProvinceOption>();
+const cityByCode = new Map<string, CityOption>();
+const districtByCode = new Map<string, DistrictOption>();
+const coordinatesByDistrictCode = new Map<string, { longitude: number; latitude: number }>();
 const citiesByProvinceCode = new Map<string, CityOption[]>();
-for (const city of cities) {
-    const list = citiesByProvinceCode.get(city.provinceCode);
-    if (list) {
-        list.push(city);
-    } else {
-        citiesByProvinceCode.set(city.provinceCode, [city]);
-    }
-}
-
 const districtsByCityCode = new Map<string, DistrictOption[]>();
-for (const district of districts) {
-    const list = districtsByCityCode.get(district.cityCode);
-    if (list) {
-        list.push(district);
-    } else {
-        districtsByCityCode.set(district.cityCode, [district]);
+const districtsByProvinceCode = new Map<string, DistrictOption[]>();
+
+for (const [provinceCode, provinceName, rawCities] of regionSource) {
+    const provinceOption: ProvinceOption = { code: provinceCode, name: provinceName };
+    provinces.push(provinceOption);
+    provinceByCode.set(provinceCode, provinceOption);
+
+    const provinceCities: CityOption[] = [];
+    const provinceDistricts: DistrictOption[] = [];
+
+    for (const [cityCode, cityName, rawDistricts] of rawCities) {
+        const cityOption: CityOption = {
+            code: cityCode,
+            name: cityName,
+            provinceCode,
+        };
+        cities.push(cityOption);
+        provinceCities.push(cityOption);
+        cityByCode.set(cityCode, cityOption);
+
+        const cityDistricts: DistrictOption[] = [];
+        for (const [districtCode, districtName, longitude, latitude] of rawDistricts) {
+            const districtOption: DistrictOption = {
+                code: districtCode,
+                name: districtName,
+                provinceCode,
+                cityCode,
+            };
+            districts.push(districtOption);
+            cityDistricts.push(districtOption);
+            provinceDistricts.push(districtOption);
+            districtByCode.set(districtCode, districtOption);
+            coordinatesByDistrictCode.set(districtCode, { longitude, latitude });
+        }
+
+        districtsByCityCode.set(cityCode, cityDistricts);
     }
+
+    citiesByProvinceCode.set(provinceCode, provinceCities);
+    districtsByProvinceCode.set(provinceCode, provinceDistricts);
 }
 
 const REGION_SUFFIX_PATTERN = /特别行政区|自治区|自治州|自治县|矿区|林区|群岛|省|市|区|县|盟|旗/g;
@@ -171,13 +125,29 @@ function normalizeRegionSegmentForDisplay(value: string): string {
         .toLowerCase();
 }
 
+function isRedundantNextSegment(prev: string, next: string): boolean {
+    const normPrev = normalizeRegionSegmentForDisplay(prev);
+    const normNext = normalizeRegionSegmentForDisplay(next);
+    if (normPrev === '重庆' && (next === '重庆城区' || next === '重庆郊县')) {
+        return true;
+    }
+    if (normPrev !== normNext) {
+        return false;
+    }
+    // 保留不同行政层级的同名省/地区与地级/县级市（如 吉林省 / 吉林市、和田地区 / 和田市）
+    if ((prev.endsWith('省') || prev.endsWith('地区')) && next.endsWith('市')) {
+        return false;
+    }
+    return true;
+}
+
 function dedupeRegionSegments(parts: Array<string | undefined>): string[] {
     return parts
         .map((item) => item?.trim() || '')
         .filter(Boolean)
         .reduce<string[]>((acc, item) => {
             const prev = acc[acc.length - 1];
-            if (prev && normalizeRegionSegmentForDisplay(prev) === normalizeRegionSegmentForDisplay(item)) {
+            if (prev && isRedundantNextSegment(prev, item)) {
                 return acc;
             }
             acc.push(item);
@@ -187,42 +157,48 @@ function dedupeRegionSegments(parts: Array<string | undefined>): string[] {
 
 function buildCandidateFromDistrict(district: DistrictOption): RegionCandidate {
     const province = provinceByCode.get(district.provinceCode);
-    const city = cityByCode.get(district.cityCode)
-        || (province
-            ? {
-                code: district.cityCode,
-                name: getSyntheticCityName(province.name, district.cityCode),
-                provinceCode: province.code,
-            }
-            : null);
-
-    if (!province) {
-        return {
-            provinceCode: district.provinceCode,
-            provinceName: district.provinceCode,
-            cityCode: district.cityCode,
-            cityName: city?.name || district.cityCode,
-            districtCode: district.code,
-            districtName: district.name,
-        };
-    }
+    const city = cityByCode.get(district.cityCode);
 
     return {
-        provinceCode: province.code,
-        provinceName: province.name,
+        provinceCode: province?.code || district.provinceCode,
+        provinceName: province?.name || district.provinceCode,
         cityCode: city?.code || district.cityCode,
-        cityName: city?.name || province.name,
+        cityName: city?.name || province?.name || district.cityCode,
         districtCode: district.code,
         districtName: district.name,
     };
 }
 
-const districtSearchIndex: Array<RegionSearchResult & { normalizedText: string }> = districts.map((district) => {
+interface IndexedRegion extends RegionSearchResult {
+    normalizedDisplay: string;
+    normalizedAliases: string[];
+}
+
+const districtSearchIndex: IndexedRegion[] = districts.map((district) => {
     const candidate = buildCandidateFromDistrict(district);
+    const displayName = buildRegionDisplayName(candidate);
+    const normalizedDisplay = normalizeRegionText(displayName);
+    const aliasSet = new Set<string>([
+        normalizedDisplay,
+        normalizeRegionText(`${candidate.provinceName}${candidate.cityName}${candidate.districtName}`),
+    ]);
+    // 兼容历史记录中省/地区与同名市被折叠的写法（如 吉林省船营区、新疆维吾尔自治区和田地区）
+    if (candidate.provinceName.endsWith('省')
+        && candidate.cityName.endsWith('市')
+        && normalizeRegionSegmentForDisplay(candidate.provinceName) === normalizeRegionSegmentForDisplay(candidate.cityName)) {
+        aliasSet.add(normalizeRegionText(`${candidate.provinceName}${candidate.districtName}`));
+    }
+    if (candidate.cityName.endsWith('地区')
+        && candidate.districtName.endsWith('市')
+        && normalizeRegionSegmentForDisplay(candidate.cityName) === normalizeRegionSegmentForDisplay(candidate.districtName)) {
+        aliasSet.add(normalizeRegionText(`${candidate.provinceName}${candidate.cityName}`));
+    }
+
     return {
         ...candidate,
         label: buildRegionPathLabel(candidate),
-        normalizedText: normalizeRegionText(buildRegionDisplayName(candidate)),
+        normalizedDisplay,
+        normalizedAliases: Array.from(aliasSet),
     };
 });
 
@@ -248,6 +224,16 @@ export function getCitiesByProvinceCode(provinceCode: string): CityOption[] {
 
 export function getDistrictsByCityCode(cityCode: string): DistrictOption[] {
     return districtsByCityCode.get(cityCode) || [];
+}
+
+export function getRegionCoordinates(
+    districtCode: string,
+): { longitude: number; latitude: number } | null {
+    if (!districtCode) {
+        return null;
+    }
+    const coords = coordinatesByDistrictCode.get(districtCode);
+    return coords ? { longitude: coords.longitude, latitude: coords.latitude } : null;
 }
 
 export function getDefaultRegionCandidate(): RegionCandidate {
@@ -276,52 +262,69 @@ export function searchRegions(keyword: string, limit: number = 20): RegionSearch
     }
 
     return districtSearchIndex
-        .filter((item) => item.normalizedText.includes(normalizedKeyword))
+        .filter((item) => item.normalizedAliases.some((alias) => alias.includes(normalizedKeyword)))
         .slice(0, limit)
-        .map(({ normalizedText: _normalizedText, ...result }) => result);
+        .map(({ normalizedDisplay: _normalizedDisplay, normalizedAliases: _normalizedAliases, ...result }) => result);
 }
 
 export function resolveRegionCandidate(input: Partial<RegionCandidate>): RegionCandidate | null {
     if (input.districtCode) {
-        const district = districtByCode.get(input.districtCode);
-        if (district) {
-            return buildCandidateFromDistrict(district);
+        const exactDistrict = districtByCode.get(input.districtCode);
+        if (exactDistrict) {
+            return buildCandidateFromDistrict(exactDistrict);
         }
     }
 
-    const province = input.provinceCode
-        ? provinceByCode.get(input.provinceCode)
-        : provinces.find((item) => normalizeRegionText(item.name) === normalizeRegionText(input.provinceName || ''));
+    const normalizedProvinceName = normalizeRegionText(input.provinceName || '');
+    const province = (input.provinceCode ? provinceByCode.get(input.provinceCode) : undefined)
+        || (normalizedProvinceName
+            ? provinces.find((item) => normalizeRegionText(item.name) === normalizedProvinceName)
+            : undefined);
     if (!province) {
         return null;
     }
 
     const provinceCities = getCitiesByProvinceCode(province.code);
-    const city = input.cityCode
-        ? provinceCities.find((item) => item.code === input.cityCode)
-        : provinceCities.find((item) => normalizeRegionText(item.name) === normalizeRegionText(input.cityName || ''));
+    const normalizedCityName = normalizeRegionText(input.cityName || '');
+    const normalizedDistrictName = normalizeRegionText(input.districtName || '');
+
+    let city = (input.cityCode ? provinceCities.find((item) => item.code === input.cityCode) : undefined)
+        || (normalizedCityName
+            ? provinceCities.find((item) => normalizeRegionText(item.name) === normalizedCityName)
+            : undefined)
+        || (provinceCities.length === 1 ? provinceCities[0] : undefined);
+
     if (!city) {
-        return null;
+        // 兼容旧版「省直辖县级行政区划」或直辖市/已撤并地市：先按区县名在省内精确回查
+        if (normalizedDistrictName) {
+            const matchedInProvince = (districtsByProvinceCode.get(province.code) || []).find(
+                (item) => normalizeRegionText(item.name) === normalizedDistrictName,
+            );
+            if (matchedInProvince) {
+                return buildCandidateFromDistrict(matchedInProvince);
+            }
+        }
+        // 兼容旧版直辖市（如重庆市下 cityName 为「重庆市」但新版分「重庆城区 / 重庆郊县」）
+        if (normalizedCityName && normalizedCityName === normalizeRegionText(province.name) && provinceCities.length > 0) {
+            city = provinceCities[0];
+        } else {
+            return null;
+        }
     }
 
     const cityDistricts = getDistrictsByCityCode(city.code);
-    const district = input.districtCode
-        ? cityDistricts.find((item) => item.code === input.districtCode)
-        : (input.districtName
-            ? cityDistricts.find((item) => normalizeRegionText(item.name) === normalizeRegionText(input.districtName || ''))
-            : cityDistricts[0]);
+    const district = (input.districtCode ? cityDistricts.find((item) => item.code === input.districtCode) : undefined)
+        || (normalizedDistrictName
+            ? cityDistricts.find((item) => normalizeRegionText(item.name) === normalizedDistrictName)
+            : undefined)
+        || (!input.districtName || cityDistricts.length === 1 || Boolean(input.districtCode)
+            ? cityDistricts[0]
+            : undefined);
     if (!district) {
         return null;
     }
 
-    return {
-        provinceCode: province.code,
-        provinceName: province.name,
-        cityCode: city.code,
-        cityName: city.name,
-        districtCode: district.code,
-        districtName: district.name,
-    };
+    return buildCandidateFromDistrict(district);
 }
 
 export function findRegionCandidateByDisplayText(placeText: string): RegionCandidate | null {
@@ -330,16 +333,31 @@ export function findRegionCandidateByDisplayText(placeText: string): RegionCandi
         return null;
     }
 
-    const exact = districtSearchIndex.find((item) => item.normalizedText === normalizedText);
+    const exact = districtSearchIndex.find((item) => item.normalizedAliases.includes(normalizedText));
     if (exact) {
-        return exact;
+        const {
+            label: _label,
+            normalizedDisplay: _normalizedDisplay,
+            normalizedAliases: _normalizedAliases,
+            ...result
+        } = exact;
+        return result;
     }
 
     const fuzzy = districtSearchIndex.find((item) =>
-        item.normalizedText.includes(normalizedText) || normalizedText.includes(item.normalizedText),
+        item.normalizedAliases.some((alias) => alias.includes(normalizedText) || normalizedText.includes(alias)),
     );
+    if (!fuzzy) {
+        return null;
+    }
 
-    return fuzzy || null;
+    const {
+        label: _label,
+        normalizedDisplay: _normalizedDisplay,
+        normalizedAliases: _normalizedAliases,
+        ...result
+    } = fuzzy;
+    return result;
 }
 
 export function buildRegionSelection(
@@ -347,10 +365,32 @@ export function buildRegionSelection(
     coordinates: { longitude: number; latitude: number | null },
 ): RegionSelection {
     return {
-        ...candidate,
+        provinceCode: candidate.provinceCode,
+        provinceName: candidate.provinceName,
+        cityCode: candidate.cityCode,
+        cityName: candidate.cityName,
+        districtCode: candidate.districtCode,
+        districtName: candidate.districtName,
         longitude: coordinates.longitude,
         latitude: coordinates.latitude,
     };
+}
+
+export function resolveRegionSelection(candidate: RegionCandidate): RegionSelection | null {
+    const directCoords = getRegionCoordinates(candidate.districtCode);
+    if (directCoords) {
+        return buildRegionSelection(candidate, directCoords);
+    }
+
+    const resolved = resolveRegionCandidate(candidate);
+    if (!resolved) {
+        return null;
+    }
+    const resolvedCoords = getRegionCoordinates(resolved.districtCode);
+    if (!resolvedCoords) {
+        return null;
+    }
+    return buildRegionSelection(resolved, resolvedCoords);
 }
 
 export function isLegacyCityInfo(value: unknown): value is LegacyCityInfo {

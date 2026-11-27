@@ -14,7 +14,6 @@ import {
     View,
 } from 'react-native';
 import SheetModal from '../../src/components/SheetModal';
-import FocusTextInput from '../../src/components/FocusTextInput';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
@@ -52,14 +51,14 @@ import {
 import { exportDiagnosticLogFile, recordDiagnosticLog } from '../../src/services/diagnostics';
 import { checkForUpdate } from '../../src/services/update-check';
 import AIProviderSettings, { type AIProviderSettingsHandle, type SettingsSaveState } from '../../src/components/AIProviderSettings';
-import { CloseIcon, ChevronRightIcon, LocationIcon, SparkleIcon } from '../../src/components/Icons';
+import { CloseIcon, ChevronRightIcon, SparkleIcon } from '../../src/components/Icons';
 import { buildResultPalette, type ResultPalette } from '../../src/theme/result-palette';
 import { DIVINATION_ENGINE_LABEL, type DivinationEngine } from '../../src/db/record-types';
 import appConfig from '../../app.json';
 import { registerSettingsLeaveHandler, setSettingsLeaveGuarded } from '../../src/services/settings-leave-guard';
 import { useGanZhiRelationSettings } from '../../src/features/bazi/ganzhi-relation-settings';
 
-type SheetType = 'ai' | 'calendar' | null;
+type SheetType = 'ai' | null;
 
 const APP_VERSION = appConfig.expo.version;
 const REPO_URL = 'https://github.com/Nyxlux-bot/JianJi';
@@ -493,7 +492,7 @@ export default function SettingsPage() {
                     dialogTitle: '备份易学数据',
                     UTI: 'public.json',
                 });
-                CustomAlert.alert('备份已导出', '备份文件默认不包含 API Key 与腾讯位置服务 Key。');
+                CustomAlert.alert('备份已导出', '备份文件默认不包含 API Key。');
             } else {
                 CustomAlert.alert('提示', '当前设备不支持分享文件');
             }
@@ -724,19 +723,6 @@ export default function SettingsPage() {
                     <ChevronRightIcon size={16} color={palette.muted} />
                 </PressableScale>
 
-                <Text style={layout.sectionLabel}>排盘与校时</Text>
-                <PressableScale style={[layout.card, layout.rowCard]} scaleTo={0.985} onPress={() => setActiveSheet('calendar')} accessibilityRole="button" accessibilityLabel="排盘与校时">
-                    <View style={layout.iconTile}><LocationIcon size={18} color={palette.vermilion} /></View>
-                    <View style={layout.flex}>
-                        <View style={layout.titleRow}>
-                            <Text style={layout.rowTitle} numberOfLines={1}>腾讯位置服务 Key</Text>
-                            <Text style={[layout.badge, settings.geocoderApiKey ? layout.badgeGood : layout.badgeMuted]}>{settings.geocoderApiKey ? '已配置' : '未配置'}</Text>
-                        </View>
-                        <Text style={layout.muted} numberOfLines={1}>按出生地、起卦地换算真太阳时</Text>
-                    </View>
-                    <ChevronRightIcon size={16} color={palette.muted} />
-                </PressableScale>
-
                 <View style={layout.sectionHead}>
                     <Text style={layout.sectionLabelInline}>卷宗数据</Text>
                     <Text style={layout.sectionLabelInline}>共 {recordCounts.total} 份</Text>
@@ -785,25 +771,6 @@ export default function SettingsPage() {
                 {activeSheet === 'ai' && (
                     <AIProviderSettings ref={aiProviderSettingsRef} settings={settings} onChange={updateSettings} saveState={saveState} onPendingModelChange={setHasPendingModel} />
                 )}
-                {activeSheet === 'calendar' && (
-                    <View style={styles.sheetBlock}>
-                        <FieldLabel label="腾讯位置服务 Key" />
-                        <FocusTextInput
-                            style={styles.input}
-                            value={settings.geocoderApiKey}
-                            onChangeText={(value) => updateSettings((prev) => ({ ...prev, geocoderApiKey: value }))}
-                            placeholder="请输入腾讯位置服务 Key"
-                            placeholderTextColor={Colors.text.tertiary}
-                            secureTextEntry
-                            autoCapitalize="none"
-                            autoCorrect={false}
-                        />
-                        <View style={styles.staticRow}>
-                            <Text style={styles.staticLabel}>时间换算口径</Text>
-                            <Text style={styles.staticValue}>排盘页选择</Text>
-                        </View>
-                    </View>
-                )}
             </SettingsSheet>
 
             <ImportPreviewModal
@@ -830,7 +797,6 @@ export default function SettingsPage() {
 function getSheetTitle(sheet: SheetType): string {
     switch (sheet) {
         case 'ai': return 'AI 中枢';
-        case 'calendar': return '排盘与校时';
         default: return '';
     }
 }
@@ -875,11 +841,6 @@ const SettingsSheet = React.memo(function SettingsSheet({
         </SheetModal>
     );
 });
-
-function FieldLabel({ label }: { label: string }) {
-    const { Colors } = useTheme();
-    return <Text style={[fieldLabelStyles.label, { color: Colors.accent.gold }]}>{label}</Text>;
-}
 
 function ActionButton({
     label,
@@ -947,14 +908,6 @@ const actionStyles = StyleSheet.create({
     text: {
         fontSize: FontSize.md,
         fontWeight: '700',
-    },
-});
-
-const fieldLabelStyles = StyleSheet.create({
-    label: {
-        fontSize: FontSize.sm,
-        fontWeight: '700',
-        marginTop: Spacing.xs,
     },
 });
 
@@ -1059,20 +1012,6 @@ const makeStyles = (Colors: any) => StyleSheet.create({
     },
     pressed: {
         opacity: 0.82,
-    },
-    sheetBlock: {
-        gap: Spacing.md,
-        paddingBottom: Spacing.lg,
-    },
-    input: {
-        minHeight: 46,
-        backgroundColor: Colors.bg.elevated,
-        color: Colors.text.primary,
-        fontSize: FontSize.md,
-        paddingHorizontal: Spacing.md,
-        borderRadius: BorderRadius.md,
-        borderWidth: 1,
-        borderColor: Colors.border.input,
     },
     inputRow: {
         minHeight: 46,
@@ -1181,38 +1120,6 @@ const makeStyles = (Colors: any) => StyleSheet.create({
         flexDirection: 'row',
         gap: Spacing.md,
         marginTop: Spacing.sm,
-    },
-    staticRow: {
-        minHeight: 48,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        borderRadius: BorderRadius.md,
-        backgroundColor: Colors.bg.elevated,
-        paddingHorizontal: Spacing.md,
-        borderWidth: 1,
-        borderColor: Colors.border.subtle,
-    },
-    staticLabel: {
-        fontSize: FontSize.sm,
-        color: Colors.text.secondary,
-        fontWeight: '700',
-    },
-    staticValue: {
-        fontSize: FontSize.sm,
-        color: Colors.text.primary,
-        fontWeight: '700',
-    },
-    staticColumn: {
-        minHeight: 64,
-        justifyContent: 'center',
-        gap: 6,
-        borderRadius: BorderRadius.md,
-        backgroundColor: Colors.bg.elevated,
-        paddingHorizontal: Spacing.md,
-        paddingVertical: Spacing.sm,
-        borderWidth: 1,
-        borderColor: Colors.border.subtle,
     },
     linkValue: {
         fontSize: FontSize.sm,

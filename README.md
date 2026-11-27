@@ -50,7 +50,7 @@
 - 原生端使用 SQLite 持久化，Web 端自动降级到 `localStorage`，统一支持六引擎历史记录、收藏筛选、关键词搜索、按引擎分舱过滤、备份导出与恢复导入
 - AI 接口采用用户自配服务，支持 **OpenAI Responses**、**Anthropic Messages**、**Gemini Interactions** 三种协议，内置协议探测、参数自愈、思考档位与自动输出余量、后台分析任务与中断续写、分章节流式回复及会话 Markdown 导出
 - 八字（含可选六亲初验）与紫微内置阶段式工作流：基础分析 -> 前事核验（支持逐条验证标记）-> 今年与未来五年 -> 后续专题追问；六爻与梅花支持解盘与追问；奇门支持四盘合读与引用追问；八字合盘支持单次详批与复制全文
-- 设置页支持检查 GitHub Releases 更新与脱敏故障日志导出；出生地经纬度解析可选接入腾讯位置服务 Key
+- 设置页支持检查 GitHub Releases 更新与脱敏故障日志导出；全国 34 省全量区县 WGS-84 经纬度已内置，选地排盘完全离线可用
 
 ## 技术栈
 
@@ -63,7 +63,7 @@
 - `@react-native-async-storage/async-storage`
 - `tyme4ts`（`1.5.6`）
 - `iztro`（`2.6.5`）
-- `@province-city-china/*`
+- 内置离线行政区经纬度表 `src/data/china-regions.json`（数据源自 `AreaCity-JsSpider-StatsGov`）
 - `react-native-sse`
 - `react-native-svg`
 - `react-native-reanimated`、`react-native-worklets`、`react-native-gesture-handler`
@@ -85,12 +85,12 @@ src/features/ziwei/          紫微排盘适配层、棋盘/时间轴/详盘视�
 src/features/meihua/         梅花易数排盘引擎、规则断语、类象与 AI 序列化
 src/features/qimen/          奇门遁甲三盘式四盘引擎、对照、复盘与 AI 盘据校验
 src/db/                      六引擎统一记录 envelope、SQLite/Web 存储与导入校验
-src/services/                多协议 AI 客户端、后台分析任务、设置、分享、更新检查、诊断日志与地理编码
+src/services/                多协议 AI 客户端、后台分析任务、设置、分享、更新检查、诊断日志与位置服务
 src/hooks/                   页面级状态 Hook
 src/theme/                   双主题（太阴玄黑 / 太阳宣白）、语义色 token 与动效常量
 src/utils/                   历史筛选等轻量工具
 src/polyfills/               运行时 polyfill
-src/data/                    卦象、卦辞与书阁离线古籍（classics/）
+src/data/                    卦象、卦辞、全国离线区县经纬度（china-regions.json）与书阁古籍（classics/）
 ```
 
 ## 快速开始
@@ -157,7 +157,7 @@ npm run release:beta
 
 - 六爻、八字、紫微、八字合盘、梅花、奇门六引擎记录统一使用同一套 record envelope 存储
 - 备份文件当前版本为 `version: 4`，包含应用设置、干支关系规则设置与记录列表
-- 导出备份默认不包含 API Key 与腾讯位置服务 Key
+- 导出备份默认不包含 API Key（旧备份中的 `geocoderApiKey` 会静默忽略）
 - Web 端会自动将旧版 `liuyao_records` 迁移到 `divination_records_v2`
 - 旧六爻（含旧时间/数字起卦）、旧八字、旧合盘（缺省关系按婚恋读取）、旧奇门（缺省盘式按时家转盘读取）记录会在读取、导出和导入时自动完成兼容处理
 - 紫微导入记录当前仅接受中国标准时区 `UTC+8` 语义，导入时会清洗非法 AI 会话结构
@@ -185,3 +185,4 @@ npm run release:beta
 
 - `tyme4ts`：历法与时间计算能力基础库，[6tail/tyme4ts](https://github.com/6tail/tyme4ts)
 - `IZTRO`：紫微斗数排盘与运限能力基础库，[SylarLong/iztro](https://github.com/SylarLong/iztro)
+- `AreaCity-JsSpider-StatsGov`：全国行政区划与离线经纬度基础数据（MIT），[xiangyuecn/AreaCity-JsSpider-StatsGov](https://github.com/xiangyuecn/AreaCity-JsSpider-StatsGov)

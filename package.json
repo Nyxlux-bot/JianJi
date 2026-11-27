@@ -19,9 +19,6 @@
   "dependencies": {
     "@expo/metro-runtime": "~58.0.17",
     "@formatjs/intl-pluralrules": "^6.3.15",
-    "@province-city-china/area": "^8.5.8",
-    "@province-city-china/city": "^8.5.8",
-    "@province-city-china/province": "^8.5.8",
     "@react-native-async-storage/async-storage": "2.2.0",
     "date-fns": "^4.4.0",
     "expo": "~58.0.25",
