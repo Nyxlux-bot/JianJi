@@ -75,6 +75,24 @@ const RECORD_ENGINES: Array<{ engine: DivinationEngine; badge: string }> = [
     { engine: 'ziwei', badge: '紫' },
     { engine: 'baziCompatibility', badge: '合' },
 ];
+
+/** 卷宗数据六术数徽标色：各取首页对应牌面意象，阴底 #242424 / 阳底 #fffaf0 对比度均 ≥ 4.5:1 */
+function getRecordBadgeColor(engine: DivinationEngine, palette: ResultPalette): string {
+    switch (engine) {
+        case 'liuyao':
+            return palette.gold;
+        case 'meihua':
+            return palette.vermilion;
+        case 'qimen':
+            return palette.isLight ? '#387556' : '#68B28E';
+        case 'bazi':
+            return palette.isLight ? '#356882' : '#79ADC5';
+        case 'ziwei':
+            return palette.isLight ? '#6E4B94' : '#B896E2';
+        case 'baziCompatibility':
+            return palette.isLight ? '#A64A65' : '#E091A6';
+    }
+}
 const HEXAGRAMS = Array.from({ length: 64 }, (_, index) => String.fromCharCode(0x4DC0 + index));
 
 function getHostLabel(value: string): string {
@@ -727,7 +745,7 @@ export default function SettingsPage() {
                     <View style={layout.countRow}>
                         {RECORD_ENGINES.map((item, index) => (
                             <View key={item.engine} style={[layout.countCell, index > 0 && layout.countRule]}>
-                                <Text style={[layout.countBadge, { color: item.engine === 'meihua' ? palette.vermilion : palette.gold }]}>{item.badge}</Text>
+                                <Text style={[layout.countBadge, { color: getRecordBadgeColor(item.engine, palette) }]}>{item.badge}</Text>
                                 <Text style={layout.countValue}>{recordCounts.byEngine[item.engine] ?? 0}</Text>
                                 <Text style={layout.countLabel}>{DIVINATION_ENGINE_LABEL[item.engine]}</Text>
                             </View>

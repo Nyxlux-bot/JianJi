@@ -1,11 +1,11 @@
 /**
- * 学习「书阁」：顶上速查五项；山医命相卜五卷，点卷名或左右滑动换卷。每卷先一张案头卡（在读的书，没有就是这一卷第一部），
+ * 学习「书阁」：顶上速查五项；山医命相卜五卷，点卷名或左右滑动换卷。当前卷有在读书目时先呈一张案头续读笺，
  * 下面两列宋刻扉页式书叶；可搜卦名、书名与篇名。所有内容收在左右边距内，横滑切页时中缝只露经幡。
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PanResponder, Platform, Pressable, StyleSheet, Text, TextInput, View, type GestureResponderEvent, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
 import { useFieldFocus } from '../../src/components/FocusTextInput';
-import { webFocusFieldProps } from '../../src/theme/web-enhance';
+import { webFocusFieldProps, webLiquidGlass } from '../../src/theme/web-enhance';
 import Animated, { Extrapolation, interpolate, useAnimatedScrollHandler, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withSpring, withTiming } from 'react-native-reanimated';
 import { router, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -35,21 +35,35 @@ const BOOKS_BY_ART = CLASSIC_ARTS.map((art) => CLASSIC_BOOKS.filter((book) => bo
 const LIBRARY_STAT = `${CLASSIC_BOOKS.length} 部 · ${CLASSIC_BOOKS.reduce((sum, book) => sum + book.chapters.length, 0)} 篇`;
 const COLUMNS = 2;
 const SWIPE = 56;
-const NAV_HEIGHT = 68;
+const NAV_HEIGHT = 60;
 // 按下书叶：手指那一角往里按，角度和弹簧同首页牌叠（EntryDeck 的 LEAN、HOVER）
 const LEAN = 4.55;
 const PRESS_SPRING = { stiffness: 415, damping: 19.7, mass: 1 };
-// 案头卡的进度刻度：一篇一格，篇数太多时合成这么多格
-const MAX_TICKS = 48;
-// 书叶中栏竖排篇名最多放这么多字（叶高固定，超出截掉）
-const LEAF_CHAPTER_CHARS = 12;
+// 书叶中栏竖排篇名最多放这么多字（叶高固定，留足底部对内框线的呼吸间距）
+const LEAF_CHAPTER_CHARS = 10;
+// 纯序跋/凡例/目录类开篇：未读时跳过，优先展示第一篇正文
+const FRONT_MATTER_RE = /^(?:(?:《[^》]+》)?(?:自|原|总|罗|重刻|新刻|[\u4e00-\u9fff]{1,6})?[序叙](?:[一二三四五六七八九十\d]|录)?(?:\s*[［\[].*)?|进《[^》]+》疏.*|(?:《[^》]+》|[\u4e00-\u9fff]{1,6})?凡例|提要|目录|前言|引言|题辞|卷首)$/;
+// 竖排标点映射：将横排括号与破折号转为直排形态，顿号转居中中点避免左下偏移
+const VERTICAL_PUNCT: Record<string, string> = {
+    '（': '︵', '(': '︵',
+    '）': '︶', ')': '︶',
+    '〔': '︹', '〕': '︺',
+    '「': '﹁', '」': '﹂',
+    '『': '﹃', '』': '﹄',
+    '【': '︻', '［': '︻', '[': '︻',
+    '】': '︼', '］': '︼', ']': '︼',
+    '《': '︽', '》': '︾',
+    '—': '︱', '–': '︱', '-': '︱',
+    '、': '·',
+};
+const OPEN_VERTICAL_BRACKETS = new Set(['︵', '︹', '﹁', '﹃', '︻', '︽']);
 
-/** 半透书叶：压在流动经幡上。透明度按最坏情况（字正压在焦点层经幡笔画上）校过，说明灰与金色 ≥ 4.5:1 */
+/** 半透书叶：压在流动经幡上。玄黑/宣白均取沉稳不透明度，既留纸墨呼吸又不被经幡搅花小字 */
 function buildLeafTones(palette: ResultPalette) {
     return palette.isLight
-        ? { leaf: 'rgba(252,248,240,0.82)', leafHi: 'rgba(255,251,244,0.92)', line: 'rgba(138,99,18,0.22)', rule: 'rgba(74,50,24,0.12)', frame: 'rgba(138,99,18,0.36)', track: 'rgba(74,50,24,0.1)', seal: palette.vermilion, goldInk: '#7a560f', capInk: '#fffaf0' }
+        ? { leaf: 'rgba(252,248,240,0.88)', leafHi: 'rgba(255,251,244,0.97)', line: 'rgba(138,99,18,0.22)', rule: 'rgba(74,50,24,0.12)', frame: 'rgba(138,99,18,0.36)', track: 'rgba(74,50,24,0.1)', seal: palette.vermilion, goldInk: '#7a560f' }
         // 阴面印章底比 vermilion 深一档：#DF6658 配米白字只有 3.3:1，#BC4637 为 5.0:1
-        : { leaf: 'rgba(22,21,19,0.74)', leafHi: 'rgba(28,27,24,0.88)', line: 'rgba(207,181,59,0.22)', rule: 'rgba(255,255,255,0.08)', frame: 'rgba(207,181,59,0.34)', track: 'rgba(255,255,255,0.1)', seal: '#BC4637', goldInk: palette.gold, capInk: '#121212' };
+        : { leaf: 'rgba(22,21,19,0.86)', leafHi: 'rgba(28,27,24,0.96)', line: 'rgba(207,181,59,0.22)', rule: 'rgba(255,255,255,0.08)', frame: 'rgba(207,181,59,0.34)', track: 'rgba(255,255,255,0.1)', seal: '#BC4637', goldInk: palette.gold };
 }
 type LeafTones = ReturnType<typeof buildLeafTones>;
 
@@ -199,7 +213,7 @@ export default function LearnPage() {
                 {searching ? <View /> : (
                     <View style={styles.navWrap}>
                         <View style={styles.nav} accessibilityRole="tablist">
-                            <Animated.View pointerEvents="none" style={[styles.navStuck, navStuck]} />
+                            <Animated.View pointerEvents="none" style={[styles.navStuck, webLiquidGlass, navStuck]} />
                             {CLASSIC_ARTS.map((item, i) => (
                                 <ArtTab key={item.key} ch={item.ch} cap={item.cap} on={i === artIndex} onPress={() => go(i)} onLayout={indicator.onTabLayout(item.key)} label={`${item.ch}，${item.title}，${BOOKS_BY_ART[i].length} 部`} styles={styles} />
                             ))}
@@ -221,13 +235,15 @@ export default function LearnPage() {
                                 </View>
                                 <Text style={styles.mastDesc}>{art.desc}</Text>
                             </Rise>
-                            <Rise delay={60}>
-                                <DeskCard book={deskBook.book} saved={deskBook.saved} styles={styles} />
-                            </Rise>
+                            {deskBook ? (
+                                <Rise delay={60}>
+                                    <DeskCard book={deskBook.book} saved={deskBook.saved} styles={styles} />
+                                </Rise>
+                            ) : null}
                             {chunk(books, COLUMNS).map((row, r) => (
                                 <View key={r} style={styles.leafRow}>
                                     {pad(row).map((book, k) => (book ? (
-                                        <Rise key={book.id} delay={120 + (r * COLUMNS + k) * 45} style={styles.col}>
+                                        <Rise key={book.id} delay={(deskBook ? 120 : 60) + (r * COLUMNS + k) * 45} style={styles.col}>
                                             <BookLeaf book={book} saved={reading?.books[book.id]} styles={styles} />
                                         </Rise>
                                     ) : <View key={k} style={styles.col} />))}
@@ -302,15 +318,14 @@ function useLean() {
 
 type SavedBook = ReadingState['books'][string] | undefined;
 
-/** 案头卡：这一卷在读的书（续读），没有就放第一部（镇卷）。竖排题签、读到哪一篇、一篇一格的刻度 */
-function DeskCard({ book, saved, styles }: { book: ClassicBookMeta; saved: SavedBook; styles: Styles }) {
+/** 案头续读笺：仅在本卷存在在读记录时展示，宋刻语汇、细金进度线与方正续读签 */
+function DeskCard({ book, saved, styles }: { book: ClassicBookMeta; saved: NonNullable<SavedBook>; styles: Styles }) {
     const lean = useLean();
-    const progress = bookProgress(book, saved);
-    const index = saved ? book.chapters.findIndex((chapter) => chapter.id === saved.chapterId) : -1;
-    const now = index >= 0 ? book.chapters[index] : book.chapters[0];
-    const bins = Math.min(book.chapters.length, MAX_TICKS);
-    const current = progress == null ? -1 : Math.min(bins - 1, Math.floor(progress * bins));
-    const action = progress == null ? '开卷' : '续读';
+    const progress = bookProgress(book, saved) ?? 0;
+    const index = Math.max(0, book.chapters.findIndex((chapter) => chapter.id === saved.chapterId));
+    const now = book.chapters[index] ?? book.chapters[0];
+    const pct = Math.round(progress * 100);
+    const pctWidth = Math.max(4, Math.min(100, pct));
     return (
         <Pressable
             onPress={() => router.push({ pathname: '/learn/reader', params: { book: book.id } })}
@@ -318,7 +333,7 @@ function DeskCard({ book, saved, styles }: { book: ClassicBookMeta; saved: Saved
             onPressOut={lean.onPressOut}
             onLayout={lean.onLayout}
             accessibilityRole="button"
-            accessibilityLabel={`${action}${book.title}，${bookByLine(book)}${progress == null ? '' : `，读到第 ${index + 1} 篇 ${now?.title ?? ''}，${Math.round(progress * 100)}%`}`}
+            accessibilityLabel={`续读${book.title}，${bookByLine(book)}，第 ${index + 1} / ${book.chapters.length} 篇 ${now?.title ?? ''}，${pct}%`}
         >
             <Animated.View style={[styles.desk, lean.style]}>
                 <View style={styles.deskSlip}>
@@ -328,20 +343,23 @@ function DeskCard({ book, saved, styles }: { book: ClassicBookMeta; saved: Saved
                 </View>
                 <View style={styles.deskMain}>
                     <View style={styles.deskTop}>
-                        <View style={styles.deskKind}><Text style={styles.deskKindText}>{progress == null ? '镇卷' : '在读'}</Text></View>
+                        <View style={styles.deskMark}>
+                            <View style={styles.deskMarkDot} />
+                            <Text style={styles.deskMarkText}>案头续读</Text>
+                        </View>
                         <Text style={styles.deskStat}>{book.chapters.length} 篇 · {formatChars(book.charCount)}</Text>
                     </View>
                     <Text style={styles.deskBy}>{bookByLine(book)}</Text>
-                    <Text style={styles.deskNow}>{index >= 0 ? `第 ${index + 1} 篇` : '首篇'}</Text>
                     {now ? <Text style={styles.deskNowName} numberOfLines={1}>「{now.title}」</Text> : null}
-                    <View style={styles.ticks}>
-                        {Array.from({ length: bins }, (_, i) => (
-                            <View key={i} style={[styles.tick, i < current && styles.tickRead, i === current && styles.tickNow]} />
-                        ))}
+                    <View style={styles.deskProgress}>
+                        <View style={styles.deskTrack}>
+                            <View style={[styles.deskFill, { width: `${pctWidth}%` }]} />
+                        </View>
+                        <View style={[styles.deskDot, { left: `${pctWidth}%`, marginLeft: pctWidth >= 98 ? -6 : -3 }]} />
                     </View>
                     <View style={styles.deskFoot}>
-                        <Text style={styles.deskPct}>{progress == null ? '还没读' : `读到 ${Math.round(progress * 100)}%`}</Text>
-                        <View style={styles.capsule}><Text style={styles.capsuleText}>{action}</Text></View>
+                        <Text style={styles.deskPct} numberOfLines={1}>第 {index + 1} / {book.chapters.length} 篇 · {pct}%</Text>
+                        <View style={styles.deskAction}><Text style={styles.deskActionText}>续读 ›</Text></View>
                     </View>
                 </View>
             </Animated.View>
@@ -349,13 +367,13 @@ function DeskCard({ book, saved, styles }: { book: ClassicBookMeta; saved: Saved
     );
 }
 
-/** 宋刻扉页书叶：四周双边，界行分三栏，右书名、中首篇（在读换成读到的篇名）、左作者落款与朝代印；叶脚篇数字数 */
+/** 宋刻扉页书叶：四周双边，界行分三栏，右书名、中首篇正文（在读改为金色「续·篇名」）、左作者落款与朝代印；叶脚篇数字数 */
 function BookLeaf({ book, saved, styles }: { book: ClassicBookMeta; saved: SavedBook; styles: Styles }) {
     const lean = useLean();
     const progress = bookProgress(book, saved);
     const index = saved ? book.chapters.findIndex((chapter) => chapter.id === saved.chapterId) : -1;
-    const chapter = index >= 0 ? book.chapters[index] : book.chapters[0];
-    const note = chapter ? `${index >= 0 ? '读到' : '首篇'}·${chapter.title}`.slice(0, LEAF_CHAPTER_CHARS) : '';
+    const chapter = index >= 0 ? book.chapters[index] : pickLeadChapter(book);
+    const note = chapter ? formatLeafNote(index >= 0 ? `续·${chapter.title}` : chapter.title) : '';
     const seal = dynastySeal(book.dynasty);
     return (
         <Pressable
@@ -498,11 +516,18 @@ function bookProgress(book: ClassicBookMeta, saved: SavedBook): number | null {
     return index < 0 ? null : Math.min(1, (index + saved.progress) / book.chapters.length);
 }
 
-/** 案头放哪部：最近读的书在这一卷就放它，否则放这一卷里读过的第一部，都没有就放第一部 */
-function pickDeskBook(books: ClassicBookMeta[], reading: ReadingState | null): { book: ClassicBookMeta; saved: SavedBook } {
+/** 案头续读笺选书：仅在当前卷存在在读记录时返回（优先最近读的书），未读时不展示 */
+function pickDeskBook(books: ClassicBookMeta[], reading: ReadingState | null): { book: ClassicBookMeta; saved: NonNullable<SavedBook> } | null {
     const read = (book: ClassicBookMeta) => bookProgress(book, reading?.books[book.id]) != null;
-    const book = books.find((item) => item.id === reading?.lastBookId && read(item)) ?? books.find(read) ?? books[0];
-    return { book, saved: reading?.books[book.id] };
+    const book = books.find((item) => item.id === reading?.lastBookId && read(item)) ?? books.find(read);
+    if (!book) return null;
+    const saved = reading?.books[book.id];
+    return saved ? { book, saved } : null;
+}
+
+/** 未读时跳过纯序跋/凡例/目录等开篇，取第一篇正文；全部命中时回退第 0 篇 */
+function pickLeadChapter(book: ClassicBookMeta) {
+    return book.chapters.find((chapter) => !FRONT_MATTER_RE.test(chapter.title.trim())) ?? book.chapters[0];
 }
 
 function formatChars(count: number): string {
@@ -514,9 +539,9 @@ function bookByLine(book: ClassicBookMeta): string {
     return author === '佚名' ? `${book.dynasty} · 佚名` : `${book.dynasty} · ${author} 撰`;
 }
 
-/** 书叶左栏竖排的落款：作者撰；旧题的写在前面 */
+/** 书叶左栏竖排的落款：作者撰；多作者用居中中点隔开，避免竖排顿号偏左下 */
 function leafAuthor(book: ClassicBookMeta): string {
-    const author = book.author.replace(' · ', '、');
+    const author = book.author.replace(/\s*[·、]\s*/g, '·');
     if (author === '佚名') return '佚名';
     return book.dynasty.startsWith('旧题') ? `旧题${author}` : `${author}撰`;
 }
@@ -527,9 +552,39 @@ function dynastySeal(dynasty: string): string {
     return name.length > 2 ? name.slice(-1) : name;
 }
 
-/** RN 没有竖排：一字一行 */
+/** 竖排文本预处理：映射直排括号与破折号、空白转居中中点、合并连续中点并去首尾中点 */
+function normalizeVertical(text: string): string {
+    const mapped = Array.from(text.replace(/\s+/g, '·'), (ch) => VERTICAL_PUNCT[ch] ?? ch).join('');
+    return mapped.replace(/·+/g, '·').replace(/^·+|·+$/g, '');
+}
+
+/** 中栏竖排篇名截取：先规范化再限长，避免末尾残留孤立中点或未闭合的开括号 */
+function formatLeafNote(text: string): string {
+    const chars = Array.from(normalizeVertical(text));
+    if (chars.length <= LEAF_CHAPTER_CHARS) return chars.join('');
+    const sliced = chars.slice(0, LEAF_CHAPTER_CHARS);
+    // 若截断落在括号内部（有未闭合开括号），退回该开括号前，保证视觉完整
+    let openAt = -1;
+    let depth = 0;
+    for (let i = 0; i < sliced.length; i++) {
+        if (OPEN_VERTICAL_BRACKETS.has(sliced[i])) {
+            if (depth === 0) openAt = i;
+            depth++;
+        } else if ('︶︺﹂﹄︼︾'.includes(sliced[i]) && depth > 0) {
+            depth--;
+            if (depth === 0) openAt = -1;
+        }
+    }
+    const clean = depth > 0 && openAt > 0 ? sliced.slice(0, openAt) : sliced;
+    while (clean.length > 1 && (clean[clean.length - 1] === '·' || clean[clean.length - 1] === '第' || OPEN_VERTICAL_BRACKETS.has(clean[clean.length - 1]))) {
+        clean.pop();
+    }
+    return clean.join('');
+}
+
+/** RN 没有竖排：规范标点与中点后一字一行 */
 function stack(text: string): string {
-    return Array.from(text).join('\n');
+    return Array.from(normalizeVertical(text)).join('\n');
 }
 
 // 拿不到按下位置（部分平台的 locationX 为空）时按正中处理，不翘
@@ -555,7 +610,7 @@ const makeStyles = (palette: ResultPalette, tones: LeafTones) => StyleSheet.crea
     bodyContent: { paddingHorizontal: 16 },
     header: { minHeight: 74, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10, paddingTop: 20 },
     brand: { fontFamily: SERIF, fontSize: 30, lineHeight: 38, fontWeight: '500', letterSpacing: 6, color: palette.heading },
-    brandSub: { fontSize: 11, lineHeight: 16, letterSpacing: 1, color: palette.muted },
+    brandSub: { fontSize: 11, lineHeight: 16, letterSpacing: 1, color: palette.muted, fontVariant: ['tabular-nums'] },
     searchBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: tones.line, backgroundColor: tones.leaf },
     searchField: {
         flex: 1, minWidth: 0, height: 44, flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 14,
@@ -565,15 +620,18 @@ const makeStyles = (palette: ResultPalette, tones: LeafTones) => StyleSheet.crea
     clearBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
     cancelBtn: { height: 44, justifyContent: 'center', paddingHorizontal: 4 },
     cancel: { fontSize: 14, color: tones.goldInk },
-    quick: { marginTop: 14, flexDirection: 'row' },
+    quick: { marginTop: 14, marginBottom: 8, flexDirection: 'row' },
     quickItem: { flex: 1, minWidth: 0, height: 62, alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 12 },
     quickBadge: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: tones.line, backgroundColor: tones.leaf },
     quickGlyph: { fontFamily: SERIF, fontSize: 16, lineHeight: 20, fontWeight: '700', color: palette.gold },
     // 直接压在经幡上的字只用正文色
     quickTitle: { fontSize: 11.5, lineHeight: 15, color: palette.body },
-    navWrap: { paddingTop: 8 },
-    nav: { height: NAV_HEIGHT - 8, flexDirection: 'row', borderRadius: 16, borderWidth: 1, borderColor: tones.line, backgroundColor: tones.leaf },
-    navStuck: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 15, backgroundColor: tones.leafHi },
+    navWrap: {},
+    nav: { height: NAV_HEIGHT, flexDirection: 'row', borderRadius: 16, borderWidth: 1, borderColor: tones.line, backgroundColor: tones.leaf },
+    navStuck: {
+        position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 15, backgroundColor: tones.leafHi,
+        shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: palette.isLight ? 0.1 : 0.36, shadowRadius: 12, elevation: 6,
+    },
     navItem: { flex: 1, minWidth: 0, height: '100%', alignItems: 'center', justifyContent: 'center', gap: 1 },
     navChar: { fontFamily: SERIF, fontSize: 21, lineHeight: 27, fontWeight: '700', color: palette.body },
     navCharOn: { color: palette.heading },
@@ -584,28 +642,31 @@ const makeStyles = (palette: ResultPalette, tones: LeafTones) => StyleSheet.crea
     mastRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 },
     mastJuan: { fontSize: 13, fontWeight: '500', letterSpacing: 2 },
     mastTitle: { flexShrink: 1, fontFamily: SERIF, fontSize: 20, lineHeight: 28, fontWeight: '700', letterSpacing: 2, color: palette.heading },
-    mastCount: { fontSize: 12, lineHeight: 18, color: palette.body },
+    mastCount: { fontSize: 12, lineHeight: 18, color: palette.body, fontVariant: ['tabular-nums'] },
     mastDesc: { marginTop: 2, fontSize: 12.5, lineHeight: 18, color: palette.body },
-    desk: { marginTop: 14, flexDirection: 'row', gap: 14, padding: 16, borderRadius: 18, borderWidth: 1, borderColor: tones.line, backgroundColor: tones.leafHi },
-    deskSlip: { width: 60, padding: 3, borderWidth: 1, borderColor: tones.frame },
-    deskSlipIn: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderWidth: 1, borderColor: tones.frame },
-    deskTitle: { fontFamily: SERIF, fontSize: 24, lineHeight: 30, fontWeight: '700', textAlign: 'center', color: palette.heading },
-    deskMain: { flex: 1, minWidth: 0 },
+    desk: { marginTop: 14, flexDirection: 'row', gap: 14, padding: 14, borderRadius: 6, borderWidth: 1, borderColor: tones.frame, backgroundColor: tones.leafHi },
+    deskSlip: { width: 58, padding: 3, borderWidth: 1, borderColor: tones.frame },
+    deskSlipIn: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderWidth: 1, borderColor: tones.frame },
+    deskTitle: { fontFamily: SERIF, fontSize: 23, lineHeight: 28, fontWeight: '700', textAlign: 'center', color: palette.heading },
+    deskMain: { flex: 1, minWidth: 0, justifyContent: 'space-between' },
     deskTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-    deskKind: { height: 24, paddingHorizontal: 10, borderRadius: 12, justifyContent: 'center', borderWidth: 1, borderColor: tones.frame },
-    deskKindText: { fontSize: 12, lineHeight: 16, color: palette.gold },
-    deskStat: { flexShrink: 1, fontSize: 12, lineHeight: 16, color: palette.muted },
-    deskBy: { marginTop: 10, fontSize: 13, lineHeight: 18, color: palette.body },
-    deskNow: { marginTop: 10, fontSize: 13, lineHeight: 18, color: palette.muted },
-    deskNowName: { fontFamily: SERIF, fontSize: 17, lineHeight: 24, fontWeight: '700', color: palette.heading },
-    ticks: { marginTop: 14, height: 14, flexDirection: 'row', alignItems: 'flex-end', gap: 2 },
-    tick: { flex: 1, height: 7, borderRadius: 1, backgroundColor: tones.track },
-    tickRead: { backgroundColor: palette.gold, opacity: 0.7 },
-    tickNow: { height: 14, backgroundColor: palette.gold },
-    deskFoot: { marginTop: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-    deskPct: { fontSize: 13, lineHeight: 18, color: palette.gold },
-    capsule: { height: 44, paddingHorizontal: 22, borderRadius: 22, justifyContent: 'center', backgroundColor: palette.gold },
-    capsuleText: { fontSize: 14, lineHeight: 20, fontWeight: '500', color: tones.capInk },
+    deskMark: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    deskMarkDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: tones.seal },
+    deskMarkText: { fontFamily: SERIF, fontSize: 12, lineHeight: 16, letterSpacing: 1.5, fontWeight: '600', color: palette.gold },
+    deskStat: { flexShrink: 1, fontSize: 12, lineHeight: 16, color: palette.muted, fontVariant: ['tabular-nums'] },
+    deskBy: { marginTop: 6, fontSize: 12.5, lineHeight: 18, color: palette.body },
+    deskNowName: { marginTop: 8, fontFamily: SERIF, fontSize: 17, lineHeight: 24, fontWeight: '700', color: palette.heading },
+    deskProgress: { marginTop: 14, height: 8, justifyContent: 'center' },
+    deskTrack: { height: 2, borderRadius: 1, overflow: 'hidden', backgroundColor: tones.track },
+    deskFill: { height: '100%', backgroundColor: palette.gold },
+    deskDot: { position: 'absolute', top: 1, width: 6, height: 6, marginLeft: -3, borderRadius: 3, backgroundColor: tones.seal },
+    deskFoot: { marginTop: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+    deskPct: { flexShrink: 1, fontSize: 12.5, lineHeight: 18, color: palette.muted, fontVariant: ['tabular-nums'] },
+    deskAction: {
+        minHeight: 36, paddingHorizontal: 14, borderRadius: 6, justifyContent: 'center', alignItems: 'center',
+        borderWidth: 1, borderColor: tones.frame, backgroundColor: palette.goldSoft,
+    },
+    deskActionText: { fontFamily: SERIF, fontSize: 13.5, lineHeight: 18, fontWeight: '600', letterSpacing: 1, color: tones.goldInk },
     leafRow: { marginTop: 12, flexDirection: 'row', gap: 12 },
     col: { flex: 1, minWidth: 0 },
     leaf: { height: 248, paddingTop: 8, paddingHorizontal: 8, borderRadius: 4, backgroundColor: tones.leaf },
@@ -624,7 +685,7 @@ const makeStyles = (palette: ResultPalette, tones: LeafTones) => StyleSheet.crea
     leafFoot: { height: 32, alignItems: 'center', justifyContent: 'center' },
     leafTrack: { position: 'absolute', top: 6, left: 0, right: 0, height: 2, borderRadius: 1, overflow: 'hidden', backgroundColor: tones.track },
     leafFill: { height: '100%', backgroundColor: palette.gold },
-    leafFootText: { paddingTop: 6, fontSize: 11, lineHeight: 15, color: palette.muted },
+    leafFootText: { paddingTop: 6, fontSize: 11, lineHeight: 15, color: palette.muted, fontVariant: ['tabular-nums'] },
     results: { marginTop: 22 },
     resultsHint: { marginBottom: 10, fontSize: 12, lineHeight: 16, color: palette.body },
     suggestions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

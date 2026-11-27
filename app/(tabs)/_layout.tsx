@@ -70,7 +70,7 @@ type FluidTabsContentProps = {
         routes: ReadonlyArray<{ key: string; name: string; params?: object }>;
     };
     descriptors: Record<string, { options: FluidTabOptions; render: () => React.ReactNode }>;
-    emitter: { emit: (event: { type: 'tabPress'; target?: string; canPreventDefault?: boolean }) => { defaultPrevented?: boolean } };
+    emitter: { emit: (event: { type: 'tabPress'; target?: string; canPreventDefault: true }) => { defaultPrevented?: boolean } };
     routeNames: string[];
     preload: (name: string) => void;
     navigateSync: (name: string, params?: object) => void;
